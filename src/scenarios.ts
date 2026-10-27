@@ -161,6 +161,27 @@ export const SCENARIOS: Scenario[] = [
     escort: { ship: 'kvlcc2', kn: 8, course: 0, fair: 'aft', tugPoint: 0, L0: 60, failure: { t: 180, kind: 'rudder', rudder: 20, text: 'Escorted ship: RUDDER JAMMED 20° STARBOARD' } },
   },
   {
+    id: 'hsc', name: 'Fast ferry · harbour entrance at speed',
+    brief: 'You are coming in from sea at 34 kn on 000°. The breakwater gap is 150 m wide, 3.5 km ahead, and inside it the harbour limit is 8 kn. A fast craft carries her way for only a couple of lengths, so the skill is judging when to come off the power: the hull drops off the plane through the resistance hump. Then berth port side to on the ferry quay at the head of the basin: buckets and nozzles, or switch to the joystick. Fresh westerly, 1 kn flood setting east across the entrance. Schematic harbour.',
+    start: { n: -3500, e: -60, psi: 0, kn: 34 },
+    windKn: 18, windFrom: 260, gusts: true, currentKn: 1.0, currentSet: 90, depth: 9,
+    shoals: [{ poly: rect(-260, -1400, -40, -900), depth: 3.2, label: '3.2' }, { poly: rect(-260, 900, -40, 1400), depth: 3.2, label: '3.2' }],
+    obstacles: [
+      { poly: rect(-40, -1400, 0, -75), ...CONCRETE, kind: 'quay' },
+      { poly: rect(-40, 75, 0, 1400), ...CONCRETE, kind: 'quay' },
+      { poly: rect(0, -1400, 720, -620), ...BANK, kind: 'bank' },
+      { poly: rect(0, 620, 720, 1400), ...BANK, kind: 'bank' },
+      { poly: rect(600, -620, 720, 620), ...CONCRETE, kind: 'fendered' },
+    ],
+    berthFace: { n: 598.5, e: -120, psi: 90, side: -1, standoff: 0.1 },
+    fenders: fenderRow(598.5, -380, 140, 16, -1, 0),
+    bollards: Array.from({ length: 14 }, (_, i) => [603, -380 + i * 40] as Pt),
+    mooringSide: -1, ship: 'hsc-cat',
+    // the breakwater shelters the basin from the cross-set
+    shelter: n => (n > 0 ? 0.15 : 1),
+    zoom: 0.5,
+  },
+  {
     id: 'trials', name: 'Open water · trials',
     brief: 'Deep, calm, no obstructions. Try a crash stop, a pod-only turn, the joystick, or walking the ship sideways.',
     ship: 'spirit',

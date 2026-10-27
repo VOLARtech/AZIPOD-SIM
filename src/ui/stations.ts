@@ -7,6 +7,7 @@ import type { PodSpec } from '../physics/ship';
 import { S } from './state';
 import * as D from './draw';
 import { uiTick } from './audio';
+import { BAND, jetJoystick, jetToLever, leverToJet } from '../physics/units/jet';
 
 export interface Station {
   root: HTMLElement;
@@ -176,9 +177,9 @@ class ShaftGauge extends Canvas {
 // ---------------------------------------------------------------- helm / rudder angle indicator
 class Helm extends Canvas {
   max: number; lastTap = 0;
-  constructor(public units: number[]) {
+  constructor(public units: number[], max?: number) {
     super('helm', 'Helm: drag left for port rudder, right for starboard; double-tap for midships');
-    this.max = SHIP.pods[units[0]].shaft!.rudder!.max;
+    this.max = max ?? SHIP.pods[units[0]].shaft!.rudder!.max;
     const ptr = (e: PointerEvent) => {
       const r = this.c.getBoundingClientRect(), { cx, cy } = this.geom(r.width, r.height);
       const a = Math.atan2(e.clientX - r.left - cx, cy - (e.clientY - r.top));
@@ -229,8 +230,8 @@ class Helm extends Canvas {
     this.num(14); g.fillStyle = D.C.ink; g.textAlign = 'right'; g.textBaseline = 'alphabetic'; g.fillText(side(act), cx - 10, cy - 12);
     this.num(11); g.fillStyle = D.C.own; g.textAlign = 'left'; g.fillText(side(o), cx + 10, cy - 12);
     this.font(9); g.fillStyle = D.C.muted; g.textAlign = 'center';
-    const rd = SHIP.pods[this.units[0]].shaft!.rudder!;
-    g.fillText(`RUDDER · ${rd.type === 'conventional' ? '' : rd.type.toUpperCase() + ' · '}${(rd.rate / DEG).toFixed(1)} °/s`, cx, cy + 16);
+    const rd = SHIP.pods[this.units[0]].shaft?.rudder;
+    g.fillText(rd ? `RUDDER · ${rd.type === 'conventional' ? '' : rd.type.toUpperCase() + ' · '}${(rd.rate / DEG).toFixed(1)} °/s` : `NOZZLES · ±${Math.round(this.max / DEG)}°`, cx, cy + 16);
   }
 }
 
@@ -357,7 +358,16 @@ export function buildStation(host: HTMLElement): Station {
 
 /** Initial lever settings for a ship starting at a given speed. */
 export function initialOrders(spec: ShipSpec, kn: number) {
-  return spec.pods.map(p => {
+  return spec.pods.map((p): { rpm: number; pitch?: number; bucket?: number } | null => {
+    if (p.kind === 'waterjet') {
+      // impeller speed for a speed, through the resistance hump (fractions of full speed → rpm, from trials)
+      const f = Math.min(1, kn / spec.vmaxKn), idle = p.jet!.idle;
+      if (f <= 0) return { rpm: idle, bucket: 0 };
+      const pts: [number, number][] = [[0, idle], [0.42, 0.4], [0.51, 0.55], [0.59, 0.7], [0.7, 0.85], [1, 1]];
+      let k = 1; while (k < pts.length - 1 && pts[k][0] < f) k++;
+      const [a, b] = [pts[k - 1], pts[k]];
+      return { rpm: a[1] + (b[1] - a[1]) * (f - a[0]) / (b[0] - a[0]), bucket: 1 };
+    }
     if (p.kind !== 'shaft') return null;
     const sh = p.shaft!, f = Math.min(1, kn / spec.vmaxKn);
     if (sh.prop.cpp) return { rpm: 1, pitch: f };
@@ -577,5 +587,215 @@ export function buildTugStation(host: HTMLElement, vsp: boolean): Station {
     keydown(k) { if (k === 'x') { stop(); return true; } return false; },
     resize() { for (const c of canvases) c.resize(); },
     zero() { stop(); },
+  };
+}
+
+// ================================================================ waterjet craft
+const jets = () => SHIP.pods.map((p, i) => [p, i] as [PodSpec, number]).filter(([p]) => p.kind === 'waterjet');
+
+class JetLever extends Canvas {
+  v = 0;
+  constructor(public units: number[], public label: string) {
+    super('lev', `${label} waterjet lever: ahead up, bucket zero at the centre, astern down`);
+    const c = S.cmd.pods[units[0]]; this.v = jetToLever(c.bucket ?? 1, c.rpm, SHIP.pods[units[0]].jet!.idle);
+    const ptr = (e: PointerEvent) => {
+      const r = this.c.getBoundingClientRect(), H = r.height - 28;
+      let v = (r.height / 2 - (e.clientY - r.top)) / (H / 2);
+      v = Math.max(-1, Math.min(1, v)); if (Math.abs(v) < 0.04) v = 0; v = Math.round(v * 100) / 100;
+      if ((v === 0 && this.v !== 0) || (Math.abs(v) >= BAND) !== (Math.abs(this.v) >= BAND)) uiTick('detent'); else if (Math.floor(v * 10) !== Math.floor(this.v * 10)) uiTick('step');
+      this.set(v);
+    };
+    this.c.addEventListener('pointerdown', e => { this.c.setPointerCapture(e.pointerId); ptr(e); });
+    this.c.addEventListener('pointermove', e => { if (this.c.hasPointerCapture(e.pointerId)) ptr(e); });
+  }
+  set(v: number) {
+    this.v = v;
+    for (const i of this.units) { const o = leverToJet(v, SHIP.pods[i].jet!.idle), c = S.cmd.pods[i]; c.bucket = o.bucket; c.rpm = o.rpm; }
+  }
+  y(v: number) { return 14 + (this.h - 28) / 2 * (1 - v); }
+  draw() {
+    if (this.h < 60) return;
+    const g = this.begin(), x = this.w / 2 - 6, i = this.units[0], ps = S.rt.state.pods[i], idle = SHIP.pods[i].jet!.idle;
+    g.fillStyle = D.C.rule; g.fillRect(x - 3, this.y(1), 6, this.y(-1) - this.y(1));
+    // bucket band around zero, impeller band beyond
+    g.fillStyle = D.C.muted; g.globalAlpha = 0.25; g.fillRect(x - 6, this.y(BAND), 12, this.y(-BAND) - this.y(BAND)); g.globalAlpha = 1;
+    for (let k = -10; k <= 10; k += 2) {
+      const yy = Math.round(this.y(k / 10)) + 0.5, big = k === 0;
+      g.strokeStyle = big ? D.C.ink : D.C.muted; g.lineWidth = big ? 1.5 : 1;
+      g.beginPath(); g.moveTo(x + 7, yy); g.lineTo(x + (big ? 16 : 12), yy); g.stroke();
+    }
+    this.font(8.5); g.fillStyle = D.C.muted; g.textAlign = 'left'; g.textBaseline = 'middle';
+    g.fillText('BUCKET', x + 18, this.y(0) - 9); g.fillText('ZERO', x + 18, this.y(0) + 2);
+    g.fillText('RPM', x + 18, this.y(0.75)); g.fillText('RPM', x + 18, this.y(-0.75));
+    g.textAlign = 'center'; g.textBaseline = 'top'; g.fillText('AH', x, 0); g.textBaseline = 'bottom'; g.fillText('AS', x, this.h);
+    // cavitation ceiling
+    const lim = S.rt.status.rpmLimit[i];
+    if (lim < 0.999) { const yy = this.y(jetToLever(1, Math.max(idle, lim), idle)); g.strokeStyle = D.C.warn; g.setLineDash([3, 2]); g.lineWidth = 1.5; g.beginPath(); g.moveTo(x - 10, yy); g.lineTo(x + 10, yy); g.stroke(); g.setLineDash([]); }
+    const a = jetToLever(ps.bucket ?? 1, ps.rpm, idle), y0 = this.y(0);
+    g.fillStyle = sideCol(SHIP.pods[i]); g.globalAlpha = 0.85; g.fillRect(x - 3, Math.min(y0, this.y(a)), 6, Math.abs(this.y(a) - y0)); g.globalAlpha = 1;
+    const yo = this.y(this.v);
+    g.fillStyle = D.C['panel-solid']; g.strokeStyle = this.v < 0 ? D.C.warn : D.C.own; g.lineWidth = 2.5;
+    g.beginPath(); g.roundRect(x - 13, yo - 7, 26, 14, 3); g.fill(); g.stroke();
+  }
+}
+
+/** One jet seen from above: nozzle angle, the bucket over it, impeller speed. */
+class JetGauge extends Canvas {
+  constructor(public i: number) { super('jetg', `${SHIP.pods[i].label} waterjet: nozzle, bucket and impeller`); }
+  draw() {
+    if (this.w < 40) return;
+    const g = this.begin(), p = SHIP.pods[this.i], ps = S.rt.state.pods[this.i], c = S.cmd.pods[this.i];
+    const cx = this.w / 2, top = 10, L = Math.min(this.h - 40, this.w * 1.4), col = sideCol(p);
+    // duct
+    g.fillStyle = D.C['panel-solid']; g.strokeStyle = D.C.rule; g.lineWidth = 1.5;
+    g.beginPath(); g.roundRect(cx - 9, top, 18, L * 0.55, 4); g.fill(); g.stroke();
+    // nozzle: turns about its pivot at the transom
+    const py = top + L * 0.55, d = ps.alpha;
+    g.save(); g.translate(cx, py); g.rotate(d);
+    g.fillStyle = col; g.globalAlpha = 0.9; g.beginPath(); g.moveTo(-7, 0); g.lineTo(7, 0); g.lineTo(5, L * 0.28); g.lineTo(-5, L * 0.28); g.closePath(); g.fill(); g.globalAlpha = 1;
+    // bucket: covers the nozzle exit as it comes down
+    const b = ps.bucket ?? 1, cover = (1 - b) / 2;
+    g.fillStyle = b < 0 ? D.C.warn : D.C.ink; g.globalAlpha = 0.2 + 0.8 * cover;
+    g.fillRect(-9, L * 0.28 + 2, 18, 5 + 8 * cover); g.globalAlpha = 1;
+    g.restore();
+    // ordered nozzle angle
+    g.strokeStyle = D.C.own; g.lineWidth = 1; g.setLineDash([2, 3]);
+    g.beginPath(); g.moveTo(cx, py); g.lineTo(cx + Math.sin(-c.alpha) * L * 0.4, py + Math.cos(c.alpha) * L * 0.4); g.stroke(); g.setLineDash([]);
+    this.num(10); g.fillStyle = D.C.ink; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    const deg = d / DEG;
+    g.fillText(`${Math.abs(deg) < 0.5 ? 'MID' : (deg < 0 ? 'P' : 'S') + Math.abs(deg).toFixed(0) + '°'}`, cx, this.h - 15);
+    g.fillText(`${Math.round(ps.rpm * 100)}% ${b > 0.95 ? 'AH' : b < -0.95 ? 'AS' : 'B' + Math.round(b * 100)}`, cx, this.h - 2);
+  }
+}
+
+/** Joystick for the jets and bow thruster: drag for surge and sway, the twist bar for yaw. */
+class JetJoy extends Canvas {
+  fx = 0; fy = 0; nz = 0;
+  constructor() {
+    super('jjoy', 'Joystick: drag for ahead, astern and sideways; twist bar below turns her');
+    const ptr = (e: PointerEvent) => {
+      const r = this.c.getBoundingClientRect(), R = Math.min(r.width, r.height - 26) / 2 - 10, cx = r.width / 2, cy = R + 10;
+      const ex = e.clientX - r.left, ey = e.clientY - r.top;
+      if (ey > cy + R + 4) { this.nz = Math.max(-1, Math.min(1, (ex - cx) / R)); if (Math.abs(this.nz) < 0.06) this.nz = 0; return; }
+      let x = (ex - cx) / R, y = -(ey - cy) / R; const m = Math.hypot(x, y); if (m > 1) { x /= m; y /= m; }
+      if (Math.abs(x) < 0.06) x = 0; if (Math.abs(y) < 0.06) y = 0;
+      if ((x === 0 && y === 0) !== (this.fx === 0 && this.fy === 0)) uiTick('detent');
+      this.fx = y; this.fy = x;
+    };
+    this.c.addEventListener('pointerdown', e => { this.c.setPointerCapture(e.pointerId); ptr(e); });
+    this.c.addEventListener('pointermove', e => { if (this.c.hasPointerCapture(e.pointerId)) ptr(e); });
+    this.c.addEventListener('dblclick', () => { this.fx = this.fy = this.nz = 0; });
+  }
+  draw() {
+    if (this.w < 60) return;
+    const g = this.begin(), R = Math.min(this.w, this.h - 26) / 2 - 10, cx = this.w / 2, cy = R + 10;
+    g.fillStyle = D.C['panel-solid']; g.strokeStyle = D.C.rule; g.lineWidth = 1.5;
+    g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill(); g.stroke();
+    g.strokeStyle = D.C.muted; g.lineWidth = 1; g.beginPath(); g.moveTo(cx, cy - R); g.lineTo(cx, cy + R); g.moveTo(cx - R, cy); g.lineTo(cx + R, cy); g.stroke();
+    // what the ship is doing: speed over ground as a vector (1 kn per tenth of the radius)
+    const st = S.rt.state, kx = Math.max(-1, Math.min(1, st.v / 0.514444 / 10)), ky = Math.max(-1, Math.min(1, st.u / 0.514444 / 10));
+    g.strokeStyle = D.C.ink; g.lineWidth = 3; g.lineCap = 'round'; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + kx * R, cy - ky * R); g.stroke();
+    g.strokeStyle = D.C.own; g.lineWidth = 2.5; g.beginPath(); g.arc(cx + this.fy * R, cy - this.fx * R, 8, 0, Math.PI * 2); g.stroke();
+    // twist bar
+    const by = cy + R + 14;
+    g.fillStyle = D.C.rule; g.fillRect(cx - R, by - 2, 2 * R, 4);
+    g.fillStyle = D.C.own; g.beginPath(); g.roundRect(cx + this.nz * R - 6, by - 7, 12, 14, 3); g.fill();
+    const rot = st.r / DEG * 60; g.fillStyle = D.C.ink; g.fillRect(cx, by + 5, Math.max(-R, Math.min(R, rot / 60 * R)), 3);
+    this.font(8.5); g.fillStyle = D.C.muted; g.textAlign = 'left'; g.textBaseline = 'top'; g.fillText('AH', cx + 3, cy - R + 2);
+    g.textAlign = 'center'; g.textBaseline = 'bottom'; g.fillText('TWIST', cx, by - 4);
+  }
+}
+
+/** Waterjet craft: thrust levers per side, nozzle helm, jet indicators, joystick, comfort. */
+export function buildJetStation(host: HTMLElement): Station {
+  host.innerHTML = '';
+  const canvases: Canvas[] = [];
+  const cell = (title: string, right = '', cls = '') => {
+    const d = document.createElement('section'); d.className = 'cell ' + cls;
+    d.innerHTML = `<div class="tag"><span>${title}</span><b>${right}</b></div>`; host.appendChild(d); return d;
+  };
+  const units = jets(), all = units.map(([, i]) => i);
+  const port = units.filter(([p]) => p.y < 0).map(([, i]) => i), stbd = units.filter(([p]) => p.y >= 0).map(([, i]) => i);
+  let mode: 'transit' | 'joy' = 'transit', linked = true;
+  // levers
+  const lc = cell('Jets', 'LINKED', 'eng');
+  const lrow = document.createElement('div'); lrow.className = 'row'; lc.appendChild(lrow);
+  const levers = [new JetLever(port, 'Port'), new JetLever(stbd, 'Starboard')];
+  levers.forEach((l, k) => { const t = document.createElement('span'); t.className = 'unit-tag'; t.textContent = k ? 'STBD' : 'PORT'; t.style.color = k ? D.C.stbd : D.C.port; lrow.appendChild(t); lrow.appendChild(l.c); canvases.push(l); });
+  const linkB = lc.querySelector('b')!; linkB.style.cursor = 'pointer';
+  const relink = () => { levers[0].units = linked ? all : port; levers[1].units = linked ? all : stbd; linkB.textContent = linked ? 'LINKED' : 'SPLIT'; };
+  linkB.onclick = () => { linked = !linked; relink(); };
+  relink();
+  // jet indicators
+  const gc = cell('Nozzles · buckets', `${units.length} × WATERJET`, 'jetc');
+  const grow = document.createElement('div'); grow.className = 'row'; gc.appendChild(grow);
+  for (const [, i] of units) { const gq = new JetGauge(i); grow.appendChild(gq.c); canvases.push(gq); }
+  // helm and joystick share a cell
+  const hc = cell('Helm', 'TRANSIT', 'helm');
+  const helm = new Helm(all, SHIP.pods[all[0]].jet!.nozzleMax); hc.appendChild(helm.c); canvases.push(helm);
+  const joy = new JetJoy(); joy.c.hidden = true; hc.appendChild(joy.c); canvases.push(joy);
+  const modeB = hc.querySelector('b')!; modeB.style.cursor = 'pointer';
+  const setMode = (m: typeof mode) => {
+    mode = m; modeB.textContent = m === 'joy' ? 'JOYSTICK' : 'TRANSIT'; hc.querySelector('span')!.textContent = m === 'joy' ? 'Joystick' : 'Helm';
+    helm.c.hidden = m === 'joy'; joy.c.hidden = m !== 'joy';
+    if (m === 'joy') { joy.fx = joy.fy = joy.nz = 0; } else { for (const l of levers) l.set(0); S.cmd.bt = 0; helm.set(0); }
+    requestAnimationFrame(() => { helm.resize(); joy.resize(); });
+    uiTick('detent');
+  };
+  modeB.onclick = () => setMode(mode === 'joy' ? 'transit' : 'joy');
+  // status: engines, cavitation, motions
+  const sc = cell('Engines · comfort', '', 'status');
+  const stat = document.createElement('div'); stat.className = 'stat'; sc.appendChild(stat);
+  // bow thruster
+  let btEl: HTMLInputElement | null = null;
+  if (SHIP.bowThruster.Tmax > 0) {
+    const tc = cell('Thrusters', '', 'thr');
+    const w = document.createElement('div'); w.className = 'btwrap';
+    w.innerHTML = `<label class="tag">BOW <span class="mono" data-k="bt">0</span></label><input type="range" min="-100" max="100" step="1" value="0" aria-label="Bow thruster" /><div class="btscale"><span>PORT</span><span>STBD</span></div>`;
+    tc.appendChild(w); btEl = w.querySelector('input')!;
+    btEl.oninput = () => { if (mode !== 'joy') S.cmd.bt = +btEl!.value / 100; };
+  }
+  const bc = cell('', '', 'btns');
+  bc.innerHTML = '<button class="cb warn" data-a="zero">BUCKETS ZERO</button><button class="cb" data-a="mid">MIDSHIPS</button>';
+  const zero = () => { for (const l of levers) l.set(0); joy.fx = joy.fy = joy.nz = 0; uiTick('detent'); };
+  const mid = () => helm.set(0);
+  (bc.querySelector('[data-a=zero]') as HTMLButtonElement).onclick = zero;
+  (bc.querySelector('[data-a=mid]') as HTMLButtonElement).onclick = mid;
+  let statHtml = '', lastU = S.rt.state.u, lastT = S.rt.state.t, ax = 0;
+  return {
+    root: host,
+    draw() { for (const c of canvases) if (!c.c.hidden) c.draw(); },
+    update() {
+      if (mode === 'joy') jetJoystick(SHIP, S.cmd, joy.fx, joy.fy, joy.nz);
+      const st = S.rt.state, dt = st.t - lastT;
+      if (dt > 0.2) { ax = 0.8 * ax + 0.2 * (st.u - lastU) / dt; lastU = st.u; lastT = st.t; }
+      const ay = st.u * st.r / 9.81, along = ax / 9.81, hard = Math.max(Math.abs(ay), Math.abs(along)) > 0.2;
+      const P = S.rt.status.podPower.reduce((a, b, i) => a + (SHIP.pods[i].kind === 'waterjet' ? b : 0), 0);
+      const cav = units.some(([, i]) => S.rt.status.msg[i] === 'CAVITATION LIMIT');
+      const html = `<div class="k">POWER</div><div class="v">${(P / 1e6).toFixed(1)} / ${(units.reduce((a, [p]) => a + p.P, 0) / 1e6).toFixed(0)} MW</div>
+        <div class="k">PUMPS</div><div class="v${cav ? ' warn' : ''}">${cav ? 'CAVITATION LIMIT · rpm held' : 'NORMAL'}</div>
+        <div class="k">LATERAL</div><div class="v${Math.abs(ay) > 0.2 ? ' warn' : ''}">${Math.abs(ay).toFixed(2)} g<div class="meter"><i style="width:${Math.min(100, Math.abs(ay) / 0.3 * 100).toFixed(0)}%"></i></div></div>
+        <div class="k">FORE-AFT</div><div class="v${Math.abs(along) > 0.2 ? ' warn' : ''}">${Math.abs(along).toFixed(2)} g${hard ? ' · PASSENGERS AT RISK' : ''}</div>`;
+      if (html !== statHtml) { statHtml = html; stat.innerHTML = html; }
+      if (btEl) { const el = host.querySelector('[data-k=bt]'); const v = st.bt; if (el) el.textContent = `${v < 0 ? 'P' : v > 0 ? 'S' : ''}${Math.round(Math.abs(v) * 100)}`; if (mode === 'joy') btEl.value = String(Math.round(S.cmd.bt * 100)); }
+    },
+    keys(keys, dt) {
+      if (mode === 'joy') {
+        const ax2 = (a: string, b: string, v: number) => (keys.has(a) ? Math.max(-1, v - 1.2 * dt) : keys.has(b) ? Math.min(1, v + 1.2 * dt) : v);
+        joy.fx = ax2('s', 'w', joy.fx); joy.fy = ax2('a', 'd', joy.fy); joy.nz = ax2('q', 'e', joy.nz);
+        return;
+      }
+      if (keys.has('a')) helm.nudge(-20 * DEG * dt); if (keys.has('d')) helm.nudge(20 * DEG * dt);
+      if (keys.has('w') || keys.has('s')) for (const l of levers) l.set(Math.max(-1, Math.min(1, l.v + (keys.has('w') ? 0.35 : -0.35) * dt)));
+      if (btEl && (keys.has('q') || keys.has('e'))) { S.cmd.bt = Math.max(-1, Math.min(1, S.cmd.bt + (keys.has('e') ? 1 : -1) * 0.8 * dt)); btEl.value = String(Math.round(S.cmd.bt * 100)); }
+    },
+    keydown(k) {
+      if (k === 'x') { zero(); return true; }
+      if (k === 'm' && mode !== 'joy') { mid(); return true; }
+      if (k === 'j') { setMode(mode === 'joy' ? 'transit' : 'joy'); return true; }
+      return false;
+    },
+    resize() { for (const c of canvases) c.resize(); },
+    zero() { zero(); mid(); S.cmd.bt = 0; if (btEl) btEl.value = '0'; },
   };
 }

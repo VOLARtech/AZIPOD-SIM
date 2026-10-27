@@ -449,8 +449,8 @@ import { stepRoll, rollInit } from '../src/physics/roll';
 
 console.log('every scenario sails the Spirit');
 test('all built-in harbour scenarios use the Spirit-class ship (3D model, pods)', () => {
-  // the tanker terminal and the tug escort are written for their own ship types
-  const other = SCENARIOS.filter(s => s.ship !== 'spirit' && !['terminal', 'escort'].includes(s.id)).map(s => s.id);
+  // the tanker terminal, the tug escort and the fast-ferry harbour are written for their own ship types
+  const other = SCENARIOS.filter(s => s.ship !== 'spirit' && !['terminal', 'escort', 'hsc'].includes(s.id)).map(s => s.id);
   assert.ok(!other.length, other.join(', '));
 });
 test('Quai 27, channel, swing basin, trials: start clear of structures with ≥ 2 m under the keel', () => {
@@ -495,5 +495,71 @@ test('Channel: width ≈ 8 beams and h/T ≈ 1.36 for the Spirit', () => {
   const ch = SCENARIOS.find(s => s.id === 'canal')!;
   assert.ok(Math.abs(260 / SPIRIT.B - 8) < 0.2 && Math.abs(ch.depth / SPIRIT.T - 1.36) < 0.02);
 });
+
+console.log('waterjet fast ferry');
+import { bucketFrac, jetJoystick, jetSpeed, staticJet, jetForce, leverToJet, jetToLever } from '../src/physics/units/jet';
+import { resistanceCt } from '../src/physics/ship';
+{
+  const HS = SHIPS['hsc-cat'], hm = new Model(HS, Infinity), J0 = HS.pods[0];
+  const blank = (): Cmd => ({ pods: HS.pods.map(() => ({ alpha: 0, rpm: 0, bucket: 1 })), bt: 0 });
+  const runJ = (st: ReturnType<typeof makeState>, c: Cmd, T: number, each?: () => void) => { for (let t = 0; t < T; t += 0.1) { each?.(); updateActuators(HS, st, c, 0.1); rk4(hm, st, calm, still, null, 0.1); } return st; };
+  test('jet momentum: static thrust ρA V_j² with V_j from the pump power balance', () => {
+    const P = 0.88 * J0.P, A = J0.jet!.Anoz, v = jetSpeed(J0.P, A, 0);
+    assert.ok(Math.abs(0.5 * 1025 * A * v * v * v * 1.03 - P) < 1e-6 * P);
+    assert.ok(Math.abs(staticJet(J0, 1) - 1025 * A * v * v) < 1);
+  });
+  test('bucket at zero-thrust position, nozzle midships: no surge force at rest', () => {
+    const f = { X: 0, Y: 0, N: 0, T: 0, Vj: 0, mdot: 0 };
+    jetForce(J0, { alpha: 0, rpm: 0.6, bucket: 0 }, 0, 0, 0, HS.wake, HS.tded, f);
+    assert.ok(Math.abs(f.X) < 1e-6 * staticJet(J0, 0.6), `${f.X}`);
+    assert.ok(bucketFrac(1) === 0 && bucketFrac(-1) === 1);
+  });
+  test('nozzles steer the stern the same way ahead, at bucket zero and astern', () => {
+    for (const b of [1, 0, -1]) {
+      const f = { X: 0, Y: 0, N: 0, T: 0, Vj: 0, mdot: 0 };
+      jetForce(J0, { alpha: 20 * DEG, rpm: 0.7, bucket: b }, 0, 0, 0, HS.wake, HS.tded, f);
+      assert.ok(f.N > 0, `bucket ${b}: N ${f.N.toFixed(0)}`);           // bow to starboard
+    }
+  });
+  test('service speed 36 ± 1.5 kn on 26 MW, and a resistance hump near Fn 0.5', () => {
+    const { Vs } = trialsOf(HS);
+    assert.ok(Math.abs(Vs / KN - 36) < 1.5, `${(Vs / KN).toFixed(1)} kn`);
+    let best = 0, at = 0;
+    for (let Fn = 0.2; Fn <= 0.8; Fn += 0.01) { const c = resistanceCt(HS, Fn * Math.sqrt(9.81 * HS.L), Infinity); if (c > best) { best = c; at = Fn; } }
+    assert.ok(at > 0.42 && at < 0.58, `peak Ct at Fn ${at.toFixed(2)}`);
+  });
+  test('HSC trials: turning 3–8 L tactical diameter, crash stop 1–4 L, turns alike both ways', () => {
+    const { rows } = trialsOf(HS), v = (k: string) => parseFloat(rows.find(r => r.key === k)!.value);
+    assert.ok(v('tact') > 3 && v('tact') < 8, `tact ${v('tact')}`);
+    assert.ok(v('crash') > 1 && v('crash') < 4, `crash ${v('crash')}`);
+    const t = rows.find(r => r.key === 'tact')!; assert.ok(Math.abs(v('tact') - parseFloat(t.note!.replace('port ', ''))) < 0.1);
+    for (const r of rows) assert.ok(!/NaN|undefined/.test(r.value + (r.note ?? '')), `${r.label}: ${r.value}`);
+  });
+  test('pumps held below their cavitation limit at low speed, full power once she is moving', () => {
+    const st = makeState(HS, 0, 0, 0, 0), c = blank(); c.pods.forEach(p => (p.rpm = 1));
+    const out = emptyStatus(4);
+    for (let t = 0; t < 20; t += 0.1) updateActuators(HS, st, c, 0.1, out);
+    assert.ok(st.pods[0].rpm < 0.86 && out.msg[0] === 'CAVITATION LIMIT', `${st.pods[0].rpm} ${out.msg[0]}`);
+    st.u = 22 * KN; for (let t = 0; t < 20; t += 0.1) updateActuators(HS, st, c, 0.1, out);
+    assert.ok(st.pods[0].rpm > 0.99 && (out.msg[0] as string) === 'AHEAD');
+  });
+  test('joystick: full sideways walks her across without running ahead or swinging far', () => {
+    const st = makeState(HS, 0, 0, 0, 0), c = blank();
+    runJ(st, c, 120, () => jetJoystick(HS, c, 0, 1, 0));
+    assert.ok(st.v > 1 * KN && Math.abs(st.u) < 0.5 * KN && Math.abs(st.psi) < 25 * DEG, `v ${(st.v / KN).toFixed(2)} u ${(st.u / KN).toFixed(2)} psi ${(st.psi / DEG).toFixed(0)}`);
+    const y = makeState(HS, 0, 0, 0, 0), cy = blank();
+    runJ(y, cy, 60, () => jetJoystick(HS, cy, 0, 0, -1));
+    assert.ok(y.r < 0 && Math.hypot(y.u, y.v) < 0.5 * KN, 'turns to port on the spot');
+  });
+  test('waterjet lever: bucket band at the centre, impeller beyond, both ways; round trip', () => {
+    const idle = J0.jet!.idle;
+    for (const v of [-1, -0.6, -0.3, -0.1, 0, 0.15, 0.3, 0.5, 1]) assert.ok(Math.abs(jetToLever(leverToJet(v, idle).bucket, leverToJet(v, idle).rpm, idle) - v) < 1e-9, `${v}`);
+    assert.ok(leverToJet(0, idle).bucket === 0 && leverToJet(1, idle).rpm === 1 && leverToJet(-1, idle).bucket === -1);
+  });
+  test('fast ferry harbour: start and berth have water for her, berth off the quay by half her beam', () => {
+    const sc = SCENARIOS.find(x => x.id === 'hsc')!, b = berthFor(sc, HS.B, 0)!;
+    assert.ok(fits(sc, HS.T, b) && Math.abs(b.n - (598.5 - HS.B / 2 - 0.1)) < 1e-9);
+  });
+}
 
 console.log(`\n${pass} passed${process.exitCode ? ', some failed' : ''}`);

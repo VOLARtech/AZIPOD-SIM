@@ -7,5 +7,6 @@ export const isPod = (p: PodSpec) => !p.kind || p.kind === 'azipod' || p.kind ==
 export function unitAxis(p: PodSpec, ps: { alpha: number }) {
   if (p.kind === 'shaft') return 0;
   if (p.kind === 'vsp') return ps.alpha;
+  if (p.kind === 'waterjet') return -(ps.alpha + p.alphaOffset);     // the nozzle throws the jet the other way
   return ps.alpha + p.alphaOffset;
 }

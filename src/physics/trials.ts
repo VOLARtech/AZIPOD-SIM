@@ -1,7 +1,8 @@
 // Headless sea trials against IMO MSC.137(76) manoeuvrability standards.
 import { DEG, KN, ShipSpec } from './ship';
 import { Command, Env, Model, ShipState, cloneState, holdCourse, makeState, rk4, updateActuators, wrap } from './sim';
-import { engines, fullAstern, helm, isShaftShip, primeRunning } from './pilot';
+import { engines, fullAstern, helm, isJetShip, isShaftShip, primeRunning } from './pilot';
+import { jetJoystick } from './units/jet';
 
 const DT = 0.1;
 const calm = (depth = Infinity): Env => ({ windSpeed: 0, windFrom: 0, gusts: false, current: () => [0, 0], depth });
@@ -23,6 +24,7 @@ export interface TrialResult { key: string; label: string; value: string; limit?
 
 export function runTrials(spec: ShipSpec, depth = Infinity): { rows: TrialResult[]; Vs: number } {
   if (isShaftShip(spec)) return runShaftTrials(spec, depth);
+  if (isJetShip(spec)) return runJetTrials(spec, depth);
   const model = new Model(spec, depth);
   const env = calm(depth);
   const L = spec.L, rows: TrialResult[] = [];
@@ -251,6 +253,78 @@ export function runShaftTrials(spec: ShipSpec, depth = Infinity): { rows: TrialR
     const w = makeState(spec, 0, 0, 0, 0);
     run(model, w, c, env, 900, undefined, 30 * KN, 90 * DEG);
     rows.push({ key: 'wind', label: 'Dead-ship drift, 30 kn wind', value: `${(Math.hypot(w.u, w.v) / KN).toFixed(2)} kn`, note: `lies ${Math.abs(wrap(90 * DEG - w.psi) / DEG).toFixed(0)}° off the wind` });
+  }
+  return { rows, Vs };
+}
+
+// ---------------------------------------------------------------- waterjet craft
+// High-speed craft are outside MSC.137(76) (it is written for conventional propulsion and steering),
+// so the rows are reported, not graded. The HSC Code asks for the stopping and turning figures to be
+// known to the crew, and limits the accelerations passengers may feel (Annex 3: 0.20 g lateral or
+// fore-and-aft for safety level 1, where an elderly person holding on keeps their balance).
+export function runJetTrials(spec: ShipSpec, depth = Infinity): { rows: TrialResult[]; Vs: number } {
+  const model = new Model(spec, depth), env = calm(depth), L = spec.L, rows: TrialResult[] = [];
+  const blank = (): Command => ({ pods: spec.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0 });
+  const steadyAt = (f: number) => {
+    const st = makeState(spec, 0, 0, 0, spec.vmaxKn * f); primeRunning(spec, st, f);
+    const c = blank(); engines(spec, c, f);
+    run(model, st, c, env, 600, s => { shaftHold(spec, c, s, 0); });
+    st.psi = 0; st.r = 0; st.v = 0; st.n = 0; st.e = 0; st.pods.forEach(p => (p.alpha = 0));
+    return st;
+  };
+  const full = steadyAt(1), Vs = full.u;
+  const pw = (st: ShipState) => spec.pods.reduce((a, p, i) => a + p.P * st.pods[i].rpm ** 3, 0) / 1e6;
+  rows.push({ key: 'vmax', label: 'Service speed, full power', value: `${(Vs / KN).toFixed(1)} kn`, note: `${pw(full).toFixed(1)} MW, Fn ${(Vs / Math.sqrt(9.81 * L)).toFixed(2)}` });
+  const sp = [0.55, 0.7, 0.85].map(f => { const s = steadyAt(f); return `${(s.u / KN).toFixed(1)} kn at ${pw(s).toFixed(1)} MW`; });
+  rows.push({ key: 'power', label: 'Speed and power (resistance hump near Fn 0.5)', value: sp[2], note: sp.slice(0, 2).join(' · ') });
+  const fresh = () => { const s = cloneState(full), c = blank(); engines(spec, c, 1); return { s, c }; };
+  // turning at full power, nozzles hard over
+  const turn = (dir: 1 | -1) => {
+    const { s, c } = fresh(); helm(spec, c, dir * 30 * DEG);
+    let dpsi = 0, last = s.psi, adv = NaN, tact = NaN, ayMax = 0, t180 = NaN, uS = 0, rS = 0;
+    run(model, s, c, env, 900, x => {
+      dpsi += wrap(x.psi - last); last = x.psi;
+      ayMax = Math.max(ayMax, Math.abs(x.u * x.r) / 9.81);
+      if (isNaN(adv) && Math.abs(dpsi) >= Math.PI / 2) adv = x.n;
+      if (isNaN(tact) && Math.abs(dpsi) >= Math.PI) { tact = Math.abs(x.e); t180 = x.t - full.t; }
+      if (Math.abs(dpsi) >= 2 * Math.PI) { uS = Math.hypot(x.u, x.v); rS = x.r; return true; }
+    });
+    return { adv, tact, ayMax, t180, uS, rS };
+  };
+  const ts = turn(1), tp = turn(-1);
+  rows.push({ key: 'adv', label: 'Advance, nozzles 30° stbd, full power', value: `${(ts.adv / L).toFixed(2)} L · ${ts.adv.toFixed(0)} m`, note: `port ${(tp.adv / L).toFixed(2)} L` });
+  rows.push({ key: 'tact', label: 'Tactical diameter', value: `${(ts.tact / L).toFixed(2)} L · ${ts.tact.toFixed(0)} m`, note: `port ${(tp.tact / L).toFixed(2)} L, 180° in ${ts.t180.toFixed(0)} s` });
+  rows.push({ key: 'dst', label: 'Steady turn', value: `${(2 * ts.uS / Math.abs(ts.rS) / L).toFixed(2)} L diameter`, note: `${(ts.uS / KN).toFixed(1)} kn (−${(100 * (1 - ts.uS / Vs)).toFixed(0)} %), ${(Math.abs(ts.rS) / DEG).toFixed(1)} °/s` });
+  rows.push({ key: 'ay', label: 'Lateral acceleration in the turn', value: `${ts.ayMax.toFixed(2)} g`, limit: '< 0.20 g', pass: ts.ayMax < 0.2, note: 'HSC Code Annex 3, safety level 1' });
+  // zig-zag
+  {
+    const { s, c } = fresh(); let side = 1, hdg = 0, last = s.psi, ext = 0; const overs: number[] = [];
+    helm(spec, c, 10 * DEG);
+    run(model, s, c, env, 600, x => {
+      hdg += wrap(x.psi - last) / DEG; last = x.psi;
+      ext = side < 0 ? Math.max(ext, hdg) : Math.min(ext, hdg);
+      if (side > 0 && hdg >= 10) { if (overs.length) overs.push(-10 - ext); side = -1; ext = hdg; helm(spec, c, -10 * DEG); }
+      else if (side < 0 && hdg <= -10) { overs.push(ext - 10); side = 1; ext = hdg; helm(spec, c, 10 * DEG); }
+      return overs.length >= 2;
+    });
+    rows.push({ key: 'zz', label: '10/10 zig-zag overshoots, full power', value: `${overs[0]?.toFixed(1)}° · ${overs[1]?.toFixed(1)}°` });
+  }
+  // crash stop: buckets down, astern power
+  {
+    const { s, c } = fresh(); engines(spec, c, fullAstern(spec)); helm(spec, c, 0);
+    let path = 0, pn = s.n, pe = s.e, lu = s.u, ax = 0, tS = NaN; const t0 = s.t;
+    run(model, s, c, env, 600, x => { path += Math.hypot(x.n - pn, x.e - pe); pn = x.n; pe = x.e; ax = Math.max(ax, (lu - x.u) / DT / 9.81); lu = x.u; if (x.u <= 0) { tS = x.t - t0; return true; } });
+    rows.push({ key: 'crash', label: 'Crash stop, buckets down from full power', value: `${(path / L).toFixed(2)} L · ${path.toFixed(0)} m`, note: `${tS.toFixed(0)} s, heading ${(wrap(s.psi) / DEG).toFixed(0)}°` });
+    rows.push({ key: 'decel', label: 'Peak deceleration in the crash stop', value: `${ax.toFixed(2)} g`, limit: '< 0.20 g', pass: ax < 0.2, note: 'passengers standing: ease the buckets in' });
+  }
+  // harbour: joystick sideways, and turning on the spot
+  {
+    const s = makeState(spec, 0, 0, 0, 0), c = blank();
+    run(model, s, c, env, 120, () => { jetJoystick(spec, c, 0, 1, 0); });
+    rows.push({ key: 'joy', label: 'Joystick, full sideways (bow thruster + jets)', value: `${(s.v / KN).toFixed(2)} kn sideways`, note: `heading drift ${(wrap(s.psi) / DEG).toFixed(0)}° in 2 min` });
+    const y = makeState(spec, 0, 0, 0, 0), cy = blank();
+    run(model, y, cy, env, 60, () => { jetJoystick(spec, cy, 0, 0, 1); });
+    rows.push({ key: 'spin', label: 'Joystick, full turn on the spot', value: `${(Math.abs(y.r) / DEG * 60).toFixed(0)} °/min`, note: `drift ${(Math.hypot(y.u, y.v) / KN).toFixed(2)} kn` });
   }
   return { rows, Vs };
 }

@@ -9,6 +9,7 @@ import { DepthField, groundingForces } from './harbour';
 import { ShaftForce, EngineState, initEngine, propTorque, shaftForces, stepEngine } from './units/shaft';
 import { mmgHull } from './hull/mmg';
 import { stepVsp, vspForce } from './units/vsp';
+import { JetForce, jetForce, stepJet } from './units/jet';
 import { Towline, towForce } from './towline';
 import type { PodSpec } from './ship';
 import { isPod, unitAxis } from './units/kinds';
@@ -84,6 +85,7 @@ export class Model {
   h: Hydro;
   private sf: ShaftForce = { X: 0, Y: 0, N: 0, T: 0, FN: 0, uR: 0, TT: 0, Q: 0 };
   private mm = { X: 0, Y: 0, N: 0, w: 0 };
+  private jf: JetForce = { X: 0, Y: 0, N: 0, T: 0, Vj: 0, mdot: 0 };
   constructor(public spec: ShipSpec, depth: number) { this.h = deriveHydro(spec, depth); }
   setDepth(d: number) { this.h = deriveHydro(this.spec, d); }
 
@@ -135,6 +137,8 @@ export class Model {
         Xh += m.w * (m.X - Xh); Yh += m.w * (m.Y - Yh); Nh += m.w * (m.N - munk - Nh);
       }
     }
+    // catamaran: the demi-hulls out at ±y meet different water speeds in a turn, and their resistance differs
+    if (h.catY) Nh -= h.catY * h.catY * RHO * h.S * Ct * Math.abs(ur) * r;
     X += Xh; Y += Yh; N += Nh;
     if (bd) { bd.hull.X = Xh; bd.hull.Y = Yh; bd.hull.N = Nh; bd.current = [cN, cE]; }
 
@@ -144,6 +148,12 @@ export class Model {
       const p = s.pods[i], ps = st.pods[i];
       if (p.kind === 'vsp') {
         const f = vspForce(p, ps, ur, vr, r, s.Vzero);
+        X += f.X; Y += f.Y; N += f.N;
+        if (bd) { const b = bd.pods[i]; b.X = f.X; b.Y = f.Y; b.N = f.N; b.T = f.T; b.eff = 1; }
+        continue;
+      }
+      if (p.kind === 'waterjet') {
+        const f = jetForce(p, ps, ur, vr, r, s.wake, s.tded, this.jf);
         X += f.X; Y += f.Y; N += f.N;
         if (bd) { const b = bd.pods[i]; b.X = f.X; b.Y = f.Y; b.N = f.N; b.T = f.T; b.eff = 1; }
         continue;
@@ -318,6 +328,17 @@ export function updateActuators(spec: ShipSpec, st: ShipState, cmd: Command, dt:
       if (out) { out.podPower[i] = ps.P * p.rpm ** 2; out.rpmLimit[i] = 1; out.revBlocked[i] = false; out.split[i] = false; }
       continue;
     }
+    if (ps.kind === 'waterjet') {
+      const cps = Math.cos(st.psi), sps = Math.sin(st.psi);
+      const U = st.u - (cps * cur[0] + sps * cur[1]);
+      const j = stepJet(ps, p, c, U, dt, ps.jet!.rpmTime);
+      if (out) {
+        out.podPower[i] = ps.P * p.rpm ** 3; out.rpmLimit[i] = j.lim; out.revBlocked[i] = false; out.split[i] = false;
+        out.msg[i] = j.limited ? 'CAVITATION LIMIT' : (p.bucket ?? 1) < -0.05 ? 'ASTERN' : (p.bucket ?? 1) < 0.95 ? 'BUCKET' : 'AHEAD';
+        if (j.limited) limited = true;
+      }
+      continue;
+    }
     if (ps.kind === 'shaft') {
       const lim = onBoard(ps) ? powerLim : 1;
       stepShaft(spec, ps, p, c, st, dt, cur, lim, out, i);
@@ -406,7 +427,8 @@ export function cloneState(s: ShipState): ShipState {
 export function makeState(spec: ShipSpec, n: number, e: number, psiDeg: number, uKn = 0): ShipState {
   return {
     t: 0, n, e, psi: wrap(psiDeg * DEG), u: uKn * 0.514444, v: 0, r: 0,
-    pods: spec.pods.map(p => (p.kind === 'shaft' && p.shaft!.prop.cpp ? { alpha: 0, rpm: 0, pitch: 0 } : { alpha: 0, rpm: 0 })), bt: 0,
+    pods: spec.pods.map(p => (p.kind === 'shaft' && p.shaft!.prop.cpp ? { alpha: 0, rpm: 0, pitch: 0 }
+      : p.kind === 'waterjet' ? { alpha: 0, rpm: p.jet!.idle, bucket: 0 } : { alpha: 0, rpm: 0 })), bt: 0,
     ...(spec.sternThruster ? { sbt: 0 } : {}),
   };
 }

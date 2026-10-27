@@ -170,6 +170,7 @@ export function updateAudio(dtReal: number) {
     const v = pods[i]; if (!v) return;
     const u = SHIP.pods[i];
     if (u.kind === 'shaft') { shaftVoice(v, u, p, i, dtReal, spd); return; }
+    if (u.kind === 'waterjet') { jetVoice(v, u, p, i, dtReal); return; }
     const r = Math.abs(p.rpm), load = Math.min(1, rt.status.podPower[i] / SHIP.pods[i].P);
     const cmd = S.cmd.pods[i]?.rpm ?? 0, reversing = cmd * p.rpm < 0 && r > 0.03;
     set(v.motor.frequency, 22 + 48 * r); set(v.motor2.frequency, 33 + 72 * r);
@@ -229,4 +230,22 @@ function shaftVoice(v: PodVoice, u: PodSpec, p: PodState, i: number, dtReal: num
   lastAlpha[i] = a;
   const moving = sh.rudder ? Math.min(1, da / (sh.rudder.rate * 0.6)) : 0;
   set(v.servo.gain, 0.03 * moving, 0.06); set(v.servoO.frequency, 95 + 40 * moving);
+}
+
+/** A waterjet: high-speed diesel firing and turbo whine, the roar of the jet itself (broadband, rising with
+ *  jet speed), a harsher rattle when the pump runs at its cavitation limit or the bucket is down. */
+function jetVoice(v: PodVoice, u: PodSpec, p: PodState, i: number, dtReal: number) {
+  const rt = S.rt, r = Math.max(0, p.rpm), load = Math.min(1, rt.status.podPower[i] / u.P);
+  const fireHz = r * 1800 / 60 * 10;                                // 20-cylinder high-speed diesel through a gearbox
+  set(v.motor.frequency, Math.max(20, fireHz * 0.25)); set(v.motor2.frequency, Math.max(30, fireHz * 0.5));
+  set(v.mg.gain, 0.08 + 0.2 * Math.sqrt(load));
+  set(v.whine.frequency, 1400 + 3200 * load); set(v.wg.gain, 0.004 + 0.016 * load);
+  const reversed = (p.bucket ?? 1) < 0.9, cav = rt.status.msg[i] === 'CAVITATION LIMIT';
+  set(v.churn.gain, 0.05 + 0.4 * load + (reversed ? 0.15 : 0) + (cav ? 0.15 : 0));
+  set(v.churnF.frequency, 300 + 900 * r + (cav ? 600 : 0));
+  set(v.lfo.frequency, cav ? 23 : 0.7 + 2 * r);
+  const a = p.alpha, da = lastAlpha[i] === undefined ? 0 : Math.abs(a - lastAlpha[i]) / Math.max(1e-3, dtReal);
+  lastAlpha[i] = a;
+  const moving = Math.min(1, da / (u.jet!.nozzleMax / u.jet!.respT * 0.6));
+  set(v.servo.gain, 0.03 * moving, 0.05); set(v.servoO.frequency, 160 + 60 * moving);
 }

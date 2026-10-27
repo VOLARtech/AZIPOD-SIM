@@ -10,7 +10,7 @@ import './style.css';
 import { initApp, persist, toast } from './app';
 import type { View3D } from './view3d/view';
 import { DEG, KN, SHIP, SHIPS, propulsionSummary, setShip } from './physics/ship';
-import { buildStation, buildTugStation, initialOrders, Station } from './ui/stations';
+import { buildJetStation, buildStation, buildTugStation, initialOrders, Station } from './ui/stations';
 import { buildHull, setHull } from './physics/contact';
 import { makeState, wrap } from './physics/sim';
 import { DT, LeverMode, Runtime } from './physics/runtime';
@@ -56,7 +56,7 @@ function loadScenario(sc: Scenario) {
   // shaft ships start on the nearest telegraph step (or pitch), engine running
   initialOrders(SHIP, sc.start.kn).forEach((o, i) => {
     if (!o) return;
-    Object.assign(S.cmd.pods[i], o); st.pods[i].rpm = o.rpm; if (o.pitch !== undefined) st.pods[i].pitch = o.pitch;
+    Object.assign(S.cmd.pods[i], o); st.pods[i].rpm = o.rpm; if (o.pitch !== undefined) st.pods[i].pitch = o.pitch; if (o.bucket !== undefined) st.pods[i].bucket = o.bucket;
   });
   if (SHIP.sternThruster) S.cmd.sbt = 0;
   Object.assign(S.env, { windKn: sc.windKn, windFrom: sc.windFrom, curKn: sc.currentKn, curSet: sc.currentSet, gusts: sc.gusts });
@@ -538,7 +538,7 @@ function mountStation() {
   const az = (SHIP.station ?? 'azipod') === 'azipod';
   $('st-az').hidden = !az; $('st-gen').hidden = az;
   const kind = SHIP.station ?? 'azipod';
-  station = az ? null : kind === 'asd' || kind === 'vsp' ? buildTugStation($('st-gen'), kind === 'vsp') : buildStation($('st-gen'));
+  station = az ? null : kind === 'asd' || kind === 'vsp' ? buildTugStation($('st-gen'), kind === 'vsp') : kind === 'waterjet' ? buildJetStation($('st-gen')) : buildStation($('st-gen'));
   requestAnimationFrame(() => { station?.resize(); D.refreshLayout(); layout3d(); placePanels(); });
 }
 

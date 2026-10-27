@@ -409,6 +409,7 @@ export class View3D {
     for (const p of SHIP.pods) {
       if (p.kind === 'shaft') { this.pods.push(this.buildShaftUnit(g, p, steel, anti, bronze)); continue; }
       if (p.kind === 'azimuth' || p.kind === 'vsp') { this.pods.push(this.buildTugUnit(g, p, steel, bronze)); continue; }
+      if (p.kind === 'waterjet') { this.pods.push(this.buildJetUnit(g, p, steel)); continue; }
       const D = p.D, podR = D * 0.27, podL = D * 1.9;
       const cy = -(T - D / 2 - 0.2);                     // propeller tip just above the keel line
       this.podDepth = cy;
@@ -553,6 +554,24 @@ export class View3D {
     this.podDepth = p.kind === 'vsp' ? -T + 0.6 : cy;
     return { yaw, prop, spin: 0 };
   }
+  /** Waterjet at the transom: steering nozzle (turns about a vertical pivot) and the reversing bucket over it. */
+  private buildJetUnit(g: THREE.Group, p: PodSpec, steel: THREE.Material) {
+    const cy = -0.55, r = Math.sqrt(p.jet!.Anoz / Math.PI);
+    const yaw = new THREE.Group(); yaw.position.set(p.y, cy, -p.x);
+    const housing = new THREE.Mesh(new THREE.CylinderGeometry(r * 2.1, r * 2.4, 1.6, 18), steel);
+    housing.rotation.x = Math.PI / 2; housing.position.z = -0.8; g.add(housing); housing.position.add(yaw.position);
+    const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.15, r * 1.6, 1.2, 18), steel);
+    nozzle.rotation.x = Math.PI / 2; nozzle.position.z = 0.6; yaw.add(nozzle);
+    // bucket: a hood hinged above the nozzle, swinging down over its exit
+    const prop = new THREE.Group(); prop.position.set(0, r * 1.8, 0.4);
+    const hood = new THREE.Mesh(new THREE.BoxGeometry(r * 3.4, 0.25, 1.5), new THREE.MeshStandardNodeMaterial({ color: '#c9ccd0', roughness: 0.4, metalness: 0.6 }));
+    hood.position.set(0, 0, 0.9); prop.add(hood);
+    yaw.add(prop);
+    yaw.traverse(o => { if ((o as THREE.Mesh).isMesh) o.castShadow = true; });
+    g.add(yaw);
+    this.podDepth = cy;
+    return { yaw, prop, spin: 0 };
+  }
   /** Fixed propeller on a shaft boss (pushing, under the stern) and the rudder behind it. */
   private buildShaftUnit(g: THREE.Group, p: PodSpec, steel: THREE.Material, anti: THREE.Material, bronze: THREE.Material) {
     const sh = p.shaft!, D = sh.prop.D, T = SHIP.T, R = D / 2;
@@ -606,7 +625,15 @@ export class View3D {
     const L = SHIP.look, T = SHIP.T, fb = L.freeboard;
     const outline = HULL as [number, number][];
     const boot = Math.min(fb - 1, 3);
-    g.add(new THREE.Mesh(prism(outline, -T, boot), this.mat(L.hull, { rough: 0.55 })));
+    if (SHIP.demi) {
+      // catamaran: two slender demi-hulls under a bridging deck, an open tunnel between them
+      const d = SHIP.demi, half = SHIP.B / 2, tunnel = Math.min(fb - 1.4, 1.3);
+      for (const side of [-1, 1]) {
+        const demi = outline.map(([x, y]) => [x, side * d.y + y / half * d.B / 2] as [number, number]);
+        g.add(new THREE.Mesh(prism(demi, -T, tunnel + 0.6), this.mat(L.hull, { rough: 0.55 })));
+      }
+      g.add(new THREE.Mesh(prism(outline, tunnel, boot), this.mat(L.hull, { rough: 0.55 })));
+    } else g.add(new THREE.Mesh(prism(outline, -T, boot), this.mat(L.hull, { rough: 0.55 })));
     g.add(new THREE.Mesh(prism(outline, boot, fb), this.mat(L.topsides, { rough: 0.5 })));
     // bulwark top line
     const capM = this.mat(L.accent, { rough: 0.6 });
@@ -647,8 +674,9 @@ export class View3D {
     }
     // funnel
     const f = L.funnel;
-    const fun = new THREE.Mesh(new THREE.BoxGeometry(f.w, 18, f.l), this.mat(L.super, { rough: 0.5 }));
-    fun.position.set(0, f.h - 9, -f.x); g.add(fun);
+    const fh = Math.min(18, f.h - fb + 0.5);              // from the deck up (low craft have short funnels)
+    const fun = new THREE.Mesh(new THREE.BoxGeometry(f.w, fh, f.l), this.mat(L.super, { rough: 0.5 }));
+    fun.position.set(0, f.h - fh / 2, -f.x); g.add(fun);
     const band = new THREE.Mesh(new THREE.BoxGeometry(f.w + 0.2, 3, f.l + 0.2), capM);
     band.position.set(0, f.h - 1.5, -f.x); g.add(band);
     // mast + navigation lights (COLREG: masthead, sidelights, stern)
@@ -948,6 +976,11 @@ export class View3D {
     this.pods.forEach((pd, i) => {
       const ps = st.pods[i], spec = SHIP.pods[i]; if (!ps || !spec) return;
       if (spec.kind === 'vsp') { pd.spin += 1.2 * 2 * Math.PI * simDt * (i ? -1 : 1); pd.prop.rotation.y = pd.spin; return; }   // rotor runs at constant speed
+      if (spec.kind === 'waterjet') {
+        pd.yaw.rotation.y = ps.alpha + spec.alphaOffset;
+        pd.prop.rotation.x = (1 - (ps.bucket ?? 1)) / 2 * 1.25;       // hood swings down over the nozzle exit
+        return;
+      }
       if (spec.kind === 'shaft') {
         if (pd.rudder) pd.rudder.rotation.y = ps.alpha;
         pd.spin -= ps.rpm * spec.shaft!.engine.n * 2 * Math.PI * simDt * spec.shaft!.prop.hand;   // actual shaft speed

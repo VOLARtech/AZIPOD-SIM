@@ -72,7 +72,7 @@ export class Wake {
       const rnd = (a: number) => (Math.random() - 0.5) * 2 * a;
       // pod wash: the jet leaves opposite to the direction the pod pulls
       spec.pods.forEach((pd, k) => {
-        const ps = st.pods[k], drive = ps.pitch ?? ps.rpm, r = Math.abs(drive);
+        const ps = st.pods[k], drive = pd.kind === 'waterjet' ? ps.rpm * (ps.bucket ?? 1) : ps.pitch ?? ps.rpm, r = Math.abs(drive);
         if (r < 0.04) return;
         const sg = drive >= 0 ? -1 : 1, a = unitAxis(pd, ps);
         const jx = Math.cos(a) * sg, jy = Math.sin(a) * sg;

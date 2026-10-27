@@ -8,6 +8,7 @@ import { KVLCC2 } from '../ships/kvlcc2';
 import { KCS, PANAMAX, KVLCC2_BALLAST } from '../ships/cargo';
 import { ROPAX, CRUISE_CONV, LNG, ULCV } from '../ships/twin';
 import { ASD_TUG, VSP_TUG, ROTOR_TUG } from '../ships/tugs';
+import { HSC_CAT } from '../ships/fast';
 export { RHO, RHO_AIR, NU_W, G, KN, DEG } from './consts';
 
 export interface PodSpec {
@@ -92,7 +93,9 @@ export interface ShaftSpec {
 }
 export interface AzimuthSpec { nozzle: boolean; pusher: boolean; rpmTime: number; slew: number }
 export interface VspSpec { R: number; rpmTime: number; respT: number }
-export interface JetSpec { nozzleMax: number; Anoz: number; respT: number; bucketTime: number }
+/** Waterjet: nozzle deflection limit, nozzle area, s from midships to hard over, s for the bucket's full travel,
+ *  impeller idle speed (fraction), s from idle to full rpm (load programme). */
+export interface JetSpec { nozzleMax: number; Anoz: number; respT: number; bucketTime: number; idle: number; rpmTime: number }
 
 /** Which control station the bridge shows for this ship. */
 export type StationKind = 'azipod' | 'telegraph' | 'cpp' | 'asd' | 'vsp' | 'waterjet' | 'dp';
@@ -126,6 +129,8 @@ export interface ShipSpec {
   mmg?: MmgHull;              // published MMG hull derivatives (replace Clarke at manoeuvring speeds)
   type?: string;              // ship type for the fleet picker (cruise, tanker, container…)
   hullForm?: 'ship' | 'tug' | 'cat' | 'barge';
+  /** Catamaran demi-hulls: beam and block coefficient of one hull, centreline offset of each hull [m]. */
+  demi?: { B: number; Cb: number; y: number };
   /** Roll for heel and girting: metacentric height, CG height above keel, roll radius of gyration,
    *  height of the windage centroid above the waterline, angle of vanishing stability. */
   roll?: { GM: number; KG: number; kxx: number; zWind: number; vanish: number };
@@ -262,7 +267,7 @@ export const SPIRIT: ShipSpec = {
   },
 };
 
-export const SHIPS: Record<string, ShipSpec> = { becancour: BECANCOUR, lady: LADY, spirit: SPIRIT, kvlcc2: KVLCC2, 'kvlcc2-ballast': KVLCC2_BALLAST, kcs: KCS, panamax: PANAMAX, ulcv: ULCV, lng: LNG, ropax: ROPAX, 'cruise-shaft': CRUISE_CONV, 'asd-tug': ASD_TUG, 'vsp-tug': VSP_TUG, 'rotor-tug': ROTOR_TUG };
+export const SHIPS: Record<string, ShipSpec> = { becancour: BECANCOUR, lady: LADY, spirit: SPIRIT, kvlcc2: KVLCC2, 'kvlcc2-ballast': KVLCC2_BALLAST, kcs: KCS, panamax: PANAMAX, ulcv: ULCV, lng: LNG, ropax: ROPAX, 'cruise-shaft': CRUISE_CONV, 'asd-tug': ASD_TUG, 'vsp-tug': VSP_TUG, 'rotor-tug': ROTOR_TUG, 'hsc-cat': HSC_CAT };
 /** The ship in use. A live binding: importers see the new ship after setShip(). */
 export let SHIP: ShipSpec = BECANCOUR;
 export function setShip(id: string) { SHIP = SHIPS[id] ?? BECANCOUR; return SHIP; }
@@ -275,6 +280,7 @@ export interface Hydro {
   Xlin: number; Ylin: number; Nlin: number;
   S: number; strips: { x: number; dx: number }[]; cfK: number;
   fsh: number; fam: number; hT: number; rShallow: number;
+  catY: number;                // catamaran: offset of each demi-hull (yaw damping from their resistance)
   prime: Record<string, number>;
 }
 
@@ -322,6 +328,20 @@ export function deriveHydro(s: ShipSpec, depth: number): Hydro {
     Nr_p = Math.min(Nr_p, -k / 4);
   }
   let Iz = m * (0.25 * L) ** 2, xgDyn = s.xg, XudM = -0.05 * m;
+  if (s.demi) {
+    // catamaran: Clarke for one slender demi-hull, twice over (hulls far enough apart that their
+    // sway interaction is small); half the mass sits out at each hull, which adds to the yaw inertia
+    const d = s.demi, bl = d.B / L, bt = d.B / T, cb = d.Cb;
+    Yvd_p = -2 * k * (1 + 0.16 * cb * bt - 5.1 * bl ** 2);
+    Yrd_p = -2 * k * (0.67 * bl - 0.0033 * bt ** 2);
+    Nvd_p = -2 * k * (1.1 * bl - 0.041 * bt);
+    Nrd_p = -2 * k * (1 / 12 + 0.017 * cb * bt - 0.33 * bl);
+    Yv_p = -2 * k * (1 + 0.4 * cb * bt);
+    Yr_p = -2 * k * (-0.5 + 2.2 * bl - 0.08 * bt);
+    Nv_p = -2 * k * (0.5 + 2.4 * T / L);
+    Nr_p = -2 * k * (0.25 + 0.039 * bt - 0.56 * bl);
+    Iz += 0.8 * m * d.y * d.y;
+  }
   if (s.mmg) {
     // published captive-test values: MMG non-dimensionals (÷ ½ρLd·U², ½ρL²d) → Clarke primes (× d/L).
     // Body origin is midship; the CG sits xG ahead of it, as in the MMG equations of motion.
@@ -355,7 +375,7 @@ export function deriveHydro(s: ShipSpec, depth: number): Hydro {
     0, m * xgDyn - Ycross, Iz - Nrd,
   ];
 
-  const S = L * (1.7 * T + Cb * B); // Mumford wetted surface
+  const S = s.demi ? 2 * L * (1.7 * T + s.demi.Cb * s.demi.B) : L * (1.7 * T + Cb * B); // Mumford wetted surface
   const NS = 26, strips: { x: number; dx: number }[] = [];
   for (let i = 0; i < NS; i++) {
     const x = -L / 2 + (i + 0.5) * (L / NS) - s.xg;
@@ -370,7 +390,7 @@ export function deriveHydro(s: ShipSpec, depth: number): Hydro {
     // magnitude below the quadratic terms at berthing speeds; surge term fades out above 1 m/s.
     Xlin: m / 4000, Ylin: (m - Yvd) / 3000, Nlin: (Iz - Nrd) / 3000,
     S, strips, cfK: 0.5 * RHO * T * s.Cd * fsh,
-    fsh, fam, hT, rShallow: isFinite(hT) ? 1 + 0.6 / (hT * hT) : 1,
+    fsh, fam, hT, rShallow: isFinite(hT) ? 1 + 0.6 / (hT * hT) : 1, catY: s.demi?.y ?? 0,
     prime: { Yvd_p, Yrd_p, Nvd_p, Nrd_p, Yv_p, Yr_p, Nv_p, Nr_p, YvD, YrD, NvD, NrD, munk: Yvd_p - Xud_p },
   };
 }
@@ -380,10 +400,17 @@ export function resistanceCt(s: ShipSpec, u: number, hT: number): number {
   const Re = Math.max(Math.abs(u) * s.L / NU_W, 2e6);
   const Cf = 0.075 / (Math.log10(Re) - 2) ** 2;
   const Fn = Math.abs(u) / Math.sqrt(G * s.L);
-  const Cw = 0.0007 * Math.min((Fn / 0.25) ** 4, 6);
+  // fast slender hulls (catamaran demi-hulls): residuary hump near Fn 0.5, easing off beyond it as
+  // the hull rises out of its own wave system: the shape of the Southampton catamaran series
+  // (Molland, Wellicome & Couser 1994), not a fit to it
+  const Cw = s.hullForm === 'cat'
+    ? 0.0046 * Math.exp(-(((Fn - 0.48) / 0.19) ** 2)) + 0.0026 * smooth(0.28, 0.62, Fn)
+    : 0.0007 * Math.min((Fn / 0.25) ** 4, 6);
   const shallow = isFinite(hT) ? 1 + 0.6 / (hT * hT) : 1;
   return (Cf * s.formFactor + Cw) * shallow;
 }
+
+const smooth = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 export const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 

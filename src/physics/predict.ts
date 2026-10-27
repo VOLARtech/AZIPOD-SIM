@@ -6,7 +6,7 @@ import { Command, Env, Model, ShipState, World, cloneState, mismatched, rk4, upd
 import { ContactInfo, contactForces, Fender, Obstacle, Pt } from './contact';
 import type { MooringLine } from './mooring';
 import type { DepthField } from './harbour';
-import { engines, fullAstern, helm, isShaftShip } from './pilot';
+import { engines, fullAstern, helm, isHelmShip } from './pilot';
 
 export type Alt = 'current' | 'port' | 'stbd' | 'crash' | 'coast';
 export const ALT_LABEL: Record<Alt, string> = {
@@ -45,7 +45,7 @@ export function runPrediction(spec: ShipSpec, job: PredictJob, sw: ScenarioWorld
     world.aground = 0;
     const cmd: Command = { pods: job.cmd.pods.map(p => ({ ...p })), bt: job.cmd.bt, sbt: job.cmd.sbt, mode: job.cmd.mode };
     const rpm0 = Math.max(0.5, ...job.cmd.pods.map(p => Math.abs(p.rpm)));
-    const shafts = isShaftShip(spec);
+    const shafts = isHelmShip(spec);
     if (shafts) {
       // what-ifs on the telegraph and the wheel: hard over with the engine as set, full astern, stop
       if (alt === 'port' || alt === 'stbd') helm(spec, cmd, (alt === 'port' ? -35 : 35) * DEG);

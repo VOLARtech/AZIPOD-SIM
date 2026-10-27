@@ -2,7 +2,7 @@
 import { DEG, KN, ShipSpec } from './ship';
 import { Command, Env, Model, ShipState, cloneState, holdCourse, makeState, rk4, updateActuators, wrap } from './sim';
 import { squat } from './harbour';
-import { engines, fullAstern, helm, isShaftShip, primeRunning } from './pilot';
+import { engines, fullAstern, helm, isHelmShip, isJetShip, primeRunning } from './pilot';
 
 const DT = 0.2;
 const calm = (depth = Infinity): Env => ({ windSpeed: 0, windFrom: 0, gusts: false, current: () => [0, 0], depth });
@@ -70,7 +70,7 @@ function stopping(model: Model, spec: ShipSpec, start: ShipState, env: Env, labe
 }
 
 export function buildPoster(spec: ShipSpec): Poster {
-  if (isShaftShip(spec)) return buildShaftPoster(spec);
+  if (isHelmShip(spec)) return buildShaftPoster(spec);
   const deep = new Model(spec, Infinity);
   const shallowDepth = 1.2 * spec.T;
   const shallow = new Model(spec, shallowDepth);
@@ -116,9 +116,9 @@ function run(model: Model, spec: ShipSpec, st: ShipState, cmd: Command, env: Env
   for (let t = 0; t < T; t += DT) { updateActuators(spec, st, cmd, DT); rk4(model, st, env, { V: 0, from: 0 }, null, DT); if (each(st)) break; }
 }
 function buildShaftPoster(spec: ShipSpec): Poster {
-  const sh = spec.pods[0].shaft!, cpp = !!sh.prop.cpp;
+  const sh = spec.pods[0].shaft, jets = isJetShip(spec), cpp = !!sh?.prop.cpp;
   const deep = new Model(spec, Infinity), shallowDepth = 1.2 * spec.T, shallow = new Model(spec, shallowDepth);
-  const steps = cpp ? [0.2, 0.4, 0.6, 0.8, 1] : sh.telegraph.ahead;
+  const steps = cpp ? [0.2, 0.4, 0.6, 0.8, 1] : jets ? [0.4, 0.55, 0.7, 0.85, 1] : sh!.telegraph.ahead;
   const speedTable = steps.map(f => ({ rpm: f, kn: steadyShaft(deep, spec, f, calm()).u / KN }));
   const full = steadyShaft(deep, spec, steps[steps.length - 1], calm());
   const manFull = steadyShaft(deep, spec, steps[3], calm());
