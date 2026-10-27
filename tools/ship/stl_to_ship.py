@@ -19,6 +19,7 @@ ap.add_argument('stl'); ap.add_argument('out')
 ap.add_argument('--loa', type=float, required=True)
 ap.add_argument('--draught', type=float, required=True)
 ap.add_argument('--bow-x', type=float, required=True, help='body x of the stem relative to the CG [m]')
+ap.add_argument('--drop', action='append', default=[], help='x0,x1,z0,z1 (metres, before LOA scaling, x from model origin): remove the triangles inside, e.g. the model\'s own pods')
 ap.add_argument('--model-units', type=float, default=0.3, help='metres of full-size ship per STL unit (1:300 mm → 0.3)')
 args = ap.parse_args()
 
@@ -26,6 +27,12 @@ d = open(args.stl, 'rb').read()
 n = struct.unpack('<I', d[80:84])[0]
 V = np.frombuffer(d[84:84 + 50 * n], dtype=np.dtype([('n', '<3f4'), ('v', '<9f4'), ('a', '<u2')]))['v'].reshape(-1, 3, 3).astype(np.float64)
 V *= args.model_units
+for box in args.drop:
+    x0, x1, z0, z1 = map(float, box.split(','))
+    cc = V.mean(1)
+    keep = ~((cc[:, 0] > x0) & (cc[:, 0] < x1) & (cc[:, 2] > z0) & (cc[:, 2] < z1))
+    print('dropped', (~keep).sum(), 'triangles in', box)
+    V = V[keep]
 # model: bow toward −x, z up from the keel
 s = args.loa / (V[..., 0].max() - V[..., 0].min())
 V *= s

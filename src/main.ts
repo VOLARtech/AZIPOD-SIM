@@ -93,7 +93,7 @@ function set3dTag() { if (v3) $('v3d-tag').textContent = [v3.backend, creditFn?.
 // ---------------------------------------------------------------- 3D view (lazy)
 let v3: View3D | null = null, v3Loading = false;
 (globalThis as unknown as { __azb: unknown }).__azb = { S, D, get v3() { return v3; }, tick(ms: number) { capT += ms; frame(capT); } };   // console / test handle
-const CAMS: [typeof S.disp.cam, string][] = [['bridge', 'BRIDGE'], ['port', 'PORT WING'], ['stbd', 'STBD WING'], ['chase', 'CHASE']];
+const CAMS: [typeof S.disp.cam, string][] = [['bridge', 'BRIDGE'], ['port', 'PORT WING'], ['stbd', 'STBD WING'], ['chase', 'CHASE'], ['pods', 'PODS']];
 function timeOfDay(): 'day' | 'dusk' | 'night' {
   const p = S.disp.palette;
   if (p !== 'auto') return p;

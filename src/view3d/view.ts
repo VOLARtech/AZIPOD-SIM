@@ -19,7 +19,7 @@ import { HULL } from '../physics/contact';
 import { LINE } from '../physics/mooring';
 import { S } from '../ui/state';
 
-export type CamName = 'bridge' | 'port' | 'stbd' | 'chase';
+export type CamName = 'bridge' | 'port' | 'stbd' | 'chase' | 'pods';
 export type TimeOfDay = 'day' | 'dusk' | 'night';
 
 // ---------------------------------------------------------------- helpers
@@ -112,7 +112,7 @@ export class View3D {
   backend = '';
   cam: CamName = 'bridge';
   look: Record<CamName, { yaw: number; pitch: number; zoom: number }> = {
-    bridge: { yaw: 0, pitch: -9, zoom: 1 }, port: { yaw: -150, pitch: -30, zoom: 1 },
+    bridge: { yaw: 0, pitch: -9, zoom: 1 }, port: { yaw: -150, pitch: -30, zoom: 1 }, pods: { yaw: -165, pitch: -4, zoom: 1 },
     stbd: { yaw: 150, pitch: -30, zoom: 1 }, chase: { yaw: -150, pitch: 22, zoom: 1 },
   };
   private harbour = new THREE.Group();
@@ -138,6 +138,14 @@ export class View3D {
   quality: Quality = 'low';
   private sunDir = new THREE.Vector3(0, 1, 0);
   private lastT = 0;
+  private underSurf!: THREE.Mesh;
+  private bubbles!: THREE.InstancedMesh;
+  private bub = { p: new Float32Array(600 * 3), v: new Float32Array(600 * 3), age: new Float32Array(600).fill(99), next: 0, acc: [0, 0] };
+  private seabed!: THREE.Mesh;
+  private aboveFog: THREE.Fog | null = null;
+  private aboveBg: THREE.Color | null = null;
+  private underFog = new THREE.Fog(0x1f6670, 6, 120);
+  private submerged = false;
   private sun = new THREE.DirectionalLight(0xffffff, 2);
   private hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
   private tod: TimeOfDay | null = null;
@@ -158,6 +166,19 @@ export class View3D {
     this.sky.layers.set(1);
     this.scene.add(this.sky);
     this.camera.layers.enable(1);
+    // underwater: the surface seen from below and a seabed under the ship (shown only when submerged)
+    const us = new THREE.MeshBasicNodeMaterial({ color: '#5fb7c2', side: THREE.BackSide, transparent: true, opacity: 0.92, fog: true });
+    this.underSurf = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), us);
+    this.underSurf.rotation.x = -Math.PI / 2; this.underSurf.position.y = -0.02; this.underSurf.visible = false; this.underSurf.layers.set(1);
+    this.seabed = new THREE.Mesh(new THREE.PlaneGeometry(1500, 1500), new THREE.MeshStandardNodeMaterial({ color: '#8a7f62', roughness: 1 }));
+    this.seabed.rotation.x = -Math.PI / 2; this.seabed.visible = false;
+    this.scene.add(this.underSurf, this.seabed);
+    // propeller bubbles / cavitation, only drawn underwater
+    this.bubbles = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1),
+      new THREE.MeshBasicNodeMaterial({ color: '#dff4f7', transparent: true, opacity: 0.4, depthWrite: false }), 600);
+    this.bubbles.frustumCulled = false; this.bubbles.visible = false;
+    this.bubbles.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.scene.add(this.bubbles);
     // sun shadows: an orthographic box that follows the ship
     this.sun.castShadow = true;
     const sc = this.sun.shadow.camera as THREE.OrthographicCamera;
@@ -227,6 +248,7 @@ export class View3D {
     const s = S.sc?.start;
     if (s) this.water.mesh.position.set(s.e, 0, -s.n);
     this.water.mesh.renderOrder = 1;
+    this.water.mesh.visible = !this.submerged;
     this.scene.add(this.water.mesh);
     if (this.tod) this.applyWaterTod(TOD[this.tod]);
   }
@@ -369,8 +391,66 @@ export class View3D {
   }
   private sceneryLit: { value: number } | null = null;
   private shipGen = 0;
+  /** Azipod units under the stern: strut, pod body, pulling propeller. Driven from the actual pod state. */
+  private pods: { yaw: THREE.Group; prop: THREE.Group; spin: number }[] = [];
+  podDepth = -5;
+  private buildPods(g: THREE.Group) {
+    this.pods = [];
+    const T = SHIP.T;
+    const steel = new THREE.MeshStandardNodeMaterial({ color: '#3b4046', roughness: 0.55, metalness: 0.35 });
+    const anti = new THREE.MeshStandardNodeMaterial({ color: '#7a1a1c', roughness: 0.7 });
+    const bronze = new THREE.MeshStandardNodeMaterial({ color: '#a8834c', roughness: 0.3, metalness: 0.85, side: THREE.DoubleSide });
+    for (const p of SHIP.pods) {
+      const D = p.D, podR = D * 0.27, podL = D * 1.9;
+      const cy = -(T - D / 2 - 0.2);                     // propeller tip just above the keel line
+      this.podDepth = cy;
+      const yaw = new THREE.Group(); yaw.position.set(p.y, 0, -p.x);
+      // strut: a vertical foil from the hull down to the pod (local -z = direction of pull)
+      const strutH = Math.max(1, -cy - 0.3);              // up into the hull (stern bottoms sit just under the waterline)
+      const sg = new THREE.CylinderGeometry(1, 1, strutH, 20, 1); sg.scale(0.45, 1, D * 0.42); 
+      const strut = new THREE.Mesh(sg, anti); strut.position.set(0, cy + strutH / 2, D * 0.12); yaw.add(strut);
+      // pod body: streamlined motor housing, hub cone forward, tail cone and fin aft
+      const body = new THREE.Mesh(new THREE.CapsuleGeometry(podR, podL - 2 * podR, 8, 20), steel);
+      body.rotation.x = Math.PI / 2; body.position.set(0, cy, D * 0.2); yaw.add(body);
+      const fin = new THREE.Mesh(new THREE.BoxGeometry(0.22, D * 0.26, D * 0.5), steel);
+      fin.position.set(0, cy - podR - D * 0.12, D * 0.55); yaw.add(fin);
+      // propeller at the forward end (pulling): hub + 4 skewed, pitched blades
+      const prop = new THREE.Group(); prop.position.set(0, cy, D * 0.2 - podL / 2 - 0.35);
+      const hub = new THREE.Mesh(new THREE.ConeGeometry(podR * 0.85, D * 0.35, 20), bronze);
+      hub.rotation.x = -Math.PI / 2; hub.position.z = -D * 0.12; prop.add(hub);
+      const bladeShape = new THREE.Shape();
+      const R = D / 2, r0 = podR * 0.7;
+      // wide, skewed blade (expanded area ratio ≈ 0.6)
+      bladeShape.moveTo(-R * 0.16, r0);
+      bladeShape.bezierCurveTo(-R * 0.5, R * 0.5, -R * 0.42, R * 0.9, R * 0.02, R);
+      bladeShape.bezierCurveTo(R * 0.34, R * 0.9, R * 0.36, R * 0.4, R * 0.2, r0);
+      const bg = new THREE.ShapeGeometry(bladeShape, 10);
+      for (let k = 0; k < 4; k++) {
+        const holder = new THREE.Group(); holder.rotation.z = k * Math.PI / 2;
+        const blade = new THREE.Mesh(bg, bronze);
+        blade.rotation.y = 0.55;                         // blade pitch
+        holder.add(blade); prop.add(holder);
+      }
+      yaw.add(prop);
+      yaw.traverse(o => { if ((o as THREE.Mesh).isMesh) o.castShadow = true; });
+      g.add(yaw);
+      this.pods.push({ yaw, prop, spin: 0 });
+    }
+    // bow thruster tunnel mouths, both sides
+    if (SHIP.bowThruster) {
+      const tm = new THREE.MeshStandardNodeMaterial({ color: '#0d1013', roughness: 0.9 });
+      const bt = SHIP.bowThruster, n = Math.max(1, Math.round(bt.P / 2e6));
+      for (let k = 0; k < n; k++) for (const side of [-1, 1]) {
+        const x = bt.x + (k - (n - 1) / 2) * 5.5;
+        const hw = (() => { let best = 0; for (let i = 0; i < HULL.length; i++) { const [x0, y0] = HULL[i], [x1, y1] = HULL[(i + 1) % HULL.length]; if ((x - x0) * (x - x1) <= 0 && x0 !== x1) best = Math.max(best, Math.abs(y0 + (y1 - y0) * (x - x0) / (x1 - x0))); } return best; })();
+        const disc = new THREE.Mesh(new THREE.CircleGeometry(1.25, 20), tm);
+        disc.position.set(side * (hw + 0.05), -T * 0.55, -x); disc.rotation.y = side * Math.PI / 2; g.add(disc);
+      }
+    }
+  }
   private buildShip() {
     const g = this.ship; this.clear(g);
+    this.buildPods(g);
     if (SHIP.look.model) { this.buildModelShip(SHIP.look.model, ++this.shipGen); return; }
     const L = SHIP.look, T = SHIP.T, fb = L.freeboard;
     const outline = HULL as [number, number][];
@@ -540,9 +620,10 @@ export class View3D {
     if (sky.cloudCoverage) sky.cloudCoverage.value = p.clouds;
     this.renderer.toneMappingExposure = p.exposure;
     // the physical sky has nothing to show after dusk: a deep navy night sky instead
-    this.sky.visible = tod !== 'night';
-    this.scene.background = tod === 'night' ? new THREE.Color(0x0a1420) : null;
-    this.scene.fog = new THREE.Fog(p.fog, p.fogD[0], p.fogD[1]);
+    this.aboveBg = tod === 'night' ? new THREE.Color(0x0a1420) : null;
+    this.aboveFog = new THREE.Fog(p.fog, p.fogD[0], p.fogD[1]);
+    this.underFog.color.set(tod === 'night' ? 0x041318 : tod === 'dusk' ? 0x163f47 : 0x1f6670);
+    this.submerged = !this.submerged; this.setSubmerged(!this.submerged);   // re-apply for this light
     // key light: the sun, or the moon at night
     this.keyDir = p.sunEl > 0 ? this.sunDir.clone() : new THREE.Vector3(0.55, 0.6, 0.35).normalize();
     this.sun.color.set(p.sun); this.sun.intensity = p.sunI;
@@ -570,6 +651,48 @@ export class View3D {
     for (const l of this.lamps) l.visible = tod !== 'day';
   }
   private keyDir = new THREE.Vector3(0.5, 0.6, 0.5).normalize();
+  private updateBubbles(dt: number, rpm: number[]) {
+    const B = this.bub, m = new THREE.Matrix4(), wp = new THREE.Vector3(), dir = new THREE.Vector3(), q = new THREE.Quaternion();
+    this.pods.forEach((pd, i) => {
+      const r = Math.abs(rpm[i] ?? 0); if (r < 0.05 || dt <= 0) return;
+      pd.prop.getWorldPosition(wp); pd.yaw.getWorldQuaternion(q);
+      dir.set(0, 0, (rpm[i] ?? 0) >= 0 ? 1 : -1).applyQuaternion(q);       // the jet leaves opposite to the pull
+      const R = (SHIP.pods[i]?.D ?? 6) / 2;
+      B.acc[i] += (18 + 80 * r) * dt;
+      while (B.acc[i] >= 1) {
+        B.acc[i] -= 1;
+        const k = B.next; B.next = (B.next + 1) % 600;
+        const a = Math.random() * Math.PI * 2, rr = R * (0.55 + 0.45 * Math.random());
+        // a point on the blade-tip circle (tip vortices cavitate first)
+        const t = new THREE.Vector3(Math.cos(a) * rr, Math.sin(a) * rr, 0).applyQuaternion(q);
+        B.p[k * 3] = wp.x + t.x; B.p[k * 3 + 1] = wp.y + t.y; B.p[k * 3 + 2] = wp.z + t.z;
+        const vj = 2 + 7 * r;
+        B.v[k * 3] = dir.x * vj + (Math.random() - 0.5); B.v[k * 3 + 1] = 0.4 + Math.random() * 0.5; B.v[k * 3 + 2] = dir.z * vj + (Math.random() - 0.5);
+        B.age[k] = 0;
+      }
+    });
+    for (let k = 0; k < 600; k++) {
+      if (B.age[k] > 3) { m.makeScale(0, 0, 0); this.bubbles.setMatrixAt(k, m); continue; }
+      B.age[k] += dt;
+      const drag = Math.exp(-dt / 1.2);
+      B.p[k * 3] += B.v[k * 3] * dt; B.p[k * 3 + 1] = Math.min(-0.05, B.p[k * 3 + 1] + B.v[k * 3 + 1] * dt); B.p[k * 3 + 2] += B.v[k * 3 + 2] * dt;
+      B.v[k * 3] *= drag; B.v[k * 3 + 2] *= drag;
+      const sz = 0.04 + 0.09 * Math.min(1, B.age[k] / 1.5);
+      m.makeScale(sz, sz, sz); m.setPosition(B.p[k * 3], B.p[k * 3 + 1], B.p[k * 3 + 2]);
+      this.bubbles.setMatrixAt(k, m);
+    }
+    this.bubbles.instanceMatrix.needsUpdate = true;
+  }
+  private setSubmerged(on: boolean) {
+    if (on === this.submerged && this.scene.fog) return;
+    this.submerged = on;
+    const night = this.tod === 'night';
+    this.sky.visible = !on && !night;
+    if (this.water) this.water.mesh.visible = !on;
+    this.underSurf.visible = on; this.seabed.visible = on; this.bubbles.visible = on;
+    this.scene.fog = on ? this.underFog : this.aboveFog;
+    this.scene.background = on ? this.underFog.color : this.aboveBg;
+  }
 
   render() {
     const rt = S.rt, st = rt.state, psi = st.psi;
@@ -648,7 +771,21 @@ export class View3D {
     this.sun.position.set(st.e + this.keyDir.x * 1500, this.keyDir.y * 1500, -st.n + this.keyDir.z * 1500);
     this.sun.target.position.set(st.e, 0, -st.n);
 
+    // pods: azimuth and propeller from the actual (lagging) pod state
+    this.pods.forEach((pd, i) => {
+      const ps = st.pods[i], spec = SHIP.pods[i]; if (!ps || !spec) return;
+      pd.yaw.rotation.y = -(ps.alpha + spec.alphaOffset);
+      pd.spin += ps.rpm * (140 / 60) * 2 * Math.PI * simDt * (i ? -1 : 1);   // ~140 rpm at 100 %, outward-turning pair
+      pd.prop.rotation.z = pd.spin;
+    });
     this.placeCamera(w2, psi);
+    this.setSubmerged(this.camera.position.y < -0.2);
+    if (this.submerged) {
+      this.updateBubbles(simDt, st.pods.map(p => p.rpm));
+      const dep = isFinite(rt.depthHere) ? rt.depthHere : 30;
+      this.seabed.position.set(st.e, -dep, -st.n);
+      this.underSurf.position.set(this.camera.position.x, -0.02, this.camera.position.z);
+    }
     this.sky.position.copy(this.camera.position);
     if (this.pipeline) {
       this.preCam.copy(this.camera); this.preCam.layers.set(0);
@@ -661,11 +798,20 @@ export class View3D {
     const yaw = lk.yaw * Math.PI / 180, pitch = lk.pitch * Math.PI / 180;
     const fov = 55 / lk.zoom;
     if (Math.abs(cam.fov - fov) > 0.01) { cam.fov = fov; cam.updateProjectionMatrix(); }
-    if (this.cam === 'chase') {
-      const d = SHIP.L * 1.25 / Math.max(0.4, lk.zoom ** 0.7);
-      const x = Math.cos(pitch) * Math.cos(yaw) * d, y = Math.cos(pitch) * Math.sin(yaw) * d, z = Math.sin(pitch) * d;
-      cam.position.copy(w2(x, y, Math.max(3, z)));
-      cam.lookAt(w2(0, 0, SHIP.look.freeboard));
+    if (this.cam === 'chase' || this.cam === 'pods') {
+      // above water the camera orbits the whole ship; dragged below the surface it closes in on
+      // the pods (water visibility is tens of metres), like a diver behind the stern
+      const t = this.cam === 'pods' ? 1 : 1 - THREE.MathUtils.smoothstep(lk.pitch, -6, 6);
+      const under = 1 - t;
+      const podX = SHIP.pods.reduce((a, p) => a + p.x, 0) / SHIP.pods.length;
+      const dAbove = SHIP.L * 1.25 / Math.max(0.4, lk.zoom ** 0.7), dBelow = 32 / Math.max(0.4, lk.zoom ** 0.8);
+      const d = dAbove * under + dBelow * t;
+      const tx = podX * t, tz = SHIP.look.freeboard * under + this.podDepth * t;
+      const x = tx + Math.cos(pitch) * Math.cos(yaw) * d, y = Math.cos(pitch) * Math.sin(yaw) * d;
+      const floor = -(isFinite(S.rt.depthHere) ? S.rt.depthHere : 30) + 0.8;
+      const z = Math.max(floor, tz + Math.sin(pitch) * d);
+      cam.position.copy(w2(x, y, t > 0.5 ? Math.min(-0.6, z) : Math.max(3, z)));
+      cam.lookAt(w2(tx, 0, tz));
       if (cam.fov !== 50) { cam.fov = 50; cam.updateProjectionMatrix(); }
       return;
     }
@@ -684,15 +830,21 @@ export class View3D {
   drag(dxPx: number, dyPx: number, hPx: number) {
     const lk = this.look[this.cam], k = 55 / lk.zoom / Math.max(200, hPx);
     lk.yaw -= dxPx * k;
-    lk.pitch = Math.max(-80, Math.min(this.cam === 'chase' ? 80 : 50, lk.pitch + dyPx * k));
-    if (this.cam === 'chase') lk.pitch = Math.max(3, lk.pitch);
+    if (this.cam === 'chase' || this.cam === 'pods') {
+      // drag down to lower the camera (below the surface to watch the pods), up to raise it
+      lk.pitch = Math.max(-50, Math.min(80, lk.pitch - dyPx * k));
+      if (this.cam === 'pods') lk.pitch = Math.min(-2, lk.pitch);
+      return;
+    }
+    lk.pitch = Math.max(-80, Math.min(50, lk.pitch + dyPx * k));
   }
   zoomBy(f: number) {
     const lk = this.look[this.cam];
-    lk.zoom = Math.max(this.cam === 'chase' ? 0.35 : 1, Math.min(this.cam === 'chase' ? 3 : 7, lk.zoom * f));
+    const orbit = this.cam === 'chase' || this.cam === 'pods';
+    lk.zoom = Math.max(orbit ? 0.35 : 1, Math.min(orbit ? 3 : 7, lk.zoom * f));
   }
   resetLook() {
-    const d: Record<CamName, { yaw: number; pitch: number }> = { bridge: { yaw: 0, pitch: -9 }, port: { yaw: -150, pitch: -30 }, stbd: { yaw: 150, pitch: -30 }, chase: { yaw: -150, pitch: 22 } };
+    const d: Record<CamName, { yaw: number; pitch: number }> = { bridge: { yaw: 0, pitch: -9 }, port: { yaw: -150, pitch: -30 }, stbd: { yaw: 150, pitch: -30 }, chase: { yaw: -150, pitch: 22 }, pods: { yaw: -165, pitch: -4 } };
     Object.assign(this.look[this.cam], d[this.cam], { zoom: 1 });
   }
 }

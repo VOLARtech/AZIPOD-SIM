@@ -134,7 +134,7 @@ export const LADY: ShipSpec = {
  * Spirit-class (Carnival Spirit, Kvaerner Masa 2001), published particulars: 292.5 m LOA, 260.6 m Lpp,
  * 32.2 m beam (38.8 m over the bridge wings), 7.8 m draught, 85,700 GT, 2 × 17.6 MW ABB Azipods,
  * 3 × 1.91 MW Brunvoll bow thrusters, 6 × Wärtsilä 9L46 (62.4 MW), 22 kn service.
- * Assumed: Cb, pod geometry, windage, slew rate. 3D model: 1:300 hobby model (3D Warehouse, via iconic3dmodels).
+ * Assumed: Cb, windage, slew rate; pod positions taken from the 3D model. 3D model: 1:300 hobby model (3D Warehouse, via iconic3dmodels).
  */
 export const SPIRIT: ShipSpec = {
   id: 'spirit', LOA: 292.5, vmaxKn: 23.6,
@@ -142,8 +142,8 @@ export const SPIRIT: ShipSpec = {
   note: 'Modelled on Carnival Spirit\'s published particulars (292.5 m, 32.2 m beam, 7.8 m draught, 2 × 17.6 MW Azipods, 3 × 1.91 MW bow thrusters). Hull form, windage and pod geometry are estimates; this is not the real ship\'s manoeuvring data.',
   L: 260.6, B: 32.2, T: 7.8, Cb: 0.66, xg: -4,
   pods: [
-    { label: 'PORT', x: -118, y: -9, Tb: 2.03e6, asternFrac: 0.75, strutArea: 58, D: 6.2, P: 17.6e6, slewMul: 1, thrustMul: 1, alphaOffset: 0 },
-    { label: 'STBD', x: -118, y: 9, Tb: 2.03e6, asternFrac: 0.75, strutArea: 58, D: 6.2, P: 17.6e6, slewMul: 1.04, thrustMul: 0.98, alphaOffset: 0.4 * DEG },
+    { label: 'PORT', x: -125, y: -7.6, Tb: 2.03e6, asternFrac: 0.75, strutArea: 58, D: 6.2, P: 17.6e6, slewMul: 1, thrustMul: 1, alphaOffset: 0 },
+    { label: 'STBD', x: -125, y: 7.6, Tb: 2.03e6, asternFrac: 0.75, strutArea: 58, D: 6.2, P: 17.6e6, slewMul: 1.04, thrustMul: 0.98, alphaOffset: 0.4 * DEG },
   ],
   bowThruster: { x: 128, Tmax: 3 * 210e3, P: 3 * 1.91e6 },
   windage: { AF: 1350, AL: 10500, cx: 0.7, cy: 0.9, cn: 0.1, xw: 4 },
