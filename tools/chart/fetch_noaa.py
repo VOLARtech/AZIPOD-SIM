@@ -31,6 +31,7 @@ for el in root.iter():
 print(f'catalog: {len(cells)} cells')
 hit = [c for c in cells if not (c[1] > N or c[3] < S or c[2] > E or c[4] < W)]
 print('intersecting:', [c[0] for c in hit])
+print(f'::notice::catalog {len(cells)} cells; intersecting {[c[0] for c in hit]}')
 if not cells:
     open(os.path.join(OUT, 'catalog-head.xml'), 'wb').write(cat[:20000])
 
@@ -84,6 +85,6 @@ for name, *_ in hit:
             for k in ('DSPM_CSCL', 'DSID_EDTN', 'DSID_UPDN', 'DSID_ISDT', 'DSPM_VDAT', 'DSPM_SDAT', 'DSPM_DUNI'):
                 i = f.GetFieldIndex(k)
                 if i >= 0: info[k] = f.GetField(i)
-    manifest.append(info); print(json.dumps(info))
+    manifest.append(info); print(json.dumps(info)); print(f"::notice::{name} scale {info.get('DSPM_CSCL')} layers {info['layers']}")
 json.dump({'bbox': [S, W, N, E], 'source': 'NOAA Office of Coast Survey ENC (S-57), public domain', 'cells': manifest},
           open(os.path.join(OUT, 'manifest.json'), 'w'), indent=1)
