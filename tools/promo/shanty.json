@@ -1,0 +1,22 @@
+{
+  "lead": "bm_george",
+  "crew": ["bm_george", "am_michael", "am_adam", "bm_lewis", "am_fenrir", "af_heart", "bf_emma", "af_bella"],
+  "speed": 0.85,
+  "lines": {
+    "v1": "Oh, there once was a ship as long as a town,",
+    "v2": "Her propellers could spin the whole way round.",
+    "v3": "No rudder to steer, and no tug to tow,",
+    "v4": "Just you on the bridge, and the pods below!",
+    "c1": "Haul away, bring her in slow,",
+    "c2": "Point the pods where you want to go!",
+    "c3": "Azipod Bridge, come take the wheel,",
+    "c4": "And bring her in on an even keel!",
+    "w1": "It's a real sea chart into Biscayne Bay,",
+    "w2": "Cut the corner, and aground she'll stay!",
+    "w3": "Watch from the bridge, or the wing up high,",
+    "w4": "At sunset, or under a starry sky.",
+    "t1": "Free on your phone, so come set sail!"
+  },
+  "solo": ["v1", "v2", "v3", "v4", "w1", "w2", "w3", "w4"],
+  "tutti": ["c1", "c2", "c3", "c4", "t1"]
+}
