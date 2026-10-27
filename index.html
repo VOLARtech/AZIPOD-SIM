@@ -156,7 +156,11 @@
         <span class="lbl">Palette</span>
         <div class="seg" id="seg-pal"><button data-v="auto">Auto</button><button data-v="day">Day</button><button data-v="dusk">Dusk</button><button data-v="night">Night</button></div>
         <label class="chk"><input type="checkbox" id="s-truth" /> Show true position (instructor)</label>
+        <label class="chk"><input type="checkbox" id="s-sound" /> Sound: pod motors, propellers, thruster, contact, alarms</label>
+        <label for="s-vol">Volume <output id="o-vol"></output></label><input type="range" id="s-vol" min="0" max="100" step="5" />
+        <label class="chk" id="l-hap"><input type="checkbox" id="s-hap" /> Haptics: lever detents, landings, collisions, grounding</label>
       </div>
+      <p class="note" id="hap-note" hidden>This browser has no vibration support (Safari on iPhone and iPad does not offer it to web apps), so haptics are off here.</p>
       </details>
       <details class="sec"><summary><h2>Pilot card · wheelhouse poster <span class="sub">IMO A.601(15), computed from this model</span></h2></summary>
       <div id="poster"><p class="note">Computing…</p></div>

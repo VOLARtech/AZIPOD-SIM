@@ -18,6 +18,7 @@ import type { Alt, PredictJob, Track } from './physics/predict';
 import { SCENARIOS, Scenario, currentField, depthAt } from './scenarios';
 import { ensureScenario } from './scenes/loaders';
 import { loadEnc } from './ui/enc';
+import { haptic, suspendAudio, uiTick, unlockAudio, updateAudio } from './ui/audio';
 import { S, SPEEDS, ghostInterval } from './ui/state';
 import * as D from './ui/draw';
 import { renderModel, renderPoster, renderTrials, renderValidation, drawPosterPlots } from './ui/sheet';
@@ -328,7 +329,10 @@ class Dial {
   fromEvent(e: PointerEvent) {
     const { dx, dy, R } = this.geom(e);
     if (Math.hypot(dx, dy) < R * 0.18) return;          // centre: no direction, ignore
-    const a = wrap(Math.atan2(dx, -dy));
+    const a = wrap(Math.atan2(dx, -dy)), old = S.cmd.pods[this.i].alpha;
+    const step = (x: number) => Math.floor(((x / DEG) + 360.0001) % 360 / 15);
+    const sa = step(a), so = step(old);
+    if (sa !== so) { const edge = Math.abs(sa - so) > 12 ? 0 : Math.max(sa, so); uiTick(edge % 6 === 0 ? 'cardinal' : 'step'); }   // 15° steps, 90° marks
     for (const j of S.rt.lever === 'twin' ? [0, 1] : [this.i]) S.cmd.pods[j].alpha = a;
   }
   draw() {
@@ -418,7 +422,7 @@ class RpmLever {
       if (S.rt.lever === 'joy') return;
       this.c.setPointerCapture(e.pointerId);
       const now = performance.now();
-      if (now - this.lastTap < 300) { this.lastTap = 0; this.set(0); return; }   // double tap: stop
+      if (now - this.lastTap < 300) { this.lastTap = 0; this.set(0); uiTick('detent'); return; }   // double tap: stop
       this.lastTap = now;
       this.fromEvent(e);
     });
@@ -434,7 +438,13 @@ class RpmLever {
     const r = this.c.getBoundingClientRect(), H = r.height - 2 * this.pad;
     let v = Math.max(-1, Math.min(1, (r.height / 2 - (e.clientY - r.top)) / (H / 2)));
     if (Math.abs(v) < 0.05) v = 0;                      // zero detent
-    this.set(Math.round(v * 100) / 100);
+    v = Math.round(v * 100) / 100;
+    const old = S.cmd.pods[this.i].rpm;
+    if (v !== old) {
+      if (v === 0) uiTick('detent');
+      else if (Math.floor(v * 10) !== Math.floor(old * 10)) uiTick('step');   // every 10 %
+    }
+    this.set(v);
   }
   set(v: number) { for (const j of S.rt.lever === 'twin' ? [0, 1] : [this.i]) S.cmd.pods[j].rpm = v; }
   draw() {
@@ -700,7 +710,18 @@ const syncers = [
 ($('s-gu') as HTMLInputElement).onchange = e => { S.env.gusts = (e.target as HTMLInputElement).checked; applyEnv(); };
 ($('s-static') as HTMLInputElement).onchange = e => { S.pred.staticArc = (e.target as HTMLInputElement).checked; };
 ($('s-truth') as HTMLInputElement).onchange = e => { S.disp.truth = (e.target as HTMLInputElement).checked; };
-const uiSyncs: (() => void)[] = [];
+// sound & haptics
+const sndIn = $<HTMLInputElement>('s-sound'), volIn = $<HTMLInputElement>('s-vol'), hapIn = $<HTMLInputElement>('s-hap');
+const canVibrate = 'vibrate' in navigator;
+$('l-hap').hidden = !canVibrate; $('hap-note').hidden = canVibrate;
+sndIn.onchange = () => { S.disp.sound = sndIn.checked; if (S.disp.sound) unlockAudio(); };
+volIn.oninput = () => { S.disp.vol = +volIn.value / 100; $('o-vol').textContent = `${volIn.value} %`; };
+hapIn.onchange = () => { S.disp.haptics = hapIn.checked; if (hapIn.checked) haptic(30, 0); };
+const syncSound = () => { sndIn.checked = S.disp.sound; volIn.value = String(Math.round(S.disp.vol * 100)); $('o-vol').textContent = `${volIn.value} %`; hapIn.checked = S.disp.haptics && canVibrate; };
+// browsers only start audio from a user gesture
+addEventListener('pointerdown', unlockAudio, { capture: true });
+addEventListener('keydown', unlockAudio, { capture: true });
+const uiSyncs: (() => void)[] = [syncSound];
 function seg(id: string, get: () => string, set: (v: string) => void) {
   const box = $(id);
   const sync = () => box.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === get())));
@@ -764,6 +785,7 @@ function frame(now: number) {
     while (acc >= DT && n < 200) { S.rt.step(DT); acc -= DT; n++; }
     if (n >= 200) acc = 0;
   }
+  updateAudio(dtReal);
   // sheet open: nothing on the chart is visible, save the battery
   if (!$('sheet').hidden) return;
   // paused: redraw at ~12 fps (pan/zoom still responsive enough)
@@ -824,7 +846,7 @@ document.querySelectorAll('details.sec').forEach(d => d.addEventListener('toggle
 addEventListener('orientationchange', () => setTimeout(resize, 250));
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => setTimeout(() => { D.readTheme(); drawPosterPlots(); }, 30));
 new MutationObserver(() => setTimeout(() => { D.readTheme(); drawPosterPlots(); }, 30)).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-document.addEventListener('visibilitychange', () => { if (document.hidden) last = performance.now(); syncWakeLock(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { last = performance.now(); suspendAudio(); } syncWakeLock(); });
 addEventListener('resize', resize);
 persist('azb-settings',
   () => ({ disp: { ...S.disp }, sens: S.sensMode, pred: { mode: S.pred.mode, count: S.pred.count, intervalIdx: S.pred.intervalIdx, source: S.pred.source, staticArc: S.pred.staticArc, alts: [...S.pred.alts] }, speedIdx: S.speedIdx }),
