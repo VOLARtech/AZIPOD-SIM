@@ -3,8 +3,13 @@
 // Frames: NED (n, e, down) → three (x = e, y = up, z = −n); body (x fwd, y stbd, z up) → ship group
 // local (x = y_b, y = z, z = −x_b), group rotation.y = −psi.
 import * as THREE from 'three/webgpu';
-import { abs, cameraPosition, clamp, color, dot, float, fract, mix, normalLocal, normalMap, normalize, positionLocal, positionWorld, pow, step, texture, time, uniform, uv, vec2, vec3 } from 'three/tsl';
+import { abs, builtinAOContext, clamp, color, float, fract, mix, mrt, normalLocal, normalView, pass, positionLocal, screenUV, step, uniform } from 'three/tsl';
+import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
+import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import spiritUrl from './spirit.bin?url';
+import { makeWater } from './water';
+import { Wake } from './wake';
+import { SPEEDS } from '../ui/state';
 import { SHIP } from '../physics/ship';
 import { HULL } from '../physics/contact';
 import { LINE } from '../physics/mooring';
@@ -86,12 +91,14 @@ function waterNormals() {
   return t;
 }
 
-// lighting presets, loosely matched to the chart palettes
+// lighting presets, loosely matched to the chart palettes. Sun elevation / azimuth drive the
+// physical sky (and through it the image-based lighting); night uses the moon as the key light.
 const TOD = {
-  day:   { zenith: 0x5d8fc4, horizon: 0xc9d9e4, water: 0x2f4a55, sun: 0xfff3e0, sunI: 2.6, sunEl: 38, hemiI: 1.3, ground: 0x6b6a5c, fog: [600, 5200], lit: 0 },
-  dusk:  { zenith: 0x2b3656, horizon: 0xe39a68, water: 0x22303c, sun: 0xffa060, sunI: 1.3, sunEl: 4, hemiI: 0.55, ground: 0x3a3030, fog: [400, 4200], lit: 0.35 },
-  night: { zenith: 0x02060c, horizon: 0x0d1724, water: 0x050b12, sun: 0x9fb4d8, sunI: 0.22, sunEl: 30, hemiI: 0.12, ground: 0x0a0a0c, fog: [250, 3200], lit: 1 },
+  day:   { sunEl: 36, sunAz: 215, sun: 0xfff1de, sunI: 3.0, env: 0.9, exposure: 0.5, turb: 2.2, ray: 1.1, water: 0x0d3a44, fog: 0xc6d6e0, fogD: [900, 7000], lit: 0, foam: 0.95, hemi: 0, clouds: 0.35 },
+  dusk:  { sunEl: 3, sunAz: 250, sun: 0xffa868, sunI: 1.6, env: 0.9, exposure: 0.62, turb: 6, ray: 2.2, water: 0x0b222c, fog: 0xc79a80, fogD: [700, 6000], lit: 0.45, foam: 0.6, hemi: 0, clouds: 0.45 },
+  night: { sunEl: -6, sunAz: 250, sun: 0xa8bce0, sunI: 0.9, env: 0.6, exposure: 1.5, turb: 2, ray: 2.5, water: 0x061620, fog: 0x0e1a26, fogD: [350, 4000], lit: 1, foam: 0.3, hemi: 0.45, clouds: 0.2 },
 };
+export type Quality = 'low' | 'high';
 
 // ---------------------------------------------------------------- view
 export class View3D {
@@ -115,11 +122,20 @@ export class View3D {
   private lines: THREE.Line[] = [];
   private track: THREE.Line;
   private trackEnd: THREE.Line;
-  private sky: THREE.Mesh;
-  private water: THREE.Mesh;
+  private sky = new SkyMesh();
+  private water: ReturnType<typeof makeWater> | null = null;
+  private waterNormals = waterNormals();
+  private wake!: Wake;
+  private env: THREE.Texture | null = null;
+  private envRT: { texture: THREE.Texture; dispose(): void } | null = null;
+  private pmrem: THREE.PMREMGenerator | null = null;
+  private pipeline: THREE.RenderPipeline | null = null;
+  private preCam = new THREE.PerspectiveCamera();
+  quality: Quality = 'low';
+  private sunDir = new THREE.Vector3(0, 1, 0);
+  private lastT = 0;
   private sun = new THREE.DirectionalLight(0xffffff, 2);
   private hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
-  private u = { zenith: uniform(new THREE.Color()), horizon: uniform(new THREE.Color()), water: uniform(new THREE.Color()) };
   private tod: TimeOfDay | null = null;
   private stripe: THREE.CanvasTexture;
   private stripeLit: THREE.CanvasTexture;
@@ -128,27 +144,21 @@ export class View3D {
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGPURenderer({ canvas, antialias: true, alpha: false });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.75));
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.scene.add(this.sun, this.sun.target, this.hemi, this.harbour, this.ship);
 
-    // sky dome (follows the camera)
-    const skyM = new THREE.MeshBasicNodeMaterial({ side: THREE.BackSide, depthWrite: false, fog: false });
-    skyM.colorNode = mix(this.u.horizon, this.u.zenith, clamp(normalize(positionLocal).y.mul(3.2), 0, 1));
-    this.sky = new THREE.Mesh(new THREE.SphereGeometry(10000, 24, 12), skyM);
-    this.sky.renderOrder = -1;
+    // physically based sky (Preetham + clouds), follows the camera; layer 1 = not in the AO pre-pass
+    this.sky.scale.setScalar(9000);
+    this.sky.layers.set(1);
     this.scene.add(this.sky);
-
-    // water: two scrolling normal layers, Fresnel blend toward the sky colour
-    const nTex = waterNormals();
-    const wm = new THREE.MeshStandardNodeMaterial({ roughness: 0.3, metalness: 0 });
-    const n1 = texture(nTex, uv().mul(700).add(vec2(time.mul(0.011), time.mul(0.006))));
-    const n2 = texture(nTex, uv().mul(260).add(vec2(time.mul(-0.004), time.mul(0.008))));
-    wm.normalNode = normalMap(n1.add(n2).mul(0.5), vec2(0.42, 0.42));
-    const view = normalize(cameraPosition.sub(positionWorld));
-    const fres = pow(float(1).sub(clamp(dot(view, vec3(0, 1, 0)), 0, 1)), 4);
-    wm.colorNode = mix(this.u.water, this.u.horizon, fres.mul(0.6));
-    const wg = new THREE.PlaneGeometry(16000, 16000); wg.rotateX(-Math.PI / 2);
-    this.water = new THREE.Mesh(wg, wm);
-    this.scene.add(this.water);
+    this.camera.layers.enable(1);
+    // sun shadows: an orthographic box that follows the ship
+    this.sun.castShadow = true;
+    const sc = this.sun.shadow.camera as THREE.OrthographicCamera;
+    sc.left = -260; sc.right = 260; sc.top = 260; sc.bottom = -260; sc.near = 10; sc.far = 3000;
+    this.sun.shadow.bias = -0.0004; this.sun.shadow.normalBias = 0.8;
 
     // balcony / window bands, 2.9 m deck pitch (ExtrudeGeometry side UVs are in metres)
     this.stripe = canvasTex(4, 64, c => {
@@ -174,6 +184,53 @@ export class View3D {
     await this.renderer.init();
     const be = (this.renderer as unknown as { backend: { isWebGPUBackend?: boolean } }).backend;
     this.backend = be?.isWebGPUBackend ? 'WebGPU' : 'WebGL2';
+    this.pmrem = new THREE.PMREMGenerator(this.renderer);
+  }
+
+  /** Low: phones (sky reflections, 1k shadows). High: planar reflections, ambient occlusion, 2k shadows. */
+  setQuality(q: Quality) {
+    if (q === this.quality && this.wake) return;
+    this.quality = q;
+    const high = q === 'high';
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, high ? 1.5 : 1.75));
+    this.sun.shadow.mapSize.set(high ? 2048 : 1024, high ? 2048 : 1024);
+    this.sun.shadow.map?.dispose(); (this.sun.shadow as unknown as { map: null }).map = null;
+    if (this.wake) { this.scene.remove(this.wake.mesh); this.wake.mesh.dispose(); }
+    this.wake = new Wake(high ? 1800 : 700);
+    this.scene.add(this.wake.mesh);
+    this.makeWater();
+    this.pipeline?.dispose(); this.pipeline = null;
+    if (high) {
+      // ambient occlusion: normals/depth pre-pass (without sky and water), GTAO at half resolution,
+      // applied to the indirect light of the main pass
+      this.preCam.layers.set(0);
+      const prePass = pass(this.scene, this.preCam);
+      prePass.setMRT(mrt({ output: normalView }));
+      const aoPass = ao(prePass.getTextureNode('depth'), prePass.getTextureNode(), this.preCam);
+      aoPass.resolutionScale = 0.5;
+      aoPass.radius.value = 0.6; aoPass.distanceFallOff.value = 1.2;
+      const scenePass = pass(this.scene, this.camera);
+      scenePass.contextNode = builtinAOContext(aoPass.getTextureNode().sample(screenUV).r);
+      this.pipeline = new THREE.RenderPipeline(this.renderer);
+      this.pipeline.outputNode = scenePass;
+    }
+    if (this.tod) { const t = this.tod; this.tod = null; this.setTime(t); }
+  }
+  private makeWater() {
+    if (this.water) { this.scene.remove(this.water.mesh); this.water.mesh.geometry.dispose(); }
+    this.water = makeWater(this.waterNormals, this.env, this.quality === 'high');
+    this.water.mesh.layers.set(1);
+    const s = S.sc?.start;
+    if (s) this.water.mesh.position.set(s.e, 0, -s.n);
+    this.water.mesh.renderOrder = 1;
+    this.scene.add(this.water.mesh);
+    if (this.tod) this.applyWaterTod(TOD[this.tod]);
+  }
+  private applyWaterTod(p: typeof TOD.day) {
+    if (!this.water) return;
+    this.water.u.waterColor.value.set(p.water);
+    this.water.u.sunColor.value.set(p.sun).multiplyScalar(p.sunEl > 0 ? 1 : 0.15);
+    this.water.u.sunDir.value.copy(this.sunDir);
   }
 
   resize(w: number, h: number) {
@@ -214,14 +271,18 @@ export class View3D {
       l.frustumCulled = false; l.visible = false; this.scene.add(l);
       return l;
     });
+    this.harbour.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.receiveShadow = true; o.castShadow = true; } });
+    for (const t of this.tugs) t.traverse(o => { if ((o as THREE.Mesh).isMesh) o.castShadow = o.receiveShadow = true; });
+    if (!SHIP.look.model) this.ship.traverse(o => { if ((o as THREE.Mesh).isMesh) o.castShadow = o.receiveShadow = true; });
     const s = S.sc.start;
-    this.water.position.set(s.e, 0, -s.n);
+    this.water?.mesh.position.set(s.e, 0, -s.n);
+    this.wake?.reset();
   }
 
   private buildHarbour() {
     const g = this.harbour; this.clear(g); this.fenders = [];
     const sc = S.sc, LH = sc.landHeight ?? 2;
-    const quayM = this.mat(0x6f6d68, { rough: 0.95 }), pierM = this.mat(0x66625b, { rough: 0.95 });
+    const quayM = this.mat(0x858176, { rough: 0.95 }), pierM = this.mat(0x7a756b, { rough: 0.95 });
     const edgeM = this.mat(0x3b3a37, { rough: 0.9 });
     if (sc.obstacles.length <= 40) {
       for (const ob of sc.obstacles) {
@@ -373,7 +434,7 @@ export class View3D {
     const vertical = float(1).sub(step(0.3, abs(nrm.y))), upward = step(0.85, nrm.y), side = step(0.75, abs(nrm.x));
     const band = (lo: number, hi: number) => step(lo, y).mul(float(1).sub(step(hi, y)));
     const C = (h: string) => color(new THREE.Color(h));
-    let col = mix(C('#f3f3f0'), C('#d4d2ca'), upward);
+    let col = mix(C('#eceee9'), C('#cfccc3'), upward);
     const glassMask = vertical.mul(band(18.8, 29.2)).mul(step(0.38, fract(y.sub(18.8).div(2.95))))
       .add(vertical.mul(band(29.2, 33.7)))
       .add(vertical.mul(band(25.4, 29.7)).mul(step(z, -114.8)))
@@ -383,27 +444,42 @@ export class View3D {
     col = mix(col, C('#c8102e'), side.mul(band(5.3, 5.85)));          // sheer stripe
     col = mix(col, C('#1f3a8c'), band(0.35, 1.5));                     // boot top
     col = mix(col, C('#a3161c'), float(1).sub(step(0.35, y)));         // antifouling
+    // balcony dividers: the dark bands are broken into individual balconies every 3.6 m
+    const divider = step(0.93, fract(z.div(3.6))).mul(vertical).mul(band(18.8, 29.2));
+    col = mix(col, C('#eceee9'), divider.mul(0.85));
     const lit = uniform(0);
     this.modelLit = lit;
-    const body = new THREE.MeshStandardNodeMaterial({ roughness: 0.45, metalness: 0.05, flatShading: true });
+    // painted steel: semi-gloss; glass: smooth and mirror-like so it picks up the sky
+    const glassOnly = glass.mul(float(1).sub(divider));
+    const body = new THREE.MeshStandardNodeMaterial();
     body.colorNode = col;
-    body.emissiveNode = C('#ffcf8a').mul(glass).mul(lit).mul(0.9);
+    body.roughnessNode = mix(float(0.34), float(0.07), glassOnly);
+    body.metalnessNode = mix(float(0.0), float(0.55), glassOnly);
+    body.emissiveNode = C('#ffcf8a').mul(glassOnly).mul(lit).mul(0.9);
     const MATS = [body,
-      new THREE.MeshStandardNodeMaterial({ color: '#c8102e', roughness: 0.4, flatShading: true }),     // funnel
-      new THREE.MeshStandardNodeMaterial({ color: '#a97c50', roughness: 0.8, flatShading: true }),     // teak
-      new THREE.MeshStandardNodeMaterial({ color: '#f26b1d', roughness: 0.5, flatShading: true })];    // lifeboats
+      new THREE.MeshStandardNodeMaterial({ color: '#a50a1f', roughness: 0.35 }),     // funnel
+      new THREE.MeshStandardNodeMaterial({ color: '#a97c50', roughness: 0.75 }),    // teak
+      new THREE.MeshStandardNodeMaterial({ color: '#f26b1d', roughness: 0.45 })];   // lifeboats
+    if (new TextDecoder().decode(new Uint8Array(buf, 0, 4)) !== 'SHP2') throw new Error('ship model: expected SHP2');
+    const pad = (v: number) => (4 - (v % 4)) % 4;
     for (let k = 0; k < n; k++) {
       const cls = dv.getUint8(o); const nv = dv.getUint32(o + 1, true), ni = dv.getUint32(o + 5, true); o += 9;
-      const pos = new Float32Array(nv * 3);
+      const pos = new Float32Array(nv * 3), nor = new Float32Array(nv * 3);
       for (let i = 0; i < nv * 3; i++) pos[i] = dv.getInt16(o + i * 2, true) * 0.005;
-      o += nv * 6;
+      o += nv * 6; o += pad(nv * 6);
+      for (let i = 0; i < nv * 3; i++) nor[i] = dv.getInt8(o + i) / 127;
+      o += nv * 3; o += pad(nv * 3);
       const big = nv > 65535, idx = big ? new Uint32Array(ni) : new Uint16Array(ni);
       for (let i = 0; i < ni; i++) idx[i] = big ? dv.getUint32(o + i * 4, true) : dv.getUint16(o + i * 2, true);
-      o += ni * (big ? 4 : 2); o += (4 - ((nv * 6 + ni * (big ? 4 : 2)) % 4)) % 4;
-      let geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setIndex(new THREE.BufferAttribute(idx, 1));
-      geo = geo.toNonIndexed(); geo.computeVertexNormals();          // flat normals: crisp CAD edges, clean paint masks
-      g.add(new THREE.Mesh(geo, MATS[cls] ?? body));
+      o += ni * (big ? 4 : 2); o += pad(ni * (big ? 4 : 2));
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));   // creased smooth normals from the converter
+      geo.setIndex(new THREE.BufferAttribute(idx, 1));
+      geo.computeBoundingSphere();
+      const mesh = new THREE.Mesh(geo, MATS[cls] ?? body);
+      mesh.castShadow = mesh.receiveShadow = true;
+      g.add(mesh);
     }
     if (this.tod) { const t = this.tod; this.tod = null; this.setTime(t); }
   }
@@ -436,21 +512,50 @@ export class View3D {
   setTime(tod: TimeOfDay) {
     if (tod === this.tod) return;
     this.tod = tod;
-    const p = TOD[tod];
-    this.u.zenith.value.set(p.zenith); this.u.horizon.value.set(p.horizon); this.u.water.value.set(p.water);
-    this.scene.fog = new THREE.Fog(p.horizon, p.fog[0], p.fog[1]);
+    const p = TOD[tod], DEG = Math.PI / 180;
+    const el = p.sunEl * DEG, az = p.sunAz * DEG;
+    this.sunDir.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
+    const sky = this.sky as unknown as Record<string, { value: number | THREE.Vector3 }>;
+    (sky.sunPosition.value as THREE.Vector3).copy(this.sunDir);
+    sky.turbidity.value = p.turb; sky.rayleigh.value = p.ray;
+    if (sky.cloudCoverage) sky.cloudCoverage.value = p.clouds;
+    this.renderer.toneMappingExposure = p.exposure;
+    // the physical sky has nothing to show after dusk: a deep navy night sky instead
+    this.sky.visible = tod !== 'night';
+    this.scene.background = tod === 'night' ? new THREE.Color(0x0a1420) : null;
+    this.scene.fog = new THREE.Fog(p.fog, p.fogD[0], p.fogD[1]);
+    // key light: the sun, or the moon at night
+    this.keyDir = p.sunEl > 0 ? this.sunDir.clone() : new THREE.Vector3(0.55, 0.6, 0.35).normalize();
     this.sun.color.set(p.sun); this.sun.intensity = p.sunI;
-    this.hemi.color.set(p.zenith).lerp(new THREE.Color(0xffffff), 0.5); this.hemi.groundColor.set(p.ground); this.hemi.intensity = p.hemiI;
-    this.sunEl = p.sunEl;
+    this.hemi.color.set(0x8fa6c4); this.hemi.groundColor.set(0x1a1c20); this.hemi.intensity = p.hemi;
+    // image-based lighting from the same sky
+    if (this.pmrem) {
+      const envScene = new THREE.Scene(), envSky = new SkyMesh();
+      const es = envSky as unknown as Record<string, { value: number | THREE.Vector3 }>;
+      (es.sunPosition.value as THREE.Vector3).copy(this.sunDir); es.turbidity.value = p.turb; es.rayleigh.value = p.ray;
+      if (es.cloudCoverage) es.cloudCoverage.value = p.clouds;
+      if (es.showSunDisc) es.showSunDisc.value = 0;
+      envSky.scale.setScalar(900); envScene.add(envSky);
+      const rt = this.pmrem.fromScene(envScene, 0, 0.5, 2000);
+      this.envRT?.dispose(); this.envRT = rt; this.env = rt.texture;
+      this.scene.environment = this.env;
+      (this.scene as unknown as { environmentIntensity: number }).environmentIntensity = p.env;
+      envSky.geometry.dispose();
+    }
+    if (this.quality === 'low') this.makeWater(); else this.applyWaterTod(p);
+    if (this.wake) this.wake.tint.value.setScalar(p.foam);
     for (const m of this.lit) m.emissiveIntensity = p.lit;
     if (this.modelLit) this.modelLit.value = p.lit;
     for (const l of this.navLights) l.visible = tod !== 'day';
     for (const l of this.lamps) l.visible = tod !== 'day';
   }
-  private sunEl = 38;
+  private keyDir = new THREE.Vector3(0.5, 0.6, 0.5).normalize();
 
   render() {
     const rt = S.rt, st = rt.state, psi = st.psi;
+    const now = performance.now(), dtReal = this.lastT ? Math.min(0.1, (now - this.lastT) / 1000) : 0;
+    this.lastT = now;
+    const simDt = S.paused ? 0 : dtReal * SPEEDS[S.speedIdx];
     const c = Math.cos(psi), s = Math.sin(psi);
     const w2 = (x: number, y: number, z = 0) => tp(st.n + x * c - y * s, st.e + x * s + y * c, z);
     // own ship: true pose (out of the window is reality, not the sensor estimate); squat as sinkage
@@ -514,14 +619,21 @@ export class View3D {
       this.trackEnd.geometry.setFromPoints([...HULL, HULL[0]].map(([x, y]) => tp(e.n + x * ce - y * se, e.e + x * se + y * ce, 0.6)));
     }
 
-    // sun from the south-west quarter
-    const el = this.sunEl * Math.PI / 180, az = 215 * Math.PI / 180;
-    this.sun.position.set(st.e + Math.sin(az) * Math.cos(el) * 1000, Math.sin(el) * 1000, -(st.n + Math.cos(az) * Math.cos(el) * 1000));
+    // foam: pod wash, thruster jets, bow wave, stern wake
+    if (this.wake) {
+      const [hxa, hxb] = hullX();
+      this.wake.update(rt, SHIP, simDt, halfB, hxb, hxa);
+    }
+    // key light and its shadow box ride with the ship
+    this.sun.position.set(st.e + this.keyDir.x * 1500, this.keyDir.y * 1500, -st.n + this.keyDir.z * 1500);
     this.sun.target.position.set(st.e, 0, -st.n);
 
     this.placeCamera(w2, psi);
     this.sky.position.copy(this.camera.position);
-    this.renderer.render(this.scene, this.camera);
+    if (this.pipeline) {
+      this.preCam.copy(this.camera); this.preCam.layers.set(0);
+      this.pipeline.render();
+    } else this.renderer.render(this.scene, this.camera);
   }
 
   private placeCamera(w2: (x: number, y: number, z?: number) => THREE.Vector3, psi: number) {

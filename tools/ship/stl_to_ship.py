@@ -7,8 +7,9 @@ dark glass, funnel, decks, lifeboats). Output frame = the ship group's local fra
 X = starboard, Y = up (0 at the design waterline), Z = aft, metres, origin at the CG.
 
 usage: stl_to_ship.py model.stl out.bin --loa 292.5 --draught 7.8 --bow-x 155.8 [--bow -x]
-format: 'SHP1', u32 nClasses, then per class: u8 class, u32 nVerts, u32 nIdx,
-        i16 xyz[nVerts] (×0.005 m), u16|u32 idx[nIdx] (u32 when nVerts > 65535)
+format: 'SHP2', u32 nClasses, then per class: u8 class, u32 nVerts, u32 nIdx,
+        i16 xyz[nVerts] (×0.005 m), pad4, i8 normal xyz[nVerts] (×1/127), pad4,
+        u16|u32 idx[nIdx] (u32 when nVerts > 65535), pad4. Normals are creased at ~38°.
 """
 import argparse, struct
 import numpy as np
@@ -63,17 +64,40 @@ P = np.stack([V[..., 1], V[..., 2] - T, -bx], -1)  # (n, 3, 3)
 Q = np.round(P / 0.005).astype(np.int32)
 assert np.abs(Q).max() < 32767
 
-out = [b'SHP1', struct.pack('<I', len(np.unique(cls)))]
+def crease_normals(tri, cos_lim=np.cos(np.radians(38))):
+    """Smooth normals that stay sharp across edges steeper than ~38° (hard chines, deck edges)."""
+    Pq = np.round(tri / 0.005).astype(np.int64).reshape(-1, 3)
+    uniq, vid = np.unique(Pq, axis=0, return_inverse=True); vid = vid.reshape(-1, 3)
+    fn = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]); area = np.linalg.norm(fn, axis=1) + 1e-12
+    fu = fn / area[:, None]
+    corner_v = vid.reshape(-1); corner_f = np.repeat(np.arange(len(tri)), 3)
+    order = np.argsort(corner_v, kind='stable'); cv, cf = corner_v[order], corner_f[order]
+    starts = np.flatnonzero(np.r_[True, cv[1:] != cv[:-1]]); ends = np.r_[starts[1:], len(cv)]
+    out = np.zeros((len(corner_v), 3))
+    for a0, b0 in zip(starts, ends):
+        fs = cf[a0:b0]; nf = fu[fs]
+        w = (nf @ nf.T > cos_lim) * area[fs][None, :]
+        nrm = w @ nf
+        nrm /= np.linalg.norm(nrm, axis=1, keepdims=True) + 1e-12
+        out[order[a0:b0]] = nrm
+    return out.reshape(-1, 3, 3)
+
+out = [b'SHP2', struct.pack('<I', len(np.unique(cls)))]
 tot = 0
+P_m = P.copy()
 for k in np.unique(cls):
-    tri = Q[cls == k].reshape(-1, 3)
-    uniq, inv = np.unique(tri, axis=0, return_inverse=True)
-    inv = inv.reshape(-1)
+    tri = P_m[cls == k]
+    nrm = crease_normals(tri)
+    q = np.round(tri.reshape(-1, 3) / 0.005).astype(np.int32)
+    nq = np.round(nrm.reshape(-1, 3) * 127).astype(np.int32)
+    key = np.concatenate([q, nq], 1)
+    uniq, inv = np.unique(key, axis=0, return_inverse=True); inv = inv.reshape(-1)
     big = len(uniq) > 65535
-    out.append(struct.pack('<BII', int(k), len(uniq), len(inv)))
-    out.append(uniq.astype('<i2').tobytes())
-    out.append(inv.astype('<u4' if big else '<u2').tobytes())
-    if (len(uniq) * 6 + len(inv) * (4 if big else 2)) % 4: out.append(b'\0' * (4 - (len(uniq) * 6 + len(inv) * (4 if big else 2)) % 4))
-    tot += len(uniq)
+    pos = uniq[:, :3].astype('<i2').tobytes(); nb = uniq[:, 3:].astype('i1').tobytes()
+    blk = struct.pack('<BII', int(k), len(uniq), len(inv)) + pos
+    blk += b'\0' * ((-len(pos)) % 4) + nb + b'\0' * ((-len(nb)) % 4)
+    ib = inv.astype('<u4' if big else '<u2').tobytes()
+    blk += ib + b'\0' * ((-len(ib)) % 4)
+    out.append(blk); tot += len(uniq)
 open(args.out, 'wb').write(b''.join(out))
 print('scale', round(s, 4), 'verts', tot, 'bytes', sum(len(b) for b in out))

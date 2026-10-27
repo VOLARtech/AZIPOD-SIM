@@ -126,6 +126,11 @@ $('b-cam').onclick = () => {
   if (v3) v3.cam = S.disp.cam;
   syncButtons();
 };
+/** Auto: High (reflections, ambient occlusion) on desktops, Low on phones and tablets. */
+function gfxQuality(backend: string): 'low' | 'high' {
+  if (S.disp.gfx !== 'auto') return S.disp.gfx;
+  return matchMedia('(pointer: coarse)').matches || !backend ? 'low' : 'high';
+}
 async function ensure3d() {
   if (v3 || v3Loading) return;
   v3Loading = true; $('v3d-tag').textContent = 'LOADING 3D…';
@@ -133,6 +138,7 @@ async function ensure3d() {
     const m = await import('./view3d/view');
     const v = await m.createView($<HTMLCanvasElement>('c3d'));
     v.cam = S.disp.cam;
+    v.setQuality(gfxQuality(v.backend));
     v3 = v; v.build(); layout3d();
     $('v3d-tag').textContent = v.backend;
   } catch (err) {
@@ -735,6 +741,7 @@ seg('seg-src', () => S.pred.source, v => (S.pred.source = v as 'ideal' | 'onboar
 seg('seg-sens', () => S.sensMode, v => { S.sensMode = v as typeof S.sensMode; S.rt.sensors.mode = S.sensMode; });
 seg('seg-detail', () => S.disp.detail, v => (S.disp.detail = v as 'clean' | 'full'));
 seg('seg-unit', () => S.disp.unit, v => (S.disp.unit = v as typeof S.disp.unit));
+seg('seg-gfx', () => S.disp.gfx, v => { S.disp.gfx = v as typeof S.disp.gfx; v3?.setQuality(gfxQuality(v3.backend)); });
 seg('seg-pal', () => S.disp.palette, v => {
   S.disp.palette = v as typeof S.disp.palette;
   if (v === 'auto') document.documentElement.removeAttribute('data-palette'); else document.documentElement.setAttribute('data-palette', v);
