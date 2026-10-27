@@ -1,0 +1,25 @@
+# Fetches OpenStreetMap scenery (© OpenStreetMap contributors, ODbL) for a box and commits it
+# to the `chart-data` branch. Manual only.
+name: osm data
+on:
+  workflow_dispatch:
+    inputs:
+      name: { description: 'area id', default: 'miami' }
+      bbox: { description: 'S W N E (degrees)', default: '25.745 -80.215 25.805 -80.110' }
+permissions:
+  contents: write
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: mkdir -p /tmp/out && python3 tools/osm/fetch_osm.py ${{ inputs.bbox }} /tmp/out/osm.json
+      - name: commit to chart-data branch
+        run: |
+          trap 'echo "::error::commit step failed at line $LINENO: $BASH_COMMAND"' ERR
+          git config user.name "chart-bot"; git config user.email "chart-bot@users.noreply.github.com"
+          git fetch origin chart-data
+          git checkout -B chart-data origin/chart-data
+          mkdir -p "${{ inputs.name }}"; cp /tmp/out/osm.json "${{ inputs.name }}/osm.json"
+          git add "${{ inputs.name }}/osm.json"; git commit -qm "osm data: ${{ inputs.name }} (${{ inputs.bbox }})" || echo "no change"
+          git push origin chart-data 2>&1 | tail -2 | while read -r l; do echo "::warning::$l"; done
