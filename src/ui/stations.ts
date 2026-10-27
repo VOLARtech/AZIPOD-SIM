@@ -8,6 +8,7 @@ import { S } from './state';
 import * as D from './draw';
 import { uiTick } from './audio';
 import { BAND, jetJoystick, jetToLever, leverToJet } from '../physics/units/jet';
+import { capability } from '../physics/dp';
 
 export interface Station {
   root: HTMLElement;
@@ -797,5 +798,189 @@ export function buildJetStation(host: HTMLElement): Station {
     },
     resize() { for (const c of canvases) c.resize(); },
     zero() { zero(); mid(); S.cmd.bt = 0; if (btEl) btEl.value = '0'; },
+  };
+}
+
+// ================================================================ dynamic positioning
+/** Position plot about the setpoint: alarm rings, the voted position, each reference, the heading error. */
+class PosPlot extends Canvas {
+  trail: [number, number][] = [];
+  private t = 0;
+  constructor() { super('posplot', 'DP position plot: setpoint at the centre, warning and alarm rings'); }
+  draw() {
+    const d = S.rt.dps; if (!d || this.w < 60) return;
+    const g = this.begin(), cx = this.w / 2, cy = this.h / 2 - 6, R = Math.min(this.w, this.h - 16) / 2 - 6;
+    const span = 10, k = R / span, sp = d.sp, psi = S.rt.sensors.out.est.psi;
+    // ship-up plot: rotate north-east offsets into ship axes
+    const toXY = (n: number, e: number) => { const dn = n - sp.n, de = e - sp.e, c = Math.cos(psi), s2 = Math.sin(psi); const ax = c * dn + s2 * de, ay = -s2 * dn + c * de; return [cx + ay * k, cy - ax * k] as const; };
+    if (S.rt.state.t - this.t > 1) { this.t = S.rt.state.t; this.trail.push([d.pos.n, d.pos.e]); if (this.trail.length > 90) this.trail.shift(); }
+    g.fillStyle = D.C['panel-solid']; g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill();
+    for (const [r, col, dash] of [[2.5, D.C.muted, [2, 3]], [5, D.C.warn, [4, 3]], [10, D.C.rule, []]] as [number, string, number[]][]) {
+      g.strokeStyle = col; g.lineWidth = 1.2; g.setLineDash(dash); g.beginPath(); g.arc(cx, cy, r * k, 0, Math.PI * 2); g.stroke();
+    }
+    g.setLineDash([]); g.strokeStyle = D.C.rule; g.lineWidth = 1; g.beginPath(); g.moveTo(cx - R, cy); g.lineTo(cx + R, cy); g.moveTo(cx, cy - R); g.lineTo(cx, cy + R); g.stroke();
+    // trail
+    g.strokeStyle = D.C.muted; g.lineWidth = 1.2; g.beginPath();
+    this.trail.forEach(([n, e], i) => { const [x, y] = toXY(n, e); if (i) g.lineTo(x, y); else g.moveTo(x, y); }); g.stroke();
+    // references
+    const est = S.rt.sensors.out.est, st = S.rt.state;
+    d.refs.forEach((r, i) => {
+      const base = r.name === 'HPR' ? [st.n, st.e] : [est.n, est.e];
+      const [x, y] = toXY(base[0] + r.off[0], base[1] + r.off[1]);
+      g.fillStyle = !r.on ? D.C.rule : r.rejected ? D.C.warn : D.C.muted;
+      this.font(9, 700); g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(['1', '2', 'H'][i], Math.max(6, Math.min(this.w - 6, x)), Math.max(6, Math.min(this.h - 6, y)));
+    });
+    // voted position and heading error
+    const [px, py] = toXY(d.pos.n, d.pos.e), err = Math.hypot(d.pos.n - sp.n, d.pos.e - sp.e);
+    const ep = Math.atan2(Math.sin(sp.psi - psi), Math.cos(sp.psi - psi));
+    g.strokeStyle = g.fillStyle = err > 5 ? D.C.warn : D.C.own; g.lineWidth = 2.5;
+    g.beginPath(); g.arc(Math.max(4, Math.min(this.w - 4, px)), Math.max(4, Math.min(this.h - 20, py)), 5, 0, Math.PI * 2); g.stroke();
+    // heading: the setpoint mark on the rim, offset from the ship's head by the heading error
+    const hx = cx + Math.sin(ep) * R, hy = cy - Math.cos(ep) * R;
+    g.strokeStyle = D.C.ink; g.lineWidth = 2; g.beginPath(); g.moveTo(cx, cy - R + 2); g.lineTo(cx, cy - R + 12); g.stroke();
+    g.fillStyle = D.C.own; g.beginPath(); g.arc(hx, hy, 3.5, 0, Math.PI * 2); g.fill();
+    this.num(11); g.fillStyle = err > 5 ? D.C.warn : D.C.ink; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    g.fillText(`${err.toFixed(1)} m · ${(ep / DEG >= 0 ? '+' : '') + (ep / DEG).toFixed(1)}°`, cx, this.h - 1);
+  }
+}
+
+/** One mini dial per thruster: forbidden sectors, actual thrust vector, order; tunnels and shafts as bars. */
+class ThrusterPanel extends Canvas {
+  constructor() { super('thrp', 'Thrusters: actual thrust, order and forbidden sectors'); }
+  draw() {
+    const d = S.rt.dps; if (!d || this.w < 60) return;
+    const g = this.begin(), n = d.acts.length, cw = this.w / n, av = d.avail();
+    d.acts.forEach((a, k) => {
+      const cx = cw * (k + 0.5), cy = this.h / 2 - 6, R = Math.min(cw / 2 - 4, this.h / 2 - 16);
+      const util = d.last?.util[k] ?? 0, out = !av[k];
+      this.font(8.5, 700); g.fillStyle = out ? D.C.warn : D.C.muted; g.textAlign = 'center'; g.textBaseline = 'top';
+      g.fillText(out ? (d.faults.blackout > 0 ? 'NO POWER' : (d.faults.restart[k] ?? 0) > 0 ? 'STARTING' : 'TRIPPED') : a.label, cx, 0);
+      if (a.kind === 'azi') {
+        g.fillStyle = D.C['panel-solid']; g.strokeStyle = D.C.rule; g.lineWidth = 1;
+        g.beginPath(); g.arc(cx, cy + 4, R, 0, Math.PI * 2); g.fill(); g.stroke();
+        g.fillStyle = D.C.warn; g.globalAlpha = 0.25;
+        for (const [a0, a1] of a.forbid) { g.beginPath(); g.moveTo(cx, cy + 4); g.arc(cx, cy + 4, R, a0 - Math.PI / 2, a1 - Math.PI / 2); g.closePath(); g.fill(); }
+        g.globalAlpha = 1;
+        const ps = S.rt.state.pods[a.unit], c = S.cmd.pods[a.unit], L = R * Math.min(1, ps.rpm * ps.rpm);
+        g.strokeStyle = out ? D.C.warn : D.C.ink; g.lineWidth = 3; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(cx, cy + 4); g.lineTo(cx + Math.sin(ps.alpha) * L, cy + 4 - Math.cos(ps.alpha) * L); g.stroke();
+        g.fillStyle = D.C.own; g.beginPath(); g.arc(cx + Math.sin(c.alpha) * R, cy + 4 - Math.cos(c.alpha) * R, 3, 0, Math.PI * 2); g.fill();
+      } else {
+        const v = a.kind === 'tunnel' ? (a.unit === -1 ? S.rt.state.bt : S.rt.state.sbt ?? 0) : (S.rt.state.pods[a.unit].pitch ?? S.rt.state.pods[a.unit].rpm);
+        const horiz = a.kind === 'tunnel', len = R * 1.7;
+        g.fillStyle = D.C.rule;
+        if (horiz) g.fillRect(cx - len / 2, cy + 2, len, 5); else g.fillRect(cx - 2.5, cy + 4 - len / 2, 5, len);
+        g.fillStyle = out ? D.C.warn : D.C.ink;
+        if (horiz) g.fillRect(cx, cy + 1, v * len / 2, 7); else g.fillRect(cx - 3.5, cy + 4, 7, -v * len / 2);
+      }
+      this.num(9.5); g.fillStyle = D.C.ink; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+      g.fillText(`${Math.round(util * 100)}%`, cx, this.h - 1);
+    });
+  }
+}
+
+/** Capability plot: the wind she can hold, by direction off the bow, intact and after the worst single failure. */
+class CapPlot extends Canvas {
+  cap: ReturnType<typeof capability> | null = null;
+  constructor() { super('capplot', 'DP capability: wind speed held by direction, intact and after the worst failure'); }
+  draw() {
+    if (!this.cap || this.w < 60) return;
+    const g = this.begin(), cx = this.w / 2, cy = this.h / 2 - 6, R = Math.min(this.w, this.h - 16) / 2 - 8, vmax = 70;
+    g.strokeStyle = D.C.rule; g.lineWidth = 1;
+    for (const v of [20, 40, 60]) { g.beginPath(); g.arc(cx, cy, v / vmax * R, 0, Math.PI * 2); g.stroke(); }
+    // hull outline at the centre
+    g.fillStyle = D.C.muted; g.beginPath(); g.ellipse(cx, cy, R * 0.07, R * 0.22, 0, 0, Math.PI * 2); g.fill();
+    const curve = (v: number[], col: string, dash: number[]) => {
+      g.strokeStyle = col; g.lineWidth = 2; g.setLineDash(dash); g.beginPath();
+      v.forEach((kn, i) => { const a = i * 2 * Math.PI / v.length, r = Math.min(vmax, kn) / vmax * R; const x = cx + Math.sin(a) * r, y = cy - Math.cos(a) * r; if (i) g.lineTo(x, y); else g.moveTo(x, y); });
+      g.closePath(); g.stroke(); g.setLineDash([]);
+    };
+    curve(this.cap.intact, D.C.ink, []);
+    curve(this.cap.worst, D.C.warn, [4, 3]);
+    // the wind now, relative to the bow
+    const w = S.rt.env.windSpeed / 0.514444, rel = S.rt.env.windFrom - S.rt.state.psi, rw = Math.min(vmax, w) / vmax * R;
+    g.fillStyle = D.C.own; g.beginPath(); g.arc(cx + Math.sin(rel) * rw, cy - Math.cos(rel) * rw, 4.5, 0, Math.PI * 2); g.fill();
+    this.font(8.5); g.fillStyle = D.C.muted; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    g.fillText(`kn · 1 kn current · worst: ${this.cap.worstUnit}`, cx, this.h - 1);
+  }
+}
+
+/** DP console: modes, joystick, position plot, thrusters, capability, references, instructor faults. */
+export function buildDpStation(host: HTMLElement): Station {
+  host.innerHTML = '';
+  const canvases: Canvas[] = [];
+  const cell = (title: string, right = '', cls = '') => {
+    const d = document.createElement('section'); d.className = 'cell ' + cls;
+    d.innerHTML = `<div class="tag"><span>${title}</span><b>${right}</b></div>`; host.appendChild(d); return d;
+  };
+  const dps = () => S.rt.dps!;
+  // modes and setpoint
+  const mc = cell('DP mode', '', 'dpmode');
+  mc.insertAdjacentHTML('beforeend', `<div class="row wrap">${[['joy', 'JOYSTICK'], ['hdg', 'AUTO HDG'], ['auto', 'AUTO POS']].map(([m, t]) => `<button class="cb" data-m="${m}">${t}</button>`).join('')}</div>
+    <div class="row wrap sp">${[['f', '▲ 5 m'], ['a', '▼ 5 m'], ['p', '◀ 5 m'], ['s', '▶ 5 m'], ['l', '↺ 5°'], ['r', '↻ 5°']].map(([k, t]) => `<button class="cb" data-sp="${k}">${t}</button>`).join('')}</div>`);
+  const modeBtns = [...mc.querySelectorAll<HTMLButtonElement>('[data-m]')];
+  const setMode = (m: 'joy' | 'hdg' | 'auto') => { dps().setMode(m, S.rt.sensors.out.est); uiTick('detent'); };
+  modeBtns.forEach(b => (b.onclick = () => setMode(b.dataset.m as 'joy')));
+  const move = (k: string) => { const d = dps(); if (k === 'f') d.move(5, 0, 0); if (k === 'a') d.move(-5, 0, 0); if (k === 'p') d.move(0, -5, 0); if (k === 's') d.move(0, 5, 0); if (k === 'l') d.move(0, 0, -5 * DEG); if (k === 'r') d.move(0, 0, 5 * DEG); uiTick('step'); };
+  mc.querySelectorAll<HTMLButtonElement>('[data-sp]').forEach(b => (b.onclick = () => move(b.dataset.sp!)));
+  // joystick
+  const jc = cell('Joystick', '', 'dpjoy');
+  const joy = new JetJoy(); jc.appendChild(joy.c); canvases.push(joy);
+  // position plot
+  const pc = cell('Position', 'SETPOINT', 'dppos');
+  const pos = new PosPlot(); pc.appendChild(pos.c); canvases.push(pos);
+  // thrusters
+  const tc = cell('Thrusters', `${dps().acts.length} UNITS`, 'dpthr');
+  const thr = new ThrusterPanel(); tc.appendChild(thr.c); canvases.push(thr);
+  // capability
+  const cc = cell('Capability', 'INTACT · WORST', 'dpcap');
+  const cap = new CapPlot(); cc.appendChild(cap.c); canvases.push(cap);
+  setTimeout(() => { cap.cap = capability(SHIP, dps().acts); }, 30);
+  // references, alarms, instructor
+  const rc = cell('References · alarms', '', 'status dpref');
+  const stat = document.createElement('div'); stat.className = 'stat'; rc.appendChild(stat);
+  const refRow = document.createElement('div'); refRow.className = 'row wrap'; rc.appendChild(refRow);
+  refRow.innerHTML = dps().refs.map((r, i) => `<button class="cb" data-r="${i}">${r.name}</button>`).join('');
+  refRow.querySelectorAll<HTMLButtonElement>('[data-r]').forEach(b => (b.onclick = () => { const r = dps().refs[+b.dataset.r!]; r.on = !r.on; uiTick('detent'); }));
+  const ic = cell('Instructor', 'FAULTS', 'dpins');
+  ic.insertAdjacentHTML('beforeend', `<div class="row wrap">${dps().acts.map((a, k) => `<button class="cb" data-f="${k}">TRIP ${a.label}</button>`).join('')}
+    <button class="cb warn" data-x="blackout">BLACKOUT</button><button class="cb" data-x="d1">DGNSS 1 DRIFT</button><button class="cb" data-x="common">COMMON DRIFT</button><button class="cb" data-x="reset">RESET</button></div>`);
+  ic.querySelectorAll<HTMLButtonElement>('[data-f]').forEach(b => (b.onclick = () => dps().fail(+b.dataset.f!)));
+  ic.querySelectorAll<HTMLButtonElement>('[data-x]').forEach(b => (b.onclick = () => {
+    const d = dps(), x = b.dataset.x;
+    if (x === 'blackout') d.blackout(); else if (x === 'd1') d.drift('DGNSS 1'); else if (x === 'common') d.drift('common', 0.25, S.rt.state.psi);   // the references say she moves ahead: DP drives her astern else d.clearFaults();
+  }));
+  let statHtml = '';
+  return {
+    root: host,
+    draw() { for (const c of canvases) c.draw(); },
+    update() {
+      const d = dps();
+      d.joy = { x: joy.fx, y: joy.fy, r: joy.nz };
+      modeBtns.forEach(b => b.classList.toggle('on', b.dataset.m === d.mode));
+      refRow.querySelectorAll<HTMLButtonElement>('[data-r]').forEach((b, i) => { const r = d.refs[i]; b.classList.toggle('on', r.on && !r.rejected); b.classList.toggle('warn', r.rejected); });
+      const err = Math.hypot(d.pos.n - d.sp.n, d.pos.e - d.sp.e), al = d.last;
+      const P = S.rt.status.podPower.reduce((a, b) => a + b, 0) + S.rt.status.btPower;
+      const lim = al && al.residual > 0.05;
+      const html = `<div class="k">POSITION</div><div class="v${err > 5 ? ' warn' : ''}">${err.toFixed(1)} m off ${d.mode === 'auto' ? '' : '(not held)'}</div>
+        <div class="k">THRUST</div><div class="v${lim ? ' warn' : ''}">${lim ? 'LIMIT · cannot hold' : 'OK'} · ${(Math.max(0, ...(al?.util ?? [0])) * 100).toFixed(0)} % max</div>
+        <div class="k">POWER</div><div class="v">${(P / 1e6).toFixed(1)} / ${(SHIP.powerAvail / 1e6).toFixed(1)} MW</div>
+        <div class="k">CONSEQUENCE</div><div class="v${d.consequence ? ' warn' : ''}">${d.consequence ? `loss of ${d.consequence} would exceed capability` : 'OK'}</div>`;
+      if (html !== statHtml) { statHtml = html; stat.innerHTML = html; }
+    },
+    keys(keys, dt) {
+      const ax = (a: string, b: string, v: number) => (keys.has(a) ? Math.max(-1, v - 1.2 * dt) : keys.has(b) ? Math.min(1, v + 1.2 * dt) : v * Math.max(0, 1 - 3 * dt));
+      joy.fx = ax('s', 'w', joy.fx); joy.fy = ax('a', 'd', joy.fy); joy.nz = ax('q', 'e', joy.nz);
+    },
+    keydown(k) {
+      const map: Record<string, string> = { i: 'f', k: 'a', j: 'p', l: 's', u: 'l', o: 'r' };
+      if (map[k]) { move(map[k]); return true; }
+      if (k === '1') { setMode('joy'); return true; } if (k === '2') { setMode('hdg'); return true; } if (k === '3') { setMode('auto'); return true; }
+      if (k === 'x') { joy.fx = joy.fy = joy.nz = 0; return true; }
+      return false;
+    },
+    resize() { for (const c of canvases) c.resize(); },
+    zero() { joy.fx = joy.fy = joy.nz = 0; },
   };
 }

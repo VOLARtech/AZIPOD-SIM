@@ -9,6 +9,9 @@ import { AMSTERDAM, Building } from './scenes/amsterdam';
 import { MIAMI } from './scenes/miami';
 export type { Building };
 
+/** One scripted DP fault: at time t a unit trips, the switchboard blacks out, or a reference drifts (toward dir, deg). */
+export interface DpScriptItem { t: number; kind: 'unit' | 'blackout' | 'drift' | 'common'; unit?: number; ref?: 'DGNSS 1' | 'DGNSS 2' | 'HPR'; dir?: number }
+
 export interface Scenario {
   id: string; name: string; brief: string;
   start: { n: number; e: number; psi: number; kn: number };
@@ -30,6 +33,9 @@ export interface Scenario {
   berthFace?: { n: number; e: number; psi: number; side: -1 | 1; standoff: number };
   escort?: EscortSetup;                           // own ship is a tug made fast to this ship
   tugsOnly?: boolean;                             // only ships with towing points can play it
+  /** Scripted DP faults: a unit trips, the switchboard blacks out, a position reference drifts. */
+  dpScript?: DpScriptItem[];
+  dpOnly?: boolean;                               // only ships with a DP system can play it
   tugBP?: number;                                 // tug bollard pull [N]
   buildings?: Building[];                         // 3D-only scenery
   landHeight?: number;                            // quay / bank height above water for 3D
@@ -182,6 +188,19 @@ export const SCENARIOS: Scenario[] = [
     zoom: 0.5,
   },
   {
+    id: 'dp', name: 'DP · supply run at a platform',
+    brief: 'Platform supply vessel on DP, stern 25 m off the east face of a fixed platform, ready to work cargo. Wind 24 kn from the east-south-east, 0.8 kn current setting west-north-west: the environment pushes her onto the platform. Take her in on the joystick, then AUTO POS with the stern 15 m off. During the run the instructor script trips the port azimuth (2 min), then both DGNSS drift together (5 min): a drift-off toward the platform if you trust them. Watch the position plot and the consequence alarm.',
+    start: { n: 0, e: 92, psi: 90, kn: 0 },
+    windKn: 24, windFrom: 110, gusts: true, currentKn: 0.8, currentSet: 290, depth: 110,
+    shoals: [],
+    obstacles: [
+      ...[[-25, -25], [-25, 25], [25, -25], [25, 25]].map(([n, e]) => ({ poly: rect(n - 3, e - 3, n + 3, e + 3), ...CONCRETE, kind: 'pier' as const })),
+    ],
+    fenders: [], bollards: [], zoom: 2.4,
+    ship: 'psv', dpOnly: true,
+    dpScript: [{ t: 120, kind: 'unit', unit: 0 }, { t: 300, kind: 'common', dir: 90 }],
+  },
+  {
     id: 'trials', name: 'Open water · trials',
     brief: 'Deep, calm, no obstructions. Try a crash stop, a pod-only turn, the joystick, or walking the ship sideways.',
     ship: 'spirit',
@@ -230,8 +249,9 @@ export function berthFor(sc: Scenario, B: number, xg: number) {
   return { n: f.n + off * Math.cos(ps + Math.PI / 2) + xg * Math.cos(ps), e: f.e + off * Math.sin(ps + Math.PI / 2) + xg * Math.sin(ps), psi: f.psi };
 }
 /** Water at the start (and the berth) deep enough for a ship of draught T? */
-export function fits(sc: Scenario, T: number, berth = sc.berth, tug = true) {
+export function fits(sc: Scenario, T: number, berth = sc.berth, tug = true, dp = true) {
   if (sc.tugsOnly && !tug) return false;
+  if (sc.dpOnly && !dp) return false;
   const d = depthAt(sc);
   const ok = (n: number, e: number, need: number) => d(n, e) >= need;
   return ok(sc.start.n, sc.start.e, 1.1 * T) && (!berth || ok(berth.n, berth.e, 1.05 * T));

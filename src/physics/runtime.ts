@@ -11,6 +11,7 @@ import { isPod } from './units/kinds';
 import { Escort, EscortSetup } from './escort';
 import { RollState, deckEdge, rollInit, stepRoll } from './roll';
 import { makeTowline, pointWorld, towForce, updateTowWinch } from './towline';
+import { DpSystem } from './dp';
 
 export const DT = 0.05;
 
@@ -52,6 +53,8 @@ export class Runtime {
   escort: Escort | null = null;            // the ship this tug is working, with the towline
   roll: RollState | null = null;           // heel, for ships with roll data
   capsized = false;
+  dps: DpSystem | null = null;             // DP system for ships with a DP console
+  dpScript: { t: number; kind: string; unit?: number; ref?: string; dir?: number; done?: boolean }[] = [];
   private trailT = 0; private hydroT = 0; private hydroDepth = NaN;
 
   constructor(public spec: ShipSpec, public state: ShipState, public cmd: Command,
@@ -68,6 +71,11 @@ export class Runtime {
     };
     this.sensors.step(state, 0, env.current(state.n, state.e), this.wind());
     if (spec.roll) this.roll = rollInit();
+    if (spec.station === 'dp') {
+      const M = this.model.h.M;
+      this.dps = new DpSystem(spec, [M[0], M[4], M[8]]);
+      this.dps.hold(this.sensors.out.est);
+    }
   }
 
   wind() {
@@ -125,6 +133,23 @@ export class Runtime {
       allocate(spec, st, { x: c(j.x + d.Y), y: c(j.y + d.X), r: c(j.r + d.N) }, btEff, this.cmd);
       this.cmd.mode = 'twin';
     } else this.cmd.mode = this.lever === 'joy' ? 'twin' : this.lever;
+    if (this.dps) {
+      const uc = Math.cos(st.psi) * cur[0] + Math.sin(st.psi) * cur[1];
+      const btEff = 1 / (1 + ((st.u - uc) / 1.6) ** 2);
+      const d = this.dps;
+      for (const x of this.dpScript) if (!x.done && st.t >= x.t) {
+        x.done = true;
+        if (x.kind === 'unit') d.fail(x.unit ?? 0);
+        else if (x.kind === 'blackout') d.blackout();
+        else d.drift(x.kind === 'common' ? 'common' : (x.ref ?? 'DGNSS 1') as 'DGNSS 1', 0.25, (x.dir ?? 60) * Math.PI / 180);
+      }
+      d.update(st, this.sensors.out.est, { V: this.env.windSpeed, from: this.env.windFrom }, this.cmd, btEff, dt);
+      for (const m of d.msgs) this.alert(m, 'heavy');
+      d.msgs.length = 0;
+      // a tripped unit, or every unit in a blackout, spins down at once rather than at its ramp rate
+      const av = d.avail(), k = Math.exp(-dt / 1.2);
+      d.acts.forEach((a, j) => { if (av[j]) return; if (a.unit >= 0) { st.pods[a.unit].rpm *= k; if (st.pods[a.unit].pitch !== undefined) st.pods[a.unit].pitch! *= k; } else if (a.unit === -1) st.bt *= k; else if (st.sbt) st.sbt *= k; });
+    }
 
     updateActuators(spec, st, this.cmd, dt, this.status, cur);
     this.gust.step(dt, this.env.gusts && this.env.windSpeed > 0.1);

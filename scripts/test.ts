@@ -449,8 +449,8 @@ import { stepRoll, rollInit } from '../src/physics/roll';
 
 console.log('every scenario sails the Spirit');
 test('all built-in harbour scenarios use the Spirit-class ship (3D model, pods)', () => {
-  // the tanker terminal, the tug escort and the fast-ferry harbour are written for their own ship types
-  const other = SCENARIOS.filter(s => s.ship !== 'spirit' && !['terminal', 'escort', 'hsc'].includes(s.id)).map(s => s.id);
+  // the tanker terminal, the tug escort, the fast-ferry harbour and the DP run are written for their own ship types
+  const other = SCENARIOS.filter(s => s.ship !== 'spirit' && !['terminal', 'escort', 'hsc', 'dp'].includes(s.id)).map(s => s.id);
   assert.ok(!other.length, other.join(', '));
 });
 test('Quai 27, channel, swing basin, trials: start clear of structures with ≥ 2 m under the keel', () => {
@@ -560,6 +560,79 @@ import { resistanceCt } from '../src/physics/ship';
     const sc = SCENARIOS.find(x => x.id === 'hsc')!, b = berthFor(sc, HS.B, 0)!;
     assert.ok(fits(sc, HS.T, b) && Math.abs(b.n - (598.5 - HS.B / 2 - 0.1)) < 1e-9);
   });
+}
+
+console.log('dynamic positioning');
+import { actuators, allocateDP, capability, DpSystem } from '../src/physics/dp';
+{
+  const PS = SHIPS.psv, acts = actuators(PS), all = acts.map(() => true);
+  const dpRun = (sp: typeof PS, env: Env, T: number, setup?: (rt: Runtime) => void, each?: (rt: Runtime) => void) => {
+    const st = makeState(sp, 0, 0, 0, 0);
+    const rt = new Runtime(sp, st, { pods: sp.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0 }, env, OPEN);
+    rt.dps!.setMode('auto', rt.sensors.out.est); setup?.(rt);
+    for (let i = 0; i < T / 0.05; i++) { rt.step(); each?.(rt); }
+    return rt;
+  };
+  const windy = (kn: number, from: number, cur = 0, set = 0): Env => ({ windSpeed: kn * KN, windFrom: from * DEG, gusts: false, current: () => [cur * KN * Math.cos(set * DEG), cur * KN * Math.sin(set * DEG)], depth: Infinity });
+  test('allocator meets a feasible demand exactly, any mix of azimuths and tunnels', () => {
+    for (const tau of [[2e5, 0, 0], [0, 1.5e5, 0], [0, 0, 5e6], [-1e5, 8e4, -3e6]] as [number, number, number][]) {
+      const al = allocateDP(acts, tau, all);
+      assert.ok(al.residual < 1e-3, `${tau}: residual ${al.residual}`);
+      assert.ok(al.util.every(u => u <= 1 + 1e-9));
+    }
+  });
+  test('allocator never points an azimuth into its forbidden sector', () => {
+    for (let a = 0; a < 360; a += 15) {
+      const al = allocateDP(acts, [3e5 * Math.cos(a * DEG), 3e5 * Math.sin(a * DEG), 0], all);
+      acts.forEach((u, k) => { if (u.kind !== 'azi') return; const [fx, fy] = al.f[k]; if (Math.hypot(fx, fy) < 1) return; const ang = Math.atan2(fy, fx);
+        for (const [a0, a1] of u.forbid) assert.ok(!(ang > a0 + 1e-6 && ang < a1 - 1e-6), `${u.label} at ${(ang / DEG).toFixed(0)}° for demand ${a}°`); });
+    }
+  });
+  test('beyond capability: every unit saturates and the shortfall is reported, not hidden', () => {
+    const al = allocateDP(acts, [0, 2e6, 0], all);
+    assert.ok(al.residual > 0.3 && Math.max(...al.util) > 0.99);
+  });
+  test('capability plot: beam wind holds less than head wind; worst failure below intact everywhere', () => {
+    const c = capability(PS);
+    assert.ok(c.intact[9] < c.intact[0] && c.intact[9] > 25, `beam ${c.intact[9].toFixed(0)} head ${c.intact[0].toFixed(0)} kn`);
+    assert.ok(c.worst.every((v, k) => v <= c.intact[k] + 1e-6) && c.worst[9] < c.intact[9]);
+  });
+  test('PSV on AUTO POS in 25 kn wind and 0.8 kn current: within 2 m and 2° of the setpoint', () => {
+    let e = 0, h = 0;
+    dpRun(PS, windy(25, 60, 0.8, 200), 600, undefined, rt => { if (rt.state.t > 200) { e = Math.max(e, Math.hypot(rt.state.n, rt.state.e)); h = Math.max(h, Math.abs(rt.state.psi)); } });
+    assert.ok(e < 2 && h < 2 * DEG, `${e.toFixed(2)} m ${(h / DEG).toFixed(2)}°`);
+  });
+  test('AHTS on DP (CPP mains, tunnels, retractable azimuth) holds station too', () => {
+    let e = 0;
+    dpRun(SHIPS.ahts, windy(20, 300, 0.5, 90), 600, undefined, rt => { if (rt.state.t > 200) e = Math.max(e, Math.hypot(rt.state.n, rt.state.e)); });
+    assert.ok(e < 3, `${e.toFixed(2)} m`);
+  });
+  test('one aft azimuth trips: the rest take the load and she stays within 5 m', () => {
+    let e = 0;
+    dpRun(PS, windy(20, 90), 600, rt => rt.dps!.fail(0), rt => { if (rt.state.t > 120) e = Math.max(e, Math.hypot(rt.state.n, rt.state.e)); });
+    assert.ok(e < 5, `${e.toFixed(2)} m`);
+  });
+  test('blackout: she drifts off, thrusters restart one by one, DP brings her back', () => {
+    let far = 0, back = Infinity;
+    dpRun(PS, windy(20, 90), 400, rt => rt.dps!.blackout(30), rt => { const d = Math.hypot(rt.state.n, rt.state.e); if (rt.state.t < 80) far = Math.max(far, d); if (rt.state.t > 380) back = Math.min(back, d); });
+    assert.ok(far > 3 && back < 2, `drifted ${far.toFixed(1)} m, back to ${back.toFixed(1)} m`);
+  });
+  test('one drifting DGNSS is outvoted and rejected; both drifting together drive her off', () => {
+    const r1 = dpRun(PS, windy(10, 0), 300, rt => rt.dps!.drift('DGNSS 1', 0.3, 0));
+    assert.ok(r1.dps!.refs[0].rejected && Math.hypot(r1.state.n, r1.state.e) < 2, 'single drift rejected');
+    const r2 = dpRun(PS, windy(10, 0), 200, rt => rt.dps!.drift('common', 0.3, 0));
+    assert.ok(r2.state.n < -20, `drive-off ${r2.state.n.toFixed(1)} m`);      // the references say north, she goes south
+  });
+  test('DP platform scenario: starts clear of the platform, scripted faults', () => {
+    const sc = SCENARIOS.find(x => x.id === 'dp')!;
+    assert.ok(sc.dpScript!.length === 2 && fits(sc, PS.T, sc.berth, false, true) && !fits(sc, PS.T, sc.berth, false, false));
+    setShip('psv'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+    const ci = { active: false, points: [], fenders: [] } as Parameters<typeof contactForces>[3] & object;
+    contactForces(makeState(ACTIVE, sc.start.n, sc.start.e, sc.start.psi, 0), sc.obstacles, sc.fenders, ci);
+    setShip('becancour'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+    assert.ok(!ci.active);
+  });
+  void DpSystem;
 }
 
 console.log(`\n${pass} passed${process.exitCode ? ', some failed' : ''}`);

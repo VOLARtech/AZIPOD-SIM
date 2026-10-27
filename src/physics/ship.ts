@@ -9,6 +9,7 @@ import { KCS, PANAMAX, KVLCC2_BALLAST } from '../ships/cargo';
 import { ROPAX, CRUISE_CONV, LNG, ULCV } from '../ships/twin';
 import { ASD_TUG, VSP_TUG, ROTOR_TUG } from '../ships/tugs';
 import { HSC_CAT } from '../ships/fast';
+import { AHTS, PSV } from '../ships/offshore';
 export { RHO, RHO_AIR, NU_W, G, KN, DEG } from './consts';
 
 export interface PodSpec {
@@ -32,6 +33,7 @@ export interface PodSpec {
   azimuth?: AzimuthSpec;      // kind 'azimuth': Z-drive / azimuth thruster particulars
   vsp?: VspSpec;              // kind 'vsp'
   jet?: JetSpec;              // kind 'waterjet'
+  dpForbid?: [number, number][]; // DP: thrust directions the allocator must not use (wash on another unit or the hull) [rad]
 }
 export type UnitKind = 'azipod' | 'azimuth' | 'shaft' | 'vsp' | 'waterjet';
 
@@ -137,6 +139,7 @@ export interface ShipSpec {
   skeg?: { x: number; A: number };            // lifting skeg: x rel. origin, lateral area [m²]
   towPoints?: { name: string; x: number; h: number }[];   // tug towing points: x on the centreline, height above WL
   load?: string;              // load case shown with the particulars
+  cwMul?: number;             // residuary resistance factor for hulls fuller and shorter than the simple wave term assumes (default 1)
 }
 
 /** MMG standard-method hull: non-dimensional derivatives about midship, ÷ ½ρ L d U² (forces), ÷ ½ρ L² d U² (moment). */
@@ -267,7 +270,7 @@ export const SPIRIT: ShipSpec = {
   },
 };
 
-export const SHIPS: Record<string, ShipSpec> = { becancour: BECANCOUR, lady: LADY, spirit: SPIRIT, kvlcc2: KVLCC2, 'kvlcc2-ballast': KVLCC2_BALLAST, kcs: KCS, panamax: PANAMAX, ulcv: ULCV, lng: LNG, ropax: ROPAX, 'cruise-shaft': CRUISE_CONV, 'asd-tug': ASD_TUG, 'vsp-tug': VSP_TUG, 'rotor-tug': ROTOR_TUG, 'hsc-cat': HSC_CAT };
+export const SHIPS: Record<string, ShipSpec> = { becancour: BECANCOUR, lady: LADY, spirit: SPIRIT, kvlcc2: KVLCC2, 'kvlcc2-ballast': KVLCC2_BALLAST, kcs: KCS, panamax: PANAMAX, ulcv: ULCV, lng: LNG, ropax: ROPAX, 'cruise-shaft': CRUISE_CONV, 'asd-tug': ASD_TUG, 'vsp-tug': VSP_TUG, 'rotor-tug': ROTOR_TUG, 'hsc-cat': HSC_CAT, psv: PSV, ahts: AHTS };
 /** The ship in use. A live binding: importers see the new ship after setShip(). */
 export let SHIP: ShipSpec = BECANCOUR;
 export function setShip(id: string) { SHIP = SHIPS[id] ?? BECANCOUR; return SHIP; }
@@ -405,7 +408,7 @@ export function resistanceCt(s: ShipSpec, u: number, hT: number): number {
   // (Molland, Wellicome & Couser 1994), not a fit to it
   const Cw = s.hullForm === 'cat'
     ? 0.0046 * Math.exp(-(((Fn - 0.48) / 0.19) ** 2)) + 0.0026 * smooth(0.28, 0.62, Fn)
-    : 0.0007 * Math.min((Fn / 0.25) ** 4, 6);
+    : 0.0007 * Math.min((Fn / 0.25) ** 4, 6) * (s.cwMul ?? 1);
   const shallow = isFinite(hT) ? 1 + 0.6 / (hT * hT) : 1;
   return (Cf * s.formFactor + Cw) * shallow;
 }

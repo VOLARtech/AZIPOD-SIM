@@ -423,7 +423,7 @@ details.sec[open] { display: flex; flex-direction: column; gap: 10px; padding-bo
 /* ---------- v4: control stations for telegraph / CPP ships ---------- */
 .st-az { display: contents; }
 .st-az[hidden] { display: none; }
-.st-gen { grid-column: 1 / -1; display: flex; gap: 8px; justify-content: center; align-items: stretch; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.st-gen { grid-column: 1 / -1; display: flex; gap: 8px; justify-content: safe center; align-items: stretch; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .st-gen[hidden] { display: none; }
 .st-gen .cell { border: 1px solid var(--rule); border-radius: 4px; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; align-items: center; flex: none; }
 .st-gen .cell > .tag { text-transform: uppercase; align-self: stretch; display: flex; justify-content: space-between; gap: 10px; font-size: 11px; }
@@ -472,3 +472,11 @@ details.sec[open] { display: flex; flex-direction: column; gap: 10px; padding-bo
 .st-gen .jetg { width: 44px; height: calc(var(--stH) * 0.72); }
 .st-gen .jjoy { width: calc(var(--stH) * 0.72); height: calc(var(--stH) * 0.72 + 26px); cursor: grab; }
 @media (max-width: 600px) { .st-gen .jetc { display: none; } }
+.st-gen .posplot, .st-gen .capplot { width: calc(var(--stH) * 0.85); height: calc(var(--stH) * 0.85); }
+.st-gen .thrp { width: 250px; height: calc(var(--stH) * 0.6); }
+.st-gen .dpjoy .jjoy { width: calc(var(--stH) * 0.62); height: calc(var(--stH) * 0.62 + 26px); }
+.st-gen .dpmode .row.wrap, .st-gen .dpins .row.wrap { max-width: 230px; }
+.st-gen .dpmode .cb.on, .st-gen .dpref .cb.on { border-color: var(--own); color: var(--own); }
+.st-gen .dpref .stat { width: 240px; }
+.st-gen .dpins .cb { font-size: 10px; }
+@media (max-width: 600px) { .st-gen .dpcap, .st-gen .dpins { display: none; } }
