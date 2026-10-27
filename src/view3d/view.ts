@@ -7,6 +7,10 @@ import { abs, builtinAOContext, clamp, color, float, fract, mix, mrt, normalLoca
 import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import spiritUrl from './spirit.bin?url';
+import miamiScnUrl from './miami.scn.bin?url';
+import { buildScenery, parseScenery } from './scenery';
+const SCENERY: Record<string, string> = { 'miami-terminal-v': miamiScnUrl };
+export const sceneryCredit = (id: string) => (SCENERY[id] ? 'Buildings © OpenStreetMap contributors' : '');
 import { makeWater } from './water';
 import { Wake } from './wake';
 import { SPEEDS } from '../ui/state';
@@ -284,7 +288,8 @@ export class View3D {
     const sc = S.sc, LH = sc.landHeight ?? 2;
     const quayM = this.mat(0x858176, { rough: 0.95 }), pierM = this.mat(0x7a756b, { rough: 0.95 });
     const edgeM = this.mat(0x3b3a37, { rough: 0.9 });
-    if (sc.obstacles.length <= 40) {
+    if (SCENERY[sc.id]) this.loadScenery(sc.id, LH);
+    else if (sc.obstacles.length <= 40) {
       for (const ob of sc.obstacles) {
         const sh = new THREE.Shape(ob.poly.map(([n, e]) => new THREE.Vector2(e, n)));
         const geo = new THREE.ExtrudeGeometry(sh, { depth: LH + 4, bevelEnabled: false });
@@ -349,6 +354,20 @@ export class View3D {
     }
   }
 
+  /** Real-world scenery (chart land + OpenStreetMap), fetched and built on demand. */
+  private async loadScenery(id: string, LH: number) {
+    const key = this.builtFor;
+    try {
+      const buf = await (await fetch(SCENERY[id])).arrayBuffer();
+      if (key !== this.builtFor) return;
+      const g = new THREE.Group();
+      this.sceneryLit = buildScenery(parseScenery(buf), g, LH, this.quality === 'low');
+      if (key !== this.builtFor) return;
+      this.harbour.add(g);
+      if (this.tod) this.sceneryLit.value = TOD[this.tod].lit;
+    } catch (e) { console.error('scenery', e); }
+  }
+  private sceneryLit: { value: number } | null = null;
   private shipGen = 0;
   private buildShip() {
     const g = this.ship; this.clear(g);
@@ -546,6 +565,7 @@ export class View3D {
     if (this.wake) this.wake.tint.value.setScalar(p.foam);
     for (const m of this.lit) m.emissiveIntensity = p.lit;
     if (this.modelLit) this.modelLit.value = p.lit;
+    if (this.sceneryLit) this.sceneryLit.value = p.lit;
     for (const l of this.navLights) l.visible = tod !== 'day';
     for (const l of this.lamps) l.visible = tod !== 'day';
   }

@@ -86,7 +86,9 @@ async function openScenario(sc: Scenario) {
   }
   loadScenario(sc);
 }
-let onScenarioLoaded = () => { v3?.build(); };
+let onScenarioLoaded = () => { v3?.build(); set3dTag(); };
+let creditFn: ((id: string) => string) | null = null;
+function set3dTag() { if (v3) $('v3d-tag').textContent = [v3.backend, creditFn?.(S.sc.id)].filter(Boolean).join(' · '); }
 
 // ---------------------------------------------------------------- 3D view (lazy)
 let v3: View3D | null = null, v3Loading = false;
@@ -140,7 +142,7 @@ async function ensure3d() {
     v.cam = S.disp.cam;
     v.setQuality(gfxQuality(v.backend));
     v3 = v; v.build(); layout3d();
-    $('v3d-tag').textContent = v.backend;
+    creditFn = m.sceneryCredit; set3dTag();
   } catch (err) {
     console.error(err);
     S.disp.view = '2d'; layout3d(); syncButtons();
