@@ -51,7 +51,7 @@ export default defineConfig(({ mode }) => {
           ],
         },
         workbox: {
-          globPatterns: ['**/*.{js,css,html,woff2,png,svg,webmanifest}'],
+          globPatterns: ['**/*.{js,css,html,woff2,png,svg,webmanifest,bin}'],
           globIgnores: ['**/azipod-bridge-offline.html'],
           navigateFallback: 'index.html',
           cleanupOutdatedCaches: true,

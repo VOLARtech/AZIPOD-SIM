@@ -57,6 +57,8 @@ export interface ShipLook {
   wingOut: number;            // how far the wings reach past the hull side
   funnel: { x: number; h: number; w: number; l: number };
   hull: string; topsides: string; super: string; glass: string; accent: string;
+  /** Detailed mesh (tools/ship/stl_to_ship.py) used instead of the procedural blocks. */
+  model?: { id: string; mast: [number, number]; stern: [number, number] };
 }
 
 // Fictional 130 m twin-Azipod expedition/ro-pax vessel.
@@ -128,7 +130,42 @@ export const LADY: ShipSpec = {
   },
 };
 
-export const SHIPS: Record<string, ShipSpec> = { becancour: BECANCOUR, lady: LADY };
+/**
+ * Spirit-class (Carnival Spirit, Kvaerner Masa 2001), published particulars: 292.5 m LOA, 260.6 m Lpp,
+ * 32.2 m beam (38.8 m over the bridge wings), 7.8 m draught, 85,700 GT, 2 × 17.6 MW ABB Azipods,
+ * 3 × 1.91 MW Brunvoll bow thrusters, 6 × Wärtsilä 9L46 (62.4 MW), 22 kn service.
+ * Assumed: Cb, pod geometry, windage, slew rate. 3D model: 1:300 hobby model (3D Warehouse, via iconic3dmodels).
+ */
+export const SPIRIT: ShipSpec = {
+  id: 'spirit', LOA: 292.5, vmaxKn: 23.6,
+  name: 'Spirit-class 293 m',
+  note: 'Modelled on Carnival Spirit\'s published particulars (292.5 m, 32.2 m beam, 7.8 m draught, 2 × 17.6 MW Azipods, 3 × 1.91 MW bow thrusters). Hull form, windage and pod geometry are estimates; this is not the real ship\'s manoeuvring data.',
+  L: 260.6, B: 32.2, T: 7.8, Cb: 0.66, xg: -4,
+  pods: [
+    { label: 'PORT', x: -118, y: -9, Tb: 2.03e6, asternFrac: 0.75, strutArea: 58, D: 6.2, P: 17.6e6, slewMul: 1, thrustMul: 1, alphaOffset: 0 },
+    { label: 'STBD', x: -118, y: 9, Tb: 2.03e6, asternFrac: 0.75, strutArea: 58, D: 6.2, P: 17.6e6, slewMul: 1.04, thrustMul: 0.98, alphaOffset: 0.4 * DEG },
+  ],
+  bowThruster: { x: 128, Tmax: 3 * 210e3, P: 3 * 1.91e6 },
+  windage: { AF: 1350, AL: 10500, cx: 0.7, cy: 0.9, cn: 0.1, xw: 4 },
+  wake: 0.1, tded: 0.1, Vzero: 20.5, Cd: 0.72, formFactor: 1.2,
+  podSlew: 6 * DEG,
+  podRpmTime: 30,
+  asternMax: 0.83,
+  revInterlock: 0.28,
+  btRpmTime: 10,
+  powerAvail: 49e6,
+  bridgeX: 118.7,
+  ramK: 0.85,
+  look: {
+    freeboard: 7, bridgeH: 29, bridgeLen: 16.8, wingOut: 3.3,
+    decks: [{ x0: -130, x1: 118, h: 20, inset: 0.3 }],
+    funnel: { x: -40, h: 52, w: 10, l: 20 },
+    hull: '#a3161c', topsides: '#f3f3f0', super: '#f3f3f0', glass: '#1d242c', accent: '#c8102e',
+    model: { id: 'spirit', mast: [74.3, 45.9], stern: [-136, 12] },
+  },
+};
+
+export const SHIPS: Record<string, ShipSpec> = { becancour: BECANCOUR, lady: LADY, spirit: SPIRIT };
 /** The ship in use. A live binding: importers see the new ship after setShip(). */
 export let SHIP: ShipSpec = BECANCOUR;
 export function setShip(id: string) { SHIP = SHIPS[id] ?? BECANCOUR; return SHIP; }

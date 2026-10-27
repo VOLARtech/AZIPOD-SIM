@@ -20,14 +20,14 @@ const fenders: Fender[] = B.fenders.map(s => {
   const [n, e] = faceAt(s, FENDER_H);
   return { n, e, nn, ne, width: 4, height: FENDER_H, dRated: 0.72, Rr: 2.4e6, Er: 0, mu: 0.2 };
 });
-const HALF_B = 19;                                      // Lady-class beam / 2
+const HALF_B = 16.1;                                    // Spirit-class beam / 2
 const berthPos = faceAt(B.centre, FENDER_H + HALF_B + 0.1);
 const heading = deg(an, ae);                            // bow toward the turning basin, starboard side to
 
 export const MIAMI = {
   id: 'miami-terminal-v', name: 'PortMiami · Terminal V, starboard side to',
   brief: 'Real chart: NOAA ENC harbour cells. Come up the Main Channel past Berths 1–9 at 5 kn, swing in the turning basin at the west end and back her down onto Terminal V, starboard side to, bow to the basin. The dredged berth carries 10.0 m (MLLW), tide +0.3 m; the water shoals fast south of the berth and outside the channel. 15 kn easterly trade wind on the quarter, weak flood. Two 70 t tugs on the port side.',
-  ship: 'lady',
+  ship: 'spirit',
   start: { n: 17, e: 300, psi: 295, kn: 5 },
   windKn: 15, windFrom: 95, gusts: true, currentKn: 0.3, currentSet: 290, depth: 12,
   shoals: [], obstacles: [] as Obstacle[], fenders,

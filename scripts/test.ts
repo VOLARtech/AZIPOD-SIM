@@ -217,7 +217,7 @@ test('277 m validation: reversal methods within 15 %, pod swing within 30 % of m
 });
 
 console.log('lady-class + amsterdam');
-import { LADY, setShip, SHIP as ACTIVE } from '../src/physics/ship';
+import { LADY, SPIRIT, setShip, SHIP as ACTIVE } from '../src/physics/ship';
 import { runTrials as trialsOf } from '../src/physics/trials';
 import { contactForces } from '../src/physics/contact';
 test('Lady-class: 100 % rpm gives 20–23 kn (published 20 kn service, 22 kn max)', () => {
@@ -225,7 +225,7 @@ test('Lady-class: 100 % rpm gives 20–23 kn (published 20 kn service, 22 kn max
   assert.ok(Vs / KN > 20 && Vs / KN < 23, `${(Vs / KN).toFixed(1)} kn`);
 });
 test('Amsterdam PTA: ship at the berth mark touches nothing; start position is clear and afloat', () => {
-  setShip('lady'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+  setShip('spirit'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
   const ams = SCENARIOS.find(s => s.id === 'amsterdam-pta')!;
   const ci = { active: false, points: [], fenders: [] } as Parameters<typeof contactForces>[3] & object;
   const b = ams.berth!;
@@ -250,6 +250,10 @@ test('Amsterdam PTA: 0.10 m/s parallel landing stays on the fenders, below rated
   assert.ok(ev && !ev.hard && ev.maxDefl < 1, ev ? `hard ${ev.hard} defl ${(ev.maxDefl * 100).toFixed(0)} %` : 'no contact');
 });
 
+test('Spirit-class: 100 % rpm gives 21.5–24.5 kn (22 kn service, ~24 kn trials)', () => {
+  const { Vs } = trialsOf(SPIRIT, Infinity);
+  assert.ok(Vs / KN > 21.5 && Vs / KN < 24.5, `${(Vs / KN).toFixed(1)} kn`);
+});
 console.log('real chart: PortMiami (NOAA ENC)');
 import MIAMI_DATA from '../src/scenes/miami.physics.json';
 import MIAMI_CHART from '../src/scenes/miami.chart.json';
@@ -261,7 +265,7 @@ test('PortMiami chart: depth grid honours the charted soundings (within 0.6 m at
   assert.ok(ok / MIAMI_CHART.soundings.length > 0.9, `${ok}/${MIAMI_CHART.soundings.length}`);
 });
 test('PortMiami: keel over ≥ 9 m along the whole berth, start in the channel, both clear of structures', () => {
-  setShip('lady'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+  setShip('spirit'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
   const mia = SCENARIOS.find(s => s.id === 'miami-terminal-v')!, d = depthAt(mia), b = mia.berth!;
   const c = Math.cos(b.psi * DEG), s = Math.sin(b.psi * DEG);
   for (let x = -135; x <= 135; x += 5) assert.ok(d(b.n + x * c, b.e + x * s) >= 9, `berth keel ${x} m: ${d(b.n + x * c, b.e + x * s).toFixed(1)} m`);

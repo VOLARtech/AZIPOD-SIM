@@ -90,7 +90,7 @@ let onScenarioLoaded = () => { v3?.build(); };
 
 // ---------------------------------------------------------------- 3D view (lazy)
 let v3: View3D | null = null, v3Loading = false;
-(globalThis as unknown as { __azb: unknown }).__azb = { S, D, get v3() { return v3; } };   // console / test handle
+(globalThis as unknown as { __azb: unknown }).__azb = { S, D, get v3() { return v3; }, tick(ms: number) { capT += ms; frame(capT); } };   // console / test handle
 const CAMS: [typeof S.disp.cam, string][] = [['bridge', 'BRIDGE'], ['port', 'PORT WING'], ['stbd', 'STBD WING'], ['chase', 'CHASE']];
 function timeOfDay(): 'day' | 'dusk' | 'night' {
   const p = S.disp.palette;
@@ -106,7 +106,8 @@ function layout3d() {
   D.LAY.split = null;
   pane.className = '';
   if (mode === '2d') return;
-  const bot = D.LAY.overlayTray ? innerHeight : D.LAY.trayTop;
+  let bot = D.LAY.overlayTray ? innerHeight : D.LAY.trayTop;
+  if (bot < innerHeight * 0.3) bot = innerHeight;          // tray hidden (kiosk / capture)
   const portrait = innerHeight > innerWidth * 1.05;
   let x = 0, y = 0, w = innerWidth, h = Math.round(bot);
   if (mode === 'split' && portrait) {
@@ -337,6 +338,7 @@ class Dial {
   }
   draw() {
     const g = this.g, Sz = this.size, R = Sz / 2 - 14;
+    if (R < 8) return;                                   // tray hidden / not laid out yet
     g.setTransform(D.DPR, 0, 0, D.DPR, 0, 0); g.clearRect(0, 0, Sz, Sz); g.translate(Sz / 2, Sz / 2);
     const joy = S.rt.lever === 'joy';
     if (joy && this.i === 0) return this.drawPad(R);
@@ -449,6 +451,7 @@ class RpmLever {
   set(v: number) { for (const j of S.rt.lever === 'twin' ? [0, 1] : [this.i]) S.cmd.pods[j].rpm = v; }
   draw() {
     const g = this.g, w = this.w, joy = S.rt.lever === 'joy', col = D.podColors[this.i];
+    if (w < 8 || this.h < 40) return;
     g.setTransform(D.DPR, 0, 0, D.DPR, 0, 0); g.clearRect(0, 0, w, this.h);
     const x0 = w / 2, y0 = this.y(0);
     // slot
@@ -775,8 +778,11 @@ function startSheetWork() {
 
 // ---------------------------------------------------------------- loop
 let last = performance.now(), acc = 0, slowT = 0, drawT = 0, frameEma = 16, slowFor = 0;
+// ?capture: no animation loop; a recorder advances time with __azb.tick(ms) and grabs each frame
+const CAPTURE = new URLSearchParams(location.search).has('capture');
+let capT = 0;
 function frame(now: number) {
-  requestAnimationFrame(frame);
+  if (!CAPTURE) requestAnimationFrame(frame);
   const dtReal = Math.min(0.1, (now - last) / 1000); last = now;
   keyControl(dtReal);
   if (!S.paused) {
@@ -865,7 +871,7 @@ openScenario(SCENARIOS[0]).then(() => {
   ($('s-truth') as HTMLInputElement).checked = S.disp.truth;
   renderModel(S.rt.model.h);
   syncEnvUI();
-  requestAnimationFrame(t => { last = t; frame(t); });
+  if (!CAPTURE) requestAnimationFrame(t => { last = t; frame(t); }); else last = 0;
   if (S.disp.view !== '2d') set3d(S.disp.view);
 });
 syncWakeLock();

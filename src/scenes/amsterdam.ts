@@ -60,12 +60,12 @@ const buildings: Building[] = [
 
 export const AMSTERDAM = {
   id: 'amsterdam-pta', name: 'Amsterdam · PTA, starboard side to',
-  brief: 'Bring a 278 m Azipod cruise ship up the IJ and land her starboard side to at the Passenger Terminal Amsterdam: 600 m quay, 10 m alongside, no tide. A fresh south-westerly blows off the quay. Two 60 t tugs on the port side. Geometry is a schematic of the IJ, not a survey.',
-  ship: 'lady',
+  brief: 'Bring a 293 m Spirit-class Azipod cruise ship up the IJ and land her starboard side to at the Passenger Terminal Amsterdam: 600 m quay, 10 m alongside, no tide. A fresh south-westerly blows off the quay. Two 60 t tugs on the port side. Geometry is a schematic of the IJ, not a survey.',
+  ship: 'spirit',
   start: { n: qf(-1500, 190)[0], e: qf(-1500, 190)[1], psi: 78, kn: 5 },
   windKn: 18, windFrom: 225, gusts: true, currentKn: 0.2, currentSet: 258, depth: 10.5,
   shoals, obstacles, fenders,
-  berth: { n: qf(0, FENDER_H + 19 + 0.1)[0], e: qf(0, FENDER_H + 19 + 0.1)[1], psi: 78 },
+  berth: { n: qf(0, FENDER_H + 16.1 + 0.1)[0], e: qf(0, FENDER_H + 16.1 + 0.1)[1], psi: 78 },
   bollards: Array.from({ length: 27 }, (_, i) => qf(-325 + i * 25, -1.5)),
   mooringSide: 1 as const, tugSide: -1 as const, tugBP: 588e3,
   buildings, landHeight: 2,

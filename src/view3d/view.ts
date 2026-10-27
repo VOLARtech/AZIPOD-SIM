@@ -3,7 +3,8 @@
 // Frames: NED (n, e, down) → three (x = e, y = up, z = −n); body (x fwd, y stbd, z up) → ship group
 // local (x = y_b, y = z, z = −x_b), group rotation.y = −psi.
 import * as THREE from 'three/webgpu';
-import { cameraPosition, clamp, dot, float, mix, normalMap, normalize, positionLocal, positionWorld, pow, texture, time, uniform, uv, vec2, vec3 } from 'three/tsl';
+import { abs, cameraPosition, clamp, color, dot, float, fract, mix, normalLocal, normalMap, normalize, positionLocal, positionWorld, pow, step, texture, time, uniform, uv, vec2, vec3 } from 'three/tsl';
+import spiritUrl from './spirit.bin?url';
 import { SHIP } from '../physics/ship';
 import { HULL } from '../physics/contact';
 import { LINE } from '../physics/mooring';
@@ -287,8 +288,10 @@ export class View3D {
     }
   }
 
+  private shipGen = 0;
   private buildShip() {
     const g = this.ship; this.clear(g);
+    if (SHIP.look.model) { this.buildModelShip(SHIP.look.model, ++this.shipGen); return; }
     const L = SHIP.look, T = SHIP.T, fb = L.freeboard;
     const outline = HULL as [number, number][];
     const boot = Math.min(fb - 1, 3);
@@ -346,6 +349,66 @@ export class View3D {
     this.ship.userData.eyeH = L.bridgeH - 1.4;
   }
 
+  /** Detailed ship from a converted STL, painted per pixel (see tools/ship/stl_to_ship.py). */
+  private async buildModelShip(m: NonNullable<typeof SHIP.look.model>, gen: number) {
+    const L = SHIP.look, g = this.ship;
+    // the bridge wings, lights and cameras still come from the look (no blocks drawn)
+    this.ship.userData.eyeH = L.bridgeH - 1.4;
+    const wingW = 2 * (SHIP.B / 2 + L.wingOut);
+    const lamp = (c: number, x: number, y: number, z: number) => {
+      const o = new THREE.Mesh(new THREE.SphereGeometry(0.55, 8, 6), new THREE.MeshBasicNodeMaterial({ color: c }));
+      o.position.set(y, z, -x); g.add(o); this.navLights.push(o); o.visible = this.tod !== 'day' && this.tod !== null;
+    };
+    lamp(0xfff6e0, m.mast[0], 0, m.mast[1] + 0.8);
+    lamp(0xff2a2a, SHIP.bridgeX, -wingW / 2 - 0.3, L.bridgeH - 2);
+    lamp(0x22ff66, SHIP.bridgeX, wingW / 2 + 0.3, L.bridgeH - 2);
+    lamp(0xfff6e0, m.stern[0], 0, m.stern[1]);
+    const url = ({ spirit: spiritUrl } as Record<string, string>)[m.id];
+    const buf = await (await fetch(url)).arrayBuffer();
+    if (gen !== this.shipGen) return;                     // ship changed while loading
+    const dv = new DataView(buf);
+    let o = 4; const n = dv.getUint32(o, true); o += 4;
+    // per-pixel paint for the hull and superstructure (heights in metres above the waterline)
+    const y = positionLocal.y, z = positionLocal.z, nrm = normalLocal;
+    const vertical = float(1).sub(step(0.3, abs(nrm.y))), upward = step(0.85, nrm.y), side = step(0.75, abs(nrm.x));
+    const band = (lo: number, hi: number) => step(lo, y).mul(float(1).sub(step(hi, y)));
+    const C = (h: string) => color(new THREE.Color(h));
+    let col = mix(C('#f3f3f0'), C('#d4d2ca'), upward);
+    const glassMask = vertical.mul(band(18.8, 29.2)).mul(step(0.38, fract(y.sub(18.8).div(2.95))))
+      .add(vertical.mul(band(29.2, 33.7)))
+      .add(vertical.mul(band(25.4, 29.7)).mul(step(z, -114.8)))
+      .add(side.mul(band(7.9, 8.5).add(band(10.5, 11.1))).mul(step(0.78, fract(z.div(2.6)))));
+    const glass = clamp(glassMask, 0, 1);
+    col = mix(col, C('#1d242c'), glass);
+    col = mix(col, C('#c8102e'), side.mul(band(5.3, 5.85)));          // sheer stripe
+    col = mix(col, C('#1f3a8c'), band(0.35, 1.5));                     // boot top
+    col = mix(col, C('#a3161c'), float(1).sub(step(0.35, y)));         // antifouling
+    const lit = uniform(0);
+    this.modelLit = lit;
+    const body = new THREE.MeshStandardNodeMaterial({ roughness: 0.45, metalness: 0.05, flatShading: true });
+    body.colorNode = col;
+    body.emissiveNode = C('#ffcf8a').mul(glass).mul(lit).mul(0.9);
+    const MATS = [body,
+      new THREE.MeshStandardNodeMaterial({ color: '#c8102e', roughness: 0.4, flatShading: true }),     // funnel
+      new THREE.MeshStandardNodeMaterial({ color: '#a97c50', roughness: 0.8, flatShading: true }),     // teak
+      new THREE.MeshStandardNodeMaterial({ color: '#f26b1d', roughness: 0.5, flatShading: true })];    // lifeboats
+    for (let k = 0; k < n; k++) {
+      const cls = dv.getUint8(o); const nv = dv.getUint32(o + 1, true), ni = dv.getUint32(o + 5, true); o += 9;
+      const pos = new Float32Array(nv * 3);
+      for (let i = 0; i < nv * 3; i++) pos[i] = dv.getInt16(o + i * 2, true) * 0.005;
+      o += nv * 6;
+      const big = nv > 65535, idx = big ? new Uint32Array(ni) : new Uint16Array(ni);
+      for (let i = 0; i < ni; i++) idx[i] = big ? dv.getUint32(o + i * 4, true) : dv.getUint16(o + i * 2, true);
+      o += ni * (big ? 4 : 2); o += (4 - ((nv * 6 + ni * (big ? 4 : 2)) % 4)) % 4;
+      let geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setIndex(new THREE.BufferAttribute(idx, 1));
+      geo = geo.toNonIndexed(); geo.computeVertexNormals();          // flat normals: crisp CAD edges, clean paint masks
+      g.add(new THREE.Mesh(geo, MATS[cls] ?? body));
+    }
+    if (this.tod) { const t = this.tod; this.tod = null; this.setTime(t); }
+  }
+  private modelLit: { value: number } | null = null;
+
   private buildTugs() {
     for (const t of this.tugs) { this.clear(t); this.scene.remove(t); }
     for (const l of this.tugLines) this.scene.remove(l);
@@ -380,6 +443,7 @@ export class View3D {
     this.hemi.color.set(p.zenith).lerp(new THREE.Color(0xffffff), 0.5); this.hemi.groundColor.set(p.ground); this.hemi.intensity = p.hemiI;
     this.sunEl = p.sunEl;
     for (const m of this.lit) m.emissiveIntensity = p.lit;
+    if (this.modelLit) this.modelLit.value = p.lit;
     for (const l of this.navLights) l.visible = tod !== 'day';
     for (const l of this.lamps) l.visible = tod !== 'day';
   }
