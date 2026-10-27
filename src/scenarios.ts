@@ -24,7 +24,7 @@ export interface Scenario {
   tugSide?: -1 | 1;                               // tugs available, working on this side
   shelter?: (n: number, e: number) => number;     // current reduction factor 0..1
   zoom: number;
-  ship?: string;                                  // ship id (default: MV Bécancour)
+  ship?: string;                                  // ship id (default: MV Bécancour; the harbour scenarios use the Spirit)
   /** Fender face of the berth: a point on it, its direction (deg) and the ship side that lies to it.
    *  The berth pose (CG mark) is derived from it for whichever ship is loaded. */
   berthFace?: { n: number; e: number; psi: number; side: -1 | 1; standoff: number };
@@ -69,19 +69,20 @@ export const SCENARIOS: Scenario[] = [
   AMSTERDAM,
   {
     id: 'quai27', name: 'Quai 27 · port side to',
-    brief: 'Land port side to on the fenders with the CG on the berth mark, then put out head, stern and springs. Offshore wind, ebb setting west, weaker water inside the pier. 9 m alongside; silt off the pier head carries 6.2 m. Two tugs on call on the starboard side.',
+    brief: 'Land the 293 m Spirit port side to on the fenders with the CG on the berth mark, then put out head, stern and springs. Offshore wind, ebb setting west, weaker water inside the pier. 12 m alongside; silt off the pier head carries 8.6 m. Two 60 t tugs on call on the starboard side.',
+    ship: 'spirit', tugBP: 588e3,
     start: { n: -300, e: -520, psi: 70, kn: 5 },
-    windKn: 16, windFrom: 15, gusts: true, currentKn: 1.2, currentSet: 270, depth: 9,
+    windKn: 14, windFrom: 15, gusts: true, currentKn: 1.2, currentSet: 270, depth: 12,
     shoals: [
-      { poly: [[-250, 150], [-250, 250], [-160, 250], [-150, 190], [-190, 140]], depth: 6.2, label: '6.2' },
-      { poly: rect(-620, -900, -545, 900), depth: 5.0, label: '5.0' },
+      { poly: [[-250, 150], [-250, 250], [-160, 250], [-150, 190], [-190, 140]], depth: 8.6, label: '8.6' },
+      { poly: rect(-620, -900, -545, 900), depth: 7.0, label: '7.0' },
     ],
     obstacles: [
       { poly: rect(1.0, -520, 400, 260), ...CONCRETE, kind: 'fendered' },
       { poly: rect(-150, 260, 400, 330), ...CONCRETE, kind: 'pier' },
       { poly: rect(-900, -900, -620, 900), ...BANK, kind: 'bank' },
     ],
-    berth: { n: -10.6, e: 40, psi: 90 },
+    berth: { n: -16.2, e: 40, psi: 90 },
     fenders: fenderRow(0, -500, 240, 20, -1, 0),
     bollards: Array.from({ length: 31 }, (_, i) => [3, -500 + i * 24] as Pt),
     mooringSide: -1, tugSide: 1,
@@ -90,39 +91,41 @@ export const SCENARIOS: Scenario[] = [
       const ss = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
       return 1 - 0.65 * ss(-210, -110, n) * (1 - ss(250, 330, e));
     },
-    zoom: 1.1,
+    zoom: 0.55,
   },
   {
     id: 'canal', name: 'Dredged channel · bank effect',
-    brief: '170 m wide, 7.5 m deep (h/T 1.36). Hold the centreline at 6–8 kn: watch squat eat the under-keel clearance, and the stern get drawn toward the near bank if you wander off centre. A 6.0 m shoal narrows the channel halfway.',
-    start: { n: -900, e: -22, psi: 0, kn: 7 },
-    windKn: 8, windFrom: 250, gusts: true, currentKn: 0.5, currentSet: 180, depth: 7.5,
+    brief: '260 m wide, 10.6 m deep (h/T 1.36) for a 293 m, 7.8 m-draught ship. Hold the centreline at 6–8 kn: watch squat eat the under-keel clearance, and the stern get drawn toward the near bank if you wander off centre. An 8.5 m shoal narrows the channel halfway.',
+    ship: 'spirit',
+    start: { n: -1500, e: -34, psi: 0, kn: 7 },
+    windKn: 8, windFrom: 250, gusts: true, currentKn: 0.5, currentSet: 180, depth: 10.6,
     shoals: [
-      { poly: [[-150, 30], [-150, 85], [120, 85], [120, 50], [0, 30]], depth: 6.0, label: '6.0' },
-      { poly: rect(-1400, -85, 1400, -68), depth: 4.5 }, { poly: rect(-1400, 68, 1400, 85), depth: 4.5 },
+      { poly: [[-225, 46], [-225, 130], [180, 130], [180, 77], [0, 46]], depth: 8.5, label: '8.5' },
+      { poly: rect(-2100, -130, 2100, -104), depth: 6.3 }, { poly: rect(-2100, 104, 2100, 130), depth: 6.3 },
     ],
     obstacles: [
-      { poly: rect(-1400, -400, 1400, -85), ...BANK, kind: 'bank' },
-      { poly: rect(-1400, 85, 1400, 400), ...BANK, kind: 'bank' },
+      { poly: rect(-2100, -500, 2100, -130), ...BANK, kind: 'bank' },
+      { poly: rect(-2100, 130, 2100, 500), ...BANK, kind: 'bank' },
     ],
     fenders: [], bollards: [],
-    zoom: 0.8,
+    zoom: 0.45,
   },
   {
     id: 'swing', name: 'Swing basin · 180°',
-    brief: 'Turn 180° inside a 300 m basin and leave the way you came. Fresh beam wind, no current. Watch your pod wash off the walls. Tugs available on the port side if you want them.',
-    start: { n: -520, e: 0, psi: 0, kn: 4 },
-    windKn: 22, windFrom: 270, gusts: true, currentKn: 0, currentSet: 0, depth: 8,
+    brief: 'Turn the 293 m Spirit 180° inside a 660 m basin and leave the way you came. Fresh beam wind, no current. Watch your pod wash off the walls. Two 60 t tugs available on the port side if you want them.',
+    ship: 'spirit', tugBP: 588e3,
+    start: { n: -1144, e: 0, psi: 0, kn: 4 },
+    windKn: 16, windFrom: 270, gusts: true, currentKn: 0, currentSet: 0, depth: 10.5,
     shoals: [],
     obstacles: [
-      { poly: rect(-560, -400, 220, -150), ...CONCRETE, kind: 'quay' },
-      { poly: rect(-560, 150, 220, 400), ...CONCRETE, kind: 'quay' },
-      { poly: rect(150, -150, 220, 150), ...CONCRETE, kind: 'quay' },
-      { poly: rect(-420, -150, -400, -50), ...CONCRETE, kind: 'pier' },
-      { poly: rect(-420, 50, -400, 150), ...CONCRETE, kind: 'pier' },
+      { poly: rect(-1232, -880, 484, -330), ...CONCRETE, kind: 'quay' },
+      { poly: rect(-1232, 330, 484, 880), ...CONCRETE, kind: 'quay' },
+      { poly: rect(330, -330, 484, 330), ...CONCRETE, kind: 'quay' },
+      { poly: rect(-924, -330, -880, -110), ...CONCRETE, kind: 'pier' },
+      { poly: rect(-924, 110, -880, 330), ...CONCRETE, kind: 'pier' },
     ],
     fenders: [], bollards: [], tugSide: -1,
-    zoom: 1.0,
+    zoom: 0.45,
   },
   {
     id: 'terminal', name: 'Crude terminal · jetty, port side to',
@@ -160,9 +163,10 @@ export const SCENARIOS: Scenario[] = [
   {
     id: 'trials', name: 'Open water · trials',
     brief: 'Deep, calm, no obstructions. Try a crash stop, a pod-only turn, the joystick, or walking the ship sideways.',
+    ship: 'spirit',
     start: { n: 0, e: 0, psi: 0, kn: 8 },
     windKn: 0, windFrom: 0, gusts: false, currentKn: 0, currentSet: 0, depth: Infinity,
-    shoals: [], obstacles: [], fenders: [], bollards: [], zoom: 0.55,
+    shoals: [], obstacles: [], fenders: [], bollards: [], zoom: 0.3,
   },
 ];
 
