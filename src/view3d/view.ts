@@ -450,6 +450,63 @@ export class View3D {
       }
     }
   }
+  /** Cargo-specific deck detail: tank-deck piping, container stacks, hatch covers. */
+  private buildCargo(g: THREE.Group, fb: number) {
+    const L = SHIP.look, [ha, hb] = hullX();
+    const houseFwd = Math.max(...L.decks.map(d => d.x1)), houseAft = Math.min(...L.decks.map(d => d.x0));
+    const fwdEnd = hb - SHIP.B * 0.9;
+    if (SHIP.type === 'tanker') {
+      const deck = new THREE.Mesh(prism(deckOutline(houseFwd, hb - 2, 0.6), fb, fb + 0.15), this.mat('#6e2b24', { rough: 0.85 }));
+      g.add(deck);
+      const pipe = this.mat('#c9c4b4', { rough: 0.5, metal: 0.3 });
+      // centreline pipe rack and catwalk, from the house to the forecastle
+      const len = fwdEnd - houseFwd;
+      for (const [y, h, w] of [[-1.6, 1.4, 1.1], [1.6, 1.4, 1.1], [0, 2.6, 1.6]] as [number, number, number][]) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.6, len), pipe); m.position.set(y, fb + h, -(houseFwd + len / 2)); g.add(m);
+      }
+      // midship manifold: pipes across the deck to both rails
+      const mx = (houseFwd + fwdEnd) / 2;
+      for (const dx of [-3, 0, 3]) { const m = new THREE.Mesh(new THREE.BoxGeometry(SHIP.B * 0.85, 0.7, 0.7), pipe); m.position.set(0, fb + 1.2, -(mx + dx)); g.add(m); }
+      const crane = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.7, 12, 8), this.mat(L.accent, { rough: 0.6 }));
+      crane.position.set(SHIP.B * 0.3, fb + 6, -(mx + 8)); g.add(crane);
+    } else if (SHIP.type === 'container') {
+      // 40 ft bays, 2.5 m rows, on-deck tiers; stacks step down toward the bow to keep the view ahead clear
+      const bayL = 12.6, rowW = 2.5, tierH = 2.6;
+      const rows = Math.floor((SHIP.B - 1.5) / rowW);
+      const boxes: [number, number, number][] = [];
+      let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+      // SOLAS V/22: the sea surface may be hidden for at most min(2 L, 500 m) ahead of the bow,
+      // so stacks forward of the bridge stay under the sight line from the conning position
+      const eye = L.bridgeH + 1.7, reach = hb + Math.min(2 * SHIP.L, 500);
+      const stackFor = (x0: number, x1: number, maxTiers: number) => {
+        for (let x = x1 - bayL / 2; x - bayL / 2 > x0; x -= bayL + 0.8) {
+          const hb2 = Math.max(0, halfB(x) - 0.8), r = Math.min(rows, Math.floor(2 * hb2 / rowW));
+          if (r < 2) continue;
+          const hMax = x > SHIP.bridgeX ? eye * (1 - (x + bayL / 2 - SHIP.bridgeX) / (reach - SHIP.bridgeX)) : Infinity;
+          const allowed = Math.floor((hMax - fb - 1.2) / tierH);
+          const tiers = Math.max(1, Math.min(maxTiers - (rnd() < 0.3 ? 1 : 0), allowed));
+          for (let k = 0; k < r; k++) for (let t = 0; t < tiers - (rnd() < 0.12 ? 1 : 0); t++) boxes.push([x, (k - (r - 1) / 2) * rowW, fb + 1.2 + tierH * (t + 0.5)]);
+        }
+      };
+      stackFor(houseFwd + 2, fwdEnd, 6);
+      stackFor(ha + 14, houseAft - 2, 6);
+      const geo = new THREE.BoxGeometry(2.4, tierH - 0.1, 12.1);
+      const mesh = new THREE.InstancedMesh(geo, new THREE.MeshStandardNodeMaterial({ roughness: 0.75 }), boxes.length);
+      const cols = ['#b8202f', '#1f4e8c', '#2f7d4f', '#d9a03a', '#6b6f73', '#e4e2da', '#7a3e1d', '#155e6e', '#c45a1d'].map(c => new THREE.Color(c));
+      const m4 = new THREE.Matrix4();
+      boxes.forEach(([x, y, z], i) => { m4.makeTranslation(y, z, -x); mesh.setMatrixAt(i, m4); mesh.setColorAt(i, cols[(i * 7 + Math.floor(x)) % cols.length]); });
+      mesh.castShadow = true; g.add(mesh);
+    } else if (SHIP.type === 'bulk') {
+      const holds = 7, span = fwdEnd - houseFwd - 6, hl = span / holds;
+      const cover = this.mat(L.accent, { rough: 0.65 }), coam = this.mat(L.topsides, { rough: 0.6 });
+      for (let k = 0; k < holds; k++) {
+        const x = houseFwd + 4 + hl * (k + 0.5);
+        const w = Math.min(SHIP.B * 0.62, 2 * halfB(x) - 6);
+        const c1 = new THREE.Mesh(new THREE.BoxGeometry(w + 1, 1.6, hl * 0.72 + 1), coam); c1.position.set(0, fb + 0.8, -x); g.add(c1);
+        const c2 = new THREE.Mesh(new THREE.BoxGeometry(w, 1.0, hl * 0.72), cover); c2.position.set(0, fb + 2.0, -x); g.add(c2);
+      }
+    }
+  }
   /** Fixed propeller on a shaft boss (pushing, under the stern) and the rudder behind it. */
   private buildShaftUnit(g: THREE.Group, p: PodSpec, steel: THREE.Material, anti: THREE.Material, bronze: THREE.Material) {
     const sh = p.shaft!, D = sh.prop.D, T = SHIP.T, R = D / 2;
@@ -498,13 +555,21 @@ export class View3D {
     const roofM = this.mat(L.super, { rough: 0.7 });
     let topH = fb;
     const whAft = SHIP.bridgeX - L.bridgeLen / 2;
+    const cargo = SHIP.type && SHIP.type !== 'cruise';
+    const sideM = cargo ? this.mat(L.super, { rough: 0.6 }) : stripeM;
     for (const d of L.decks) {
       // decks that rise above the wheelhouse must stay abaft it, or they would block the view ahead
       const x1 = d.h > L.bridgeH - 3 ? Math.min(d.x1, whAft) : d.x1;
       if (x1 - d.x0 < 4) continue;
-      g.add(new THREE.Mesh(prism(deckOutline(d.x0, x1, d.inset), fb, d.h), [roofM, stripeM]));
+      g.add(new THREE.Mesh(prism(deckOutline(d.x0, x1, d.inset), fb, d.h), [roofM, sideM]));
+      if (cargo) {
+        // a band of windows under each deck edge
+        const win = new THREE.Mesh(prism(deckOutline(d.x0 - 0.05, x1 + 0.05, d.inset - 0.05), d.h - 1.6, d.h - 0.6), this.mat(L.glass, { rough: 0.2, metal: 0.4 }));
+        g.add(win);
+      }
       topH = Math.max(topH, d.h);
     }
+    if (cargo) this.buildCargo(g, fb);
     // wheelhouse with wings, glass all round
     const glass = this.mat(L.glass, { rough: 0.15, metal: 0.5 });
     const wingW = 2 * (SHIP.B / 2 + L.wingOut), bx = SHIP.bridgeX;

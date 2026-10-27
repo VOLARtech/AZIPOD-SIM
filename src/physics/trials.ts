@@ -246,8 +246,8 @@ export function runShaftTrials(spec: ShipSpec, depth = Infinity): { rows: TrialR
   {
     const s = makeState(spec, 0, 0, 0, 6), c: Command = { pods: spec.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0 };
     let cd = 0, cdT = 0;
-    run(model, s, c, env, 2400, x => { cd = x.n; cdT = x.t; if (x.u <= 2 * KN) return true; });
-    rows.push({ key: 'coast', label: 'Coast-down 6 → 2 kn, engine stopped', value: `${(cd / L).toFixed(1)} L · ${cd.toFixed(0)} m`, note: `${(cdT / 60).toFixed(1)} min` });
+    run(model, s, c, env, 7200, x => { cd = x.n; cdT = x.t; if (x.u <= 2 * KN) return true; });
+    rows.push({ key: 'coast', label: 'Coast-down 6 → 2 kn, engine stopped', value: `${(cd / L).toFixed(1)} L · ${cd.toFixed(0)} m`, note: `${(cdT / 60).toFixed(0)} min` });
     const w = makeState(spec, 0, 0, 0, 0);
     run(model, w, c, env, 900, undefined, 30 * KN, 90 * DEG);
     rows.push({ key: 'wind', label: 'Dead-ship drift, 30 kn wind', value: `${(Math.hypot(w.u, w.v) / KN).toFixed(2)} kn`, note: `lies ${Math.abs(wrap(90 * DEG - w.psi) / DEG).toFixed(0)}° off the wind` });

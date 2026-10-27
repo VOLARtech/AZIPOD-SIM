@@ -4,7 +4,7 @@ import { SHIP, DEG, KN } from '../src/physics/ship';
 import { buildHull, setHull } from '../src/physics/contact';
 import { Model, makeState, emptyBreakdown, Env, rk4 } from '../src/physics/sim';
 import { Runtime } from '../src/physics/runtime';
-import { SCENARIOS, currentField, depthAt } from '../src/scenarios';
+import { SCENARIOS, currentField, depthAt, berthFor, fits } from '../src/scenarios';
 import type { Scenario } from '../src/scenarios';
 const OPEN = { obstacles: [], fenders: [], bollards: [], depthAt: () => Infinity };
 const harbourOf = (sc: Scenario) => ({ obstacles: sc.obstacles, fenders: sc.fenders, bollards: sc.bollards, depthAt: depthAt(sc), mooringSide: sc.mooringSide, tugSide: sc.tugSide, tugBP: sc.tugBP });
@@ -343,5 +343,22 @@ import { engines, helm, primeRunning } from '../src/physics/pilot';
     for (const r of rows) if (r.pass === false) assert.fail(`${r.label}: ${r.value} (${r.limit})`);
   });
 }
+
+console.log('cargo ships');
+for (const id of ['kcs', 'panamax', 'kvlcc2-ballast']) {
+  test(`${SHIPS[id].name}: trials run, turning and zig-zag criteria of MSC.137 met`, () => {
+    const { rows, Vs } = trialsOf(SHIPS[id]);
+    assert.ok(Math.abs(Vs / KN - SHIPS[id].vmaxKn) < 1.2, `service speed ${(Vs / KN).toFixed(1)} vs ${SHIPS[id].vmaxKn} kn`);
+    for (const r of rows) {
+      assert.ok(!/NaN|undefined/.test(r.value), `${r.label}: ${r.value}`);
+      if (r.pass === false && r.key !== 'crash') assert.fail(`${r.label}: ${r.value} (${r.limit})`);
+    }
+  });
+}
+test('the terminal berth lies off the fenders by half the beam, for any ship', () => {
+  const t = SCENARIOS.find(s => s.id === 'terminal')!;
+  for (const id of ['kvlcc2', 'kcs', 'becancour']) { const b = berthFor(t, SHIPS[id].B, 0)!; assert.ok(Math.abs(b.n - (-2 - SHIPS[id].B / 2 - 0.1)) < 1e-9 && b.psi === 90, `${id} ${b.n}`); }
+  assert.ok(fits(t, SHIPS.kvlcc2.T, berthFor(t, SHIPS.kvlcc2.B, 0)) && !fits(SCENARIOS.find(s => s.id === 'quai27')!, SHIPS.kvlcc2.T));
+});
 
 console.log(`\n${pass} passed${process.exitCode ? ', some failed' : ''}`);

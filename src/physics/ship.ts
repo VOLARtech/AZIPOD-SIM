@@ -5,6 +5,7 @@
 
 import { RHO, NU_W, G, DEG } from './consts';
 import { KVLCC2 } from '../ships/kvlcc2';
+import { KCS, PANAMAX, KVLCC2_BALLAST } from '../ships/cargo';
 export { RHO, RHO_AIR, NU_W, G, KN, DEG } from './consts';
 
 export interface PodSpec {
@@ -254,7 +255,7 @@ export const SPIRIT: ShipSpec = {
   },
 };
 
-export const SHIPS: Record<string, ShipSpec> = { becancour: BECANCOUR, lady: LADY, spirit: SPIRIT, kvlcc2: KVLCC2 };
+export const SHIPS: Record<string, ShipSpec> = { becancour: BECANCOUR, lady: LADY, spirit: SPIRIT, kvlcc2: KVLCC2, 'kvlcc2-ballast': KVLCC2_BALLAST, kcs: KCS, panamax: PANAMAX };
 /** The ship in use. A live binding: importers see the new ship after setShip(). */
 export let SHIP: ShipSpec = BECANCOUR;
 export function setShip(id: string) { SHIP = SHIPS[id] ?? BECANCOUR; return SHIP; }
