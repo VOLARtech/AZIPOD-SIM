@@ -6,12 +6,13 @@ import { nearestStructure } from '../physics/harbour';
 import { LINE } from '../physics/mooring';
 import type { Alt, Track } from '../physics/predict';
 import { S, SPEEDS, full } from './state';
+import { drawEncBase, drawEncMarks } from './enc';
 
 export const C: Record<string, string> = {};
 export let podColors = ['#c00', '#0a0'];
 export function readTheme() {
   const cs = getComputedStyle(document.documentElement);
-  for (const k of ['water', 'water-2', 'grid', 'land', 'land-edge', 'shoal', 'ink', 'muted', 'own', 'hull', 'port', 'stbd', 'predict', 'warn', 'ok', 'rule', 'panel-solid', 'alt-crash', 'alt-coast'])
+  for (const k of ['water', 'water-2', 'grid', 'land', 'land-edge', 'shoal', 'ink', 'muted', 'own', 'hull', 'port', 'stbd', 'predict', 'warn', 'ok', 'rule', 'panel-solid', 'alt-crash', 'alt-coast', 'dep-dw', 'dep-md', 'dep-ms', 'dep-vs', 'dep-it', 'sound', 'sound-sh', 'contour', 'safety', 'aid-light'])
     C[k] = cs.getPropertyValue('--' + k).trim();
   C.fontNum = cs.getPropertyValue('--font-num');
   C.fontLabel = cs.getPropertyValue('--font-label');
@@ -96,10 +97,27 @@ export function shownPose(): Pose & { u: number; v: number; r: number } {
 }
 
 // ---------------------------------------------------------------- chart
+let viewBounds: [number, number, number, number] = [0, 0, 0, 0];
+/** Real-chart soundings, aids and names: screen-space marks above the depth shades. */
+export function drawChartMarks() {
+  if (!S.sc.chart) return;
+  ctx.save(); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  drawEncMarks(S.sc.chart, { ctx, px, scale: S.view.scale, C, bounds: viewBounds, toScr });
+  // provenance, always on screen with a real chart
+  ctx.font = `500 10px ${C.fontNum}`; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillStyle = C.muted;
+  const note = `CHART NOAA ENC · DEPTHS m MLLW${S.sc.tide ? ` · TIDE +${S.sc.tide.toFixed(1)} m` : ''} · NOT FOR NAVIGATION`;
+  const nx0 = LAY.split === 'left' ? LAY.splitAt + 12 : LAY.padL, ny0 = LAY.trayTop - 36;
+  ctx.fillStyle = C['panel-solid']; ctx.globalAlpha = 0.8; ctx.fillRect(nx0 - 3, ny0 - 13, ctx.measureText(note).width + 6, 15); ctx.globalAlpha = 1;
+  ctx.fillStyle = C.muted; ctx.fillText(note, nx0, ny0);
+  ctx.restore();
+}
 export function drawChart() {
   ctx.save(); ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.fillStyle = C.water; ctx.fillRect(0, 0, W, H); ctx.restore();
   const [n0, e0] = fromScr(0, 0), [n1, e1] = fromScr(W, H), [n2, e2] = fromScr(W, 0), [n3, e3] = fromScr(0, H);
   const nMin = Math.min(n0, n1, n2, n3), nMax = Math.max(n0, n1, n2, n3), eMin = Math.min(e0, e1, e2, e3), eMax = Math.max(e0, e1, e2, e3);
+  viewBounds = [nMin, eMin, nMax, eMax];
+  // real chart: ENC depth shades, contours, land and structures replace the plain water and grid
+  if (S.sc.chart && drawEncBase(S.sc.chart, { ctx, px, scale: S.view.scale, C, bounds: viewBounds, toScr })) return;
   // shoal areas (depth areas shallower than the charted base)
   for (const sh of S.sc.shoals) { polyPath(sh.poly); ctx.fillStyle = C.shoal; ctx.fill(); ctx.strokeStyle = C.muted; ctx.lineWidth = px(1); ctx.setLineDash([px(4), px(3)]); ctx.stroke(); ctx.setLineDash([]); }
   const step = S.view.scale > 1.5 ? 50 : S.view.scale > 0.4 ? 100 : 500;
@@ -112,7 +130,7 @@ export function drawChart() {
 
 export function drawStructures() {
   const rt = S.rt;
-  for (const o of S.sc.obstacles) {
+  if (!S.sc.chart) for (const o of S.sc.obstacles) {
     polyPath(o.poly); ctx.fillStyle = C.land; ctx.fill();
     ctx.strokeStyle = C['land-edge']; ctx.lineWidth = px(1.5); ctx.stroke();
   }

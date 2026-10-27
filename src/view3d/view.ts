@@ -13,6 +13,18 @@ export type CamName = 'bridge' | 'port' | 'stbd' | 'chase';
 export type TimeOfDay = 'day' | 'dusk' | 'night';
 
 // ---------------------------------------------------------------- helpers
+/** Concatenate non-indexed geometries (position, normal, uv); disposes the inputs. */
+function mergeGeometries(geos: THREE.BufferGeometry[]) {
+  const keys = ['position', 'normal', 'uv'] as const, out = new THREE.BufferGeometry();
+  for (const k of keys) {
+    const parts = geos.map(g => (g.index ? g.toNonIndexed() : g).getAttribute(k) as THREE.BufferAttribute);
+    const size = parts[0].itemSize, arr = new Float32Array(parts.reduce((a, p) => a + p.count * size, 0));
+    let o = 0; for (const p of parts) { arr.set(p.array as Float32Array, o); o += p.count * size; }
+    out.setAttribute(k, new THREE.BufferAttribute(arr, size));
+  }
+  geos.forEach(g => g.dispose());
+  return out;
+}
 const tp = (n: number, e: number, h = 0) => new THREE.Vector3(e, h, -n);
 /** Half-breadth of the waterline outline at body x. */
 function halfB(x: number) {
@@ -210,11 +222,21 @@ export class View3D {
     const sc = S.sc, LH = sc.landHeight ?? 2;
     const quayM = this.mat(0x6f6d68, { rough: 0.95 }), pierM = this.mat(0x66625b, { rough: 0.95 });
     const edgeM = this.mat(0x3b3a37, { rough: 0.9 });
-    for (const ob of sc.obstacles) {
-      const sh = new THREE.Shape(ob.poly.map(([n, e]) => new THREE.Vector2(e, n)));
-      const geo = new THREE.ExtrudeGeometry(sh, { depth: LH + 4, bevelEnabled: false });
-      geo.rotateX(-Math.PI / 2); geo.translate(0, -4, 0);
-      g.add(new THREE.Mesh(geo, [ob.kind === 'pier' ? pierM : quayM, edgeM]));
+    if (sc.obstacles.length <= 40) {
+      for (const ob of sc.obstacles) {
+        const sh = new THREE.Shape(ob.poly.map(([n, e]) => new THREE.Vector2(e, n)));
+        const geo = new THREE.ExtrudeGeometry(sh, { depth: LH + 4, bevelEnabled: false });
+        geo.rotateX(-Math.PI / 2); geo.translate(0, -4, 0);
+        g.add(new THREE.Mesh(geo, [ob.kind === 'pier' ? pierM : quayM, edgeM]));
+      }
+    } else {
+      // chart-derived land comes in hundreds of tiles: one merged mesh keeps it to a single draw call
+      const geos = sc.obstacles.map(ob => {
+        const geo = new THREE.ExtrudeGeometry(new THREE.Shape(ob.poly.map(([n, e]) => new THREE.Vector2(e, n))), { depth: LH + 4, bevelEnabled: false });
+        geo.rotateX(-Math.PI / 2); geo.translate(0, -4, 0);
+        return geo;
+      });
+      g.add(new THREE.Mesh(mergeGeometries(geos), quayM));
     }
     // fenders: cone body + panel, compressed live
     const fM = this.mat(0x1d1d1f, { rough: 0.7 });

@@ -16,6 +16,8 @@ import { DT, LeverMode, Runtime } from './physics/runtime';
 import { LINE, WinchMode } from './physics/mooring';
 import type { Alt, PredictJob, Track } from './physics/predict';
 import { SCENARIOS, Scenario, currentField, depthAt } from './scenarios';
+import { ensureScenario } from './scenes/loaders';
+import { loadEnc } from './ui/enc';
 import { S, SPEEDS, ghostInterval } from './ui/state';
 import * as D from './ui/draw';
 import { renderModel, renderPoster, renderTrials, renderValidation, drawPosterPlots } from './ui/sheet';
@@ -72,6 +74,17 @@ function loadScenario(sc: Scenario) {
 }
 
 let sheetStarted = false;
+const postedData = new Set<string>();
+/** Load a scenario, fetching its chart and depth data first if it has any. */
+async function openScenario(sc: Scenario) {
+  if (sc.needsData || sc.chart) {
+    try {
+      const [data] = await Promise.all([ensureScenario(sc), sc.chart ? loadEnc(sc.chart) : null]);
+      if (data && !postedData.has(sc.id)) { pw.postMessage({ kind: 'data', id: sc.id, data }); postedData.add(sc.id); }
+    } catch (err) { console.error(err); toast(`Could not load the chart for ${sc.name}.`); if (S.rt) return; sc = SCENARIOS.find(s => !s.needsData)!; }
+  }
+  loadScenario(sc);
+}
 let onScenarioLoaded = () => { v3?.build(); };
 
 // ---------------------------------------------------------------- 3D view (lazy)
@@ -666,7 +679,7 @@ function renderScenarioList() {
     const b = document.createElement('button');
     b.className = s === S.sc ? 'cur' : '';
     b.innerHTML = `<b>${s.name}</b><span>${s.brief}</span>`;
-    b.onclick = () => { loadScenario(s); $('b-close').click(); };
+    b.onclick = () => { openScenario(s).then(() => $('b-close').click()); };
     box.appendChild(b);
   }
 }
@@ -769,6 +782,7 @@ function frame(now: number) {
     D.drawChart();
     D.drawParticles(dtReal);
     D.drawStructures();
+    D.drawChartMarks();
     D.drawTrail();
     D.drawPredictions();
     D.drawStaticArc();
@@ -823,13 +837,14 @@ persist('azb-settings',
   });
 D.readTheme();
 resize();
-loadScenario(SCENARIOS[0]);
-uiSyncs.forEach(f => f());
-($('s-static') as HTMLInputElement).checked = S.pred.staticArc;
-($('s-truth') as HTMLInputElement).checked = S.disp.truth;
-renderModel(S.rt.model.h);
-syncEnvUI();
-requestAnimationFrame(t => { last = t; frame(t); });
-if (S.disp.view !== '2d') set3d(S.disp.view);
+openScenario(SCENARIOS[0]).then(() => {
+  uiSyncs.forEach(f => f());
+  ($('s-static') as HTMLInputElement).checked = S.pred.staticArc;
+  ($('s-truth') as HTMLInputElement).checked = S.disp.truth;
+  renderModel(S.rt.model.h);
+  syncEnvUI();
+  requestAnimationFrame(t => { last = t; frame(t); });
+  if (S.disp.view !== '2d') set3d(S.disp.view);
+});
 syncWakeLock();
 initApp(() => { last = performance.now(); });

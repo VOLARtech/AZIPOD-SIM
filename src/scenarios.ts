@@ -2,9 +2,10 @@ import { DEG, KN } from './physics/ship';
 import type { Fender, Obstacle, Pt } from './physics/contact';
 import { fenderReaction } from './physics/contact';
 import type { CurrentField } from './physics/sim';
-import { Shoal, depthField, DepthField } from './physics/harbour';
+import { Shoal, depthField, DepthField, DepthGrid, gridField } from './physics/harbour';
 import { bboxOf } from './physics/contact';
 import { AMSTERDAM, Building } from './scenes/amsterdam';
+import { MIAMI } from './scenes/miami';
 export type { Building };
 
 export interface Scenario {
@@ -26,6 +27,12 @@ export interface Scenario {
   tugBP?: number;                                 // tug bollard pull [N]
   buildings?: Building[];                         // 3D-only scenery
   landHeight?: number;                            // quay / bank height above water for 3D
+  chart?: string;                                 // real chart id (ENC-derived layers drawn instead of the grid)
+  tide?: number;                                  // height of tide above chart datum [m]
+  depthGrid?: DepthGrid;                          // charted depth grid (replaces depth + shoals)
+  needsData?: boolean;                            // heavy data (depth grid, land) is loaded on demand…
+  setData?: (p: { grid: DepthGrid; land: Pt[][] }) => void;   // …and installed with this
+  source?: unknown;                               // provenance (chart cells, editions)
 }
 
 // Hull-on-structure: stiff while loading, little stored energy returned (plating crush) → e ≈ 0.2
@@ -50,6 +57,7 @@ export function currentField(sc: Scenario, kn: number, setDeg: number): CurrentF
 }
 
 export const SCENARIOS: Scenario[] = [
+  MIAMI,
   AMSTERDAM,
   {
     id: 'quai27', name: 'Quai 27 · port side to',
@@ -122,9 +130,14 @@ for (const sc of SCENARIOS) for (const o of sc.obstacles) o.bbox = bboxOf(o.poly
 const fields = new Map<string, DepthField>();
 export function depthAt(sc: Scenario): DepthField {
   let f = fields.get(sc.id);
-  if (!f) { f = depthField(sc.depth, sc.shoals); fields.set(sc.id, f); }
+  if (!f) {
+    if (sc.needsData && !sc.depthGrid) return () => sc.depth;     // not loaded yet: never cache the placeholder
+    f = sc.depthGrid ? gridField(sc.depthGrid, sc.tide ?? 0) : depthField(sc.depth, sc.shoals);
+    fields.set(sc.id, f);
+  }
   return f;
 }
+
 
 /** Everything the predictor worker needs about a scenario, rebuilt from its id. */
 export function scenarioWorld(id: string) {

@@ -14,6 +14,24 @@ function inPoly(n: number, e: number, poly: Pt[]) {
   }
   return ins;
 }
+/** Charted depth on a regular grid (row 0 = south), as built by tools/chart/build_chart.py. */
+export interface DepthGrid { e0: number; n0: number; cell: number; nx: number; ny: number; unit: number; data: string }
+const b64 = (s: string) => {
+  const bin = atob(s), out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+};
+/** Bilinear depth from the chart grid plus the height of tide above chart datum. */
+export function gridField(g: DepthGrid, tide = 0): DepthField {
+  const q = b64(g.data), { nx, ny, cell, unit } = g;
+  const at = (i: number, j: number) => q[Math.min(ny - 1, Math.max(0, i)) * nx + Math.min(nx - 1, Math.max(0, j))] * unit;
+  return (n, e) => {
+    const x = (e - g.e0) / cell - 0.5, y = (n - g.n0) / cell - 0.5;
+    const j = Math.floor(x), i = Math.floor(y), fx = x - j, fy = y - i;
+    const d = (at(i, j) * (1 - fx) + at(i, j + 1) * fx) * (1 - fy) + (at(i + 1, j) * (1 - fx) + at(i + 1, j + 1) * fx) * fy;
+    return d + tide;
+  };
+}
 export function depthField(base: number, shoals: Shoal[]): DepthField {
   return (n, e) => {
     let d = base;
@@ -120,7 +138,12 @@ export function bankEffect(spec: ShipSpec, st: ShipState, obs: Obstacle[], depth
 /** Ray–segment intersection distance along unit ray from (pn,pe) dir (dn,de). */
 function rayHit(pn: number, pe: number, dn: number, de: number, obs: Obstacle[], maxD: number) {
   let best: { d: number; nn: number; ne: number } | null = null;
-  for (const o of obs) for (let i = 0, j = o.poly.length - 1; i < o.poly.length; j = i++) {
+  const qe = pe + de * maxD, qn = pn + dn * maxD;
+  const lo = [Math.min(pn, qn), Math.min(pe, qe)], hi = [Math.max(pn, qn), Math.max(pe, qe)];
+  for (const o of obs) {
+    const b = o.bbox;
+    if (b && (b[0] > hi[0] || b[2] < lo[0] || b[1] > hi[1] || b[3] < lo[1])) continue;
+    for (let i = 0, j = o.poly.length - 1; i < o.poly.length; j = i++) {
     const [an, ae] = o.poly[j], [bn, be] = o.poly[i];
     const sn = bn - an, se = be - ae;
     const den = dn * se - de * sn;
@@ -132,6 +155,7 @@ function rayHit(pn: number, pe: number, dn: number, de: number, obs: Obstacle[],
       const l = Math.hypot(sn, se); let nn = -se / l, ne = sn / l;
       if (nn * dn + ne * de > 0) { nn = -nn; ne = -ne; }  // normal facing the incoming jet
       best = { d: t, nn, ne };
+    }
     }
   }
   return best;

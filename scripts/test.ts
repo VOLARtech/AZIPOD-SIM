@@ -250,4 +250,38 @@ test('Amsterdam PTA: 0.10 m/s parallel landing stays on the fenders, below rated
   assert.ok(ev && !ev.hard && ev.maxDefl < 1, ev ? `hard ${ev.hard} defl ${(ev.maxDefl * 100).toFixed(0)} %` : 'no contact');
 });
 
+console.log('real chart: PortMiami (NOAA ENC)');
+import MIAMI_DATA from '../src/scenes/miami.physics.json';
+import MIAMI_CHART from '../src/scenes/miami.chart.json';
+test('PortMiami chart: depth grid honours the charted soundings (within 0.6 m at 90 % of them)', () => {
+  const mia = SCENARIOS.find(s => s.id === 'miami-terminal-v')!;
+  mia.setData!(MIAMI_DATA as never);
+  const d = depthAt(mia), tide = mia.tide ?? 0;
+  const ok = (MIAMI_CHART.soundings as number[][]).filter(([n, e, z]) => Math.abs(d(n, e) - tide - z) < 0.6).length;
+  assert.ok(ok / MIAMI_CHART.soundings.length > 0.9, `${ok}/${MIAMI_CHART.soundings.length}`);
+});
+test('PortMiami: keel over ≥ 9 m along the whole berth, start in the channel, both clear of structures', () => {
+  setShip('lady'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+  const mia = SCENARIOS.find(s => s.id === 'miami-terminal-v')!, d = depthAt(mia), b = mia.berth!;
+  const c = Math.cos(b.psi * DEG), s = Math.sin(b.psi * DEG);
+  for (let x = -135; x <= 135; x += 5) assert.ok(d(b.n + x * c, b.e + x * s) >= 9, `berth keel ${x} m: ${d(b.n + x * c, b.e + x * s).toFixed(1)} m`);
+  assert.ok(d(mia.start.n, mia.start.e) >= 10, 'start depth');
+  const ci = { active: false, points: [], fenders: [] } as Parameters<typeof contactForces>[3] & object;
+  contactForces(makeState(ACTIVE, b.n, b.e, b.psi, 0), mia.obstacles, mia.fenders, ci);
+  assert.ok(!ci.active, 'berth pose touches');
+  contactForces(makeState(ACTIVE, mia.start.n, mia.start.e, mia.start.psi, 0), mia.obstacles, mia.fenders, ci);
+  assert.ok(!ci.active, 'start pose touches');
+});
+test('PortMiami: steaming out of the channel onto the charted flats runs her aground', () => {
+  const mia = SCENARIOS.find(s => s.id === 'miami-terminal-v')!;
+  // from the start, head due north across the shallows toward the Venetian Islands at 6 kn
+  const st = makeState(ACTIVE, mia.start.n, mia.start.e, 0, 6);
+  st.pods.forEach(p => (p.rpm = 0.3));
+  const rt = new Runtime(ACTIVE, st, { pods: [{ alpha: 0, rpm: 0.3 }, { alpha: 0, rpm: 0.3 }], bt: 0 }, { ...calm, depth: 12 }, harbourOf(mia));
+  let aground = false;
+  for (let i = 0; i < 20 * 240 && !aground; i++) { rt.step(); aground = (rt.world.aground ?? 0) > 0; }
+  setShip('becancour'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+  assert.ok(aground, 'never touched bottom');
+});
+
 console.log(`\n${pass} passed${process.exitCode ? ', some failed' : ''}`);
