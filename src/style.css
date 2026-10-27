@@ -460,3 +460,12 @@ details.sec[open] { display: flex; flex-direction: column; gap: 10px; padding-bo
 }
 .scen span.who { font: 600 11px var(--font-label); letter-spacing: 0.06em; color: var(--own); text-transform: uppercase; }
 .scen.ships { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.st-gen .combi, .st-gen .vsppad { width: calc(var(--stH) * 0.78); height: calc(var(--stH) * 0.78); cursor: grab; }
+.st-gen .unitbox { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.st-gen .unit-tag2 { font: 600 10.5px var(--font-label); letter-spacing: 0.08em; }
+.st-gen .heel { width: 150px; height: calc(var(--stH) * 0.55); }
+.st-gen .towg { width: 130px; height: calc(var(--stH) * 0.55); }
+.st-gen .tow .stat { width: 190px; }
+.st-gen .row.wrap { flex-wrap: wrap; justify-content: center; max-width: 340px; }
+.st-gen .row.wrap .cb { height: 26px; font-size: 11px; padding: 0 8px; }
+@media (max-width: 600px) { .st-gen .heelc { display: none; } }

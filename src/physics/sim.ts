@@ -8,6 +8,8 @@ import { MooringLine, lineForces } from './mooring';
 import { DepthField, groundingForces } from './harbour';
 import { ShaftForce, EngineState, initEngine, propTorque, shaftForces, stepEngine } from './units/shaft';
 import { mmgHull } from './hull/mmg';
+import { stepVsp, vspForce } from './units/vsp';
+import { Towline, towForce } from './towline';
 import type { PodSpec } from './ship';
 import { isPod, unitAxis } from './units/kinds';
 
@@ -43,6 +45,7 @@ export interface World {
   lines?: MooringLine[]; bollards?: Pt[];     // mooring lines (force evaluated inside RK4)
   lineT?: number[];                           // out: tensions at last evaluation
   ext?: Wrench;                               // body wrench held over the step (tugs, bank, wash)
+  tow?: { line: Towline; anchor: [number, number, number, number] };   // towline to a moving fairlead
   depthAt?: DepthField; squat?: number;       // grounding
   aground?: number;                           // out: max keel penetration [m]
 }
@@ -139,6 +142,12 @@ export class Model {
     const np = s.pods.length;
     for (let i = 0; i < np; i++) {
       const p = s.pods[i], ps = st.pods[i];
+      if (p.kind === 'vsp') {
+        const f = vspForce(p, ps, ur, vr, r, s.Vzero);
+        X += f.X; Y += f.Y; N += f.N;
+        if (bd) { const b = bd.pods[i]; b.X = f.X; b.Y = f.Y; b.N = f.N; b.T = f.T; b.eff = 1; }
+        continue;
+      }
       if (p.kind === 'shaft') {
         const f = shaftForces(s, p, ps.rpm, ps.alpha, ps.pitch ?? 1, ur, vr, r, s.mmg ? 0 : -s.xg, this.sf);
         X += f.X; Y += f.Y; N += f.N;
@@ -210,6 +219,15 @@ export class Model {
       Y += Fy; N += bt.x * Fy;
       if (bd) { bd.bt.X = 0; bd.bt.Y = Fy; bd.bt.N = bt.x * Fy; bd.bt.eff = eff; }
     }
+    if (s.skeg) {
+      // skeg as a low-aspect lifting surface in the local cross-flow
+      const vs = vr + s.skeg.x * r, U2 = ur * ur + vs * vs;
+      if (U2 > 1e-6) {
+        const sb = Math.abs(vs) / Math.sqrt(U2);
+        const Fy = -Math.sign(vs) * 0.5 * RHO * s.skeg.A * U2 * Math.min(1.8 * sb, 1.15);
+        Y += Fy; N += s.skeg.x * Fy;
+      }
+    }
     if (s.sternThruster && st.sbt) {
       const sb = s.sternThruster;
       const eff = 1 / (1 + (ur / 1.6) ** 2);
@@ -246,6 +264,7 @@ export class Model {
         X += l.X; Y += l.Y; N += l.N;
       }
       if (w.ext) { X += w.ext.X; Y += w.ext.Y; N += w.ext.N; }
+      if (w.tow) { const t = towForce(st, w.tow.line, w.tow.anchor); X += t.X; Y += t.Y; N += t.N; w.tow.line.T = t.T; }
       if (w.depthAt) {
         const g = groundingForces(s, st, w.depthAt, w.squat ?? 0);
         X += g.X; Y += g.Y; N += g.N; w.aground = g.maxPen;
@@ -294,6 +313,11 @@ export function updateActuators(spec: ShipSpec, st: ShipState, cmd: Command, dt:
   let limited = powerLim < 0.999;
   for (let i = 0; i < n; i++) {
     const p = st.pods[i], c = cmd.pods[i], ps = spec.pods[i];
+    if (ps.kind === 'vsp') {
+      stepVsp(ps, p, c, dt);
+      if (out) { out.podPower[i] = ps.P * p.rpm ** 2; out.rpmLimit[i] = 1; out.revBlocked[i] = false; out.split[i] = false; }
+      continue;
+    }
     if (ps.kind === 'shaft') {
       const lim = onBoard(ps) ? powerLim : 1;
       stepShaft(spec, ps, p, c, st, dt, cur, lim, out, i);

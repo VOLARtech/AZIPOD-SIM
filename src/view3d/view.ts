@@ -16,7 +16,8 @@ import { Wake } from './wake';
 import { SPEEDS } from '../ui/state';
 import type { PodSpec } from '../physics/ship';
 import { SHIP } from '../physics/ship';
-import { HULL } from '../physics/contact';
+import { HULL, setHull } from '../physics/contact';
+import { setShip } from '../physics/ship';
 import { LINE } from '../physics/mooring';
 import { S } from '../ui/state';
 
@@ -118,6 +119,8 @@ export class View3D {
   };
   private harbour = new THREE.Group();
   private ship = new THREE.Group();
+  private other = new THREE.Group();          // the ship a tug is working (escort)
+  private towLine: THREE.Line | null = null;
   private navLights: THREE.Object3D[] = [];
   private lamps: THREE.Object3D[] = [];
   private lit: THREE.MeshStandardNodeMaterial[] = [];
@@ -160,7 +163,8 @@ export class View3D {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.scene.add(this.sun, this.sun.target, this.hemi, this.harbour, this.ship);
+    this.scene.add(this.sun, this.sun.target, this.hemi, this.harbour, this.ship, this.other);
+    this.ship.rotation.order = 'YXZ';            // yaw, then heel about the fore-and-aft axis
 
     // physically based sky (Preetham + clouds), follows the camera; layer 1 = not in the AO pre-pass
     this.sky.scale.setScalar(9000);
@@ -282,13 +286,14 @@ export class View3D {
 
   /** Rebuild for the current scenario and ship (cheap; called on scenario load). */
   build() {
-    const key = S.sc.id + '|' + SHIP.id;
+    const key = S.sc.id + '|' + SHIP.id + '|' + (S.rt.escort?.spec.id ?? '');
     if (key === this.builtFor) return;
     this.builtFor = key;
     this.lit = []; this.lamps = []; this.navLights = [];
     this.tod = null;
     this.buildHarbour();
     this.buildShip();
+    this.buildOther();
     this.buildTugs();
     for (const l of this.lines) this.scene.remove(l);
     this.lines = S.rt.lines.map(() => {
@@ -403,6 +408,7 @@ export class View3D {
     const bronze = new THREE.MeshStandardNodeMaterial({ color: '#a8834c', roughness: 0.3, metalness: 0.85, side: THREE.DoubleSide });
     for (const p of SHIP.pods) {
       if (p.kind === 'shaft') { this.pods.push(this.buildShaftUnit(g, p, steel, anti, bronze)); continue; }
+      if (p.kind === 'azimuth' || p.kind === 'vsp') { this.pods.push(this.buildTugUnit(g, p, steel, bronze)); continue; }
       const D = p.D, podR = D * 0.27, podL = D * 1.9;
       const cy = -(T - D / 2 - 0.2);                     // propeller tip just above the keel line
       this.podDepth = cy;
@@ -519,6 +525,34 @@ export class View3D {
       }
     }
   }
+  /** Z-drive (leg, gearbox, propeller in a nozzle, pushing) or Voith Schneider rotor (vertical blades). */
+  private buildTugUnit(g: THREE.Group, p: PodSpec, steel: THREE.Material, bronze: THREE.Material) {
+    const T = SHIP.T, D = p.D, cy = -(T - D / 2 - 0.1);
+    const yaw = new THREE.Group(); yaw.position.set(p.y, 0, -p.x);
+    const prop = new THREE.Group();
+    if (p.kind === 'vsp') {
+      // rotor flush with the bottom, five blades hanging down, a guard plate below
+      const disc = new THREE.Mesh(new THREE.CylinderGeometry(D / 2, D / 2, 0.4, 24), steel); disc.position.y = -T + 2.2; yaw.add(disc);
+      prop.position.y = -T + 2.0;
+      for (let k = 0; k < 5; k++) {
+        const a = k * 2 * Math.PI / 5;
+        const b = new THREE.Mesh(new THREE.BoxGeometry(0.25, 1.9, 0.9), bronze); b.position.set(Math.cos(a) * D * 0.4, -0.95, Math.sin(a) * D * 0.4); b.rotation.y = -a; prop.add(b);
+      }
+      yaw.add(prop);
+      const guard = new THREE.Mesh(new THREE.CylinderGeometry(D * 0.65, D * 0.65, 0.15, 24), steel); guard.position.y = -T - 0.1; yaw.add(guard);
+    } else {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.6, -cy, D * 0.45), steel); leg.position.set(0, cy / 2, 0); yaw.add(leg);
+      const box = new THREE.Mesh(new THREE.CapsuleGeometry(D * 0.18, D * 0.5, 6, 14), steel); box.rotation.x = Math.PI / 2; box.position.set(0, cy, 0); yaw.add(box);
+      const duct = new THREE.Mesh(new THREE.TorusGeometry(D / 2 + 0.15, 0.18, 8, 28), steel); duct.position.set(0, cy, D * 0.5); duct.scale.z = 2.2; yaw.add(duct);
+      prop.position.set(0, cy, D * 0.5);
+      for (let k = 0; k < 4; k++) { const h = new THREE.Group(); h.rotation.z = k * Math.PI / 2; const b = new THREE.Mesh(new THREE.BoxGeometry(0.12, D * 0.46, D * 0.22), bronze); b.position.y = D * 0.24; b.rotation.y = 0.6; h.add(b); prop.add(h); }
+      yaw.add(prop);
+    }
+    yaw.traverse(o => { if ((o as THREE.Mesh).isMesh) o.castShadow = true; });
+    g.add(yaw);
+    this.podDepth = p.kind === 'vsp' ? -T + 0.6 : cy;
+    return { yaw, prop, spin: 0 };
+  }
   /** Fixed propeller on a shaft boss (pushing, under the stern) and the rudder behind it. */
   private buildShaftUnit(g: THREE.Group, p: PodSpec, steel: THREE.Material, anti: THREE.Material, bronze: THREE.Material) {
     const sh = p.shaft!, D = sh.prop.D, T = SHIP.T, R = D / 2;
@@ -551,11 +585,24 @@ export class View3D {
     }
     return { yaw, prop, spin: 0, rudder };
   }
-  private buildShip() {
-    const g = this.ship; this.clear(g);
-    const gen = ++this.shipGen;                   // a model still loading for the previous ship must not land
+  /** The escorted ship, built by the same procedure with her particulars swapped in for the build. */
+  private buildOther() {
+    this.clear(this.other);
+    if (this.towLine) { this.scene.remove(this.towLine); this.towLine = null; }
+    const esc = S.rt.escort; if (!esc) return;
+    const own = SHIP.id, ownHull = HULL, pods = this.pods, depth = this.podDepth;
+    try { setShip(esc.spec.id); setHull(esc.hull); this.buildShip(this.other, false); }
+    finally { setShip(own); setHull(ownHull); this.pods = pods; this.podDepth = depth; }
+    this.other.traverse(o => { if ((o as THREE.Mesh).isMesh) o.castShadow = o.receiveShadow = true; });
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(17 * 3), 3));
+    this.towLine = new THREE.Line(g, new THREE.LineBasicNodeMaterial({ color: 0xe8d9a0 }));
+    this.towLine.frustumCulled = false; this.scene.add(this.towLine);
+  }
+  private buildShip(g = this.ship, own = true) {
+    this.clear(g);
+    const gen = own ? ++this.shipGen : this.shipGen;   // a model still loading for the previous ship must not land
     this.buildPods(g);
-    if (SHIP.look.model) { this.buildModelShip(SHIP.look.model, gen); return; }
+    if (own && SHIP.look.model) { this.buildModelShip(SHIP.look.model, gen); return; }
     const L = SHIP.look, T = SHIP.T, fb = L.freeboard;
     const outline = HULL as [number, number][];
     const boot = Math.min(fb - 1, 3);
@@ -618,7 +665,7 @@ export class View3D {
     lamp(0xff2a2a, bx, -wingW / 2 - 0.2, L.bridgeH - 1);
     lamp(0x22ff66, bx, wingW / 2 + 0.2, L.bridgeH - 1);
     lamp(0xfff6e0, hxa + 1, 0, fb + 2);
-    this.ship.userData.eyeH = L.bridgeH - 1.4;
+    if (own) this.ship.userData.eyeH = L.bridgeH - 1.4;
   }
 
   /** Detailed ship from a converted STL, painted per pixel (see tools/ship/stl_to_ship.py). */
@@ -816,6 +863,20 @@ export class View3D {
     // own ship: true pose (out of the window is reality, not the sensor estimate); squat as sinkage
     this.ship.position.set(st.e, -(rt.world.squat ?? 0), -st.n);
     this.ship.rotation.y = -psi;
+    this.ship.rotation.z = -(rt.roll?.phi ?? 0);
+    const esc = rt.escort;
+    this.other.visible = !!esc;
+    if (esc && this.towLine) {
+      this.other.position.set(esc.st.e, 0, -esc.st.n); this.other.rotation.y = -esc.st.psi;
+      const l = esc.line, line = this.towLine, pos = line.geometry.getAttribute('position') as THREE.BufferAttribute;
+      line.visible = !l.parted && l.mode !== 'released';
+      const ce = Math.cos(esc.st.psi), se = Math.sin(esc.st.psi);
+      const a = w2(l.fairTug[0], l.fairTug[1], SHIP.T * 0 + l.hTug);
+      const b = tp(esc.st.n + l.fairShip[0] * ce, esc.st.e + l.fairShip[0] * se, esc.spec.look.freeboard + 1);
+      const span = a.distanceTo(b), sag = Math.max(0, (1 - l.T / (0.15 * l.brake)) * span * 0.08);
+      for (let k = 0; k <= 16; k++) { const f = k / 16; pos.setXYZ(k, a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f - sag * 4 * f * (1 - f), a.z + (b.z - a.z) * f); }
+      pos.needsUpdate = true;
+    }
 
     // fenders: cone length shrinks with the deflection reported by the contact model this step
     const defl = new Map(rt.ci.fenders.map(f => [f.i, f.defl]));
@@ -886,6 +947,7 @@ export class View3D {
     // pods: azimuth and propeller from the actual (lagging) pod state
     this.pods.forEach((pd, i) => {
       const ps = st.pods[i], spec = SHIP.pods[i]; if (!ps || !spec) return;
+      if (spec.kind === 'vsp') { pd.spin += 1.2 * 2 * Math.PI * simDt * (i ? -1 : 1); pd.prop.rotation.y = pd.spin; return; }   // rotor runs at constant speed
       if (spec.kind === 'shaft') {
         if (pd.rudder) pd.rudder.rotation.y = ps.alpha;
         pd.spin -= ps.rpm * spec.shaft!.engine.n * 2 * Math.PI * simDt * spec.shaft!.prop.hand;   // actual shaft speed

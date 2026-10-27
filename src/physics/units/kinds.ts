@@ -6,5 +6,6 @@ export const isPod = (p: PodSpec) => !p.kind || p.kind === 'azipod' || p.kind ==
 /** Direction the unit's thrust acts along, body axes (for wash and drawing). */
 export function unitAxis(p: PodSpec, ps: { alpha: number }) {
   if (p.kind === 'shaft') return 0;
+  if (p.kind === 'vsp') return ps.alpha;
   return ps.alpha + p.alphaOffset;
 }

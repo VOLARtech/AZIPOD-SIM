@@ -8,6 +8,9 @@ import { MooringLine, Tug, LINE, makeLines, makeTugs, passLine, tugForces, updat
 import { DPState, JoyInput, allocate, dpForces, joyLimits } from './allocation';
 import { Sensors } from './sensors';
 import { isPod } from './units/kinds';
+import { Escort, EscortSetup } from './escort';
+import { RollState, deckEdge, rollInit, stepRoll } from './roll';
+import { makeTowline, pointWorld, towForce, updateTowWinch } from './towline';
 
 export const DT = 0.05;
 
@@ -46,6 +49,9 @@ export class Runtime {
   contactLog: ContactEvent[] = [];
   alerts: Alert[] = [];
   trail: [number, number][] = [];
+  escort: Escort | null = null;            // the ship this tug is working, with the towline
+  roll: RollState | null = null;           // heel, for ships with roll data
+  capsized = false;
   private trailT = 0; private hydroT = 0; private hydroDepth = NaN;
 
   constructor(public spec: ShipSpec, public state: ShipState, public cmd: Command,
@@ -61,6 +67,7 @@ export class Runtime {
       lineT: this.lines.map(() => 0), ext: { X: 0, Y: 0, N: 0 }, depthAt: harbour.depthAt, squat: 0, aground: 0,
     };
     this.sensors.step(state, 0, env.current(state.n, state.e), this.wind());
+    if (spec.roll) this.roll = rollInit();
   }
 
   wind() {
@@ -71,6 +78,17 @@ export class Runtime {
     this.alerts.length = Math.min(this.alerts.length, 12);
   }
 
+  /** Make the tug fast to a ship: she steams `setup.L0` + both half-lengths ahead on the tug's heading. */
+  attachEscort(setup: EscortSetup, ship: ShipSpec) {
+    const tp = this.spec.towPoints?.[setup.tugPoint];
+    if (!tp) return;
+    const st = this.state, c = Math.cos(st.psi), s = Math.sin(st.psi);
+    const fairShip: [number, number] = setup.fair === 'aft' ? [-ship.L / 2 + 3 - ship.xg, 0] : [ship.L / 2 - 4 - ship.xg, 0];
+    const d = tp.x + setup.L0 - fairShip[0];                       // tug origin → ship origin, along the heading
+    const bp = this.spec.pods.reduce((a, p) => a + p.Tb, 0);
+    const line = makeTowline([tp.x, 0], fairShip, tp.h, setup.L0, bp);
+    this.escort = new Escort(ship, setup, line, st.n + d * c, st.e + d * s, this.env);
+  }
   /** The joystick allocator drives two azimuthing pods and the bow thruster. */
   get canJoy() { return this.spec.pods.length === 2 && this.spec.pods.every(isPod); }
   setLever(m: LeverMode) {
@@ -134,9 +152,24 @@ export class Runtime {
       if (!(Math.abs(hEff - this.hydroDepth) < 0.02 * (hEff || 1))) { this.model.setDepth(hEff); this.hydroDepth = hEff; }
     }
 
+    const esc = this.escort;
+    if (esc) this.world.tow = { line: esc.line, anchor: esc.anchor() };
     rk4(this.model, st, this.env, wind, this.world, dt);
     // diagnostics at end-of-step state
     this.model.accel(st, this.env, wind, this.world, this.bd, this.ci);
+    if (esc) {
+      const tp = pointWorld(st, esc.line.fairTug);
+      esc.step(dt, this.env, [tp[0], tp[1]]);
+      const ev = updateTowWinch(esc.line, dt);
+      if (ev) this.alert(ev, 'heavy');
+    }
+    if (this.roll && !this.capsized) {
+      const tow = esc && this.world.tow ? towForce(st, esc.line, this.world.tow.anchor) : null;
+      stepRoll(spec, this.roll, this.bd, tow ? [{ Y: tow.Y, h: esc!.line.hTug }] : [], dt);
+      const phi = Math.abs(this.roll.phi), r = spec.roll!;
+      if (phi > r.vanish) { this.capsized = true; this.alert('CAPSIZED', 'heavy'); }
+      else if (phi > deckEdge(spec) && st.t % 2 < dt) this.alert(`DECK EDGE UNDER · HEEL ${(phi * 180 / Math.PI).toFixed(0)}°${tow && tow.T > 0 ? ' · GIRTING' : ''}`, 'heavy');
+    }
     this.lines.forEach((l, i) => (l.T = this.world.lineT![i]));
     for (const name of updateWinches(this.lines, dt)) this.alert(`${name} PARTED`, 'heavy');
     for (const l of this.lines) if (l.state === 'fast' && l.T > 0.8 * LINE.MBL && st.t % 2 < dt) this.alert(`${l.name} ${(l.T / 9.81e3).toFixed(0)} t — near breaking`, 'heavy');

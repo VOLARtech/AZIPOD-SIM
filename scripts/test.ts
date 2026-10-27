@@ -395,4 +395,56 @@ console.log('twin screw · CPP · electric shafts');
   });
 }
 
+console.log('tugs');
+import { stepRoll, rollInit } from '../src/physics/roll';
+{
+  const env0: Env = calm;
+  for (const [id, bpT] of [['asd-tug', 80], ['vsp-tug', 70], ['rotor-tug', 80]] as [string, number][]) {
+    test(`${SHIPS[id].name}: bollard pull within 12 % of ${bpT} t`, () => {
+      const sp = SHIPS[id], mm = new Model(sp, Infinity), st = makeState(sp, 0, 0, 0, 0);
+      const c: Cmd = { pods: sp.pods.map(() => ({ alpha: 0, rpm: 1 })), bt: 0 };
+      for (let t = 0; t < 30; t += 0.05) updateActuators(sp, st, c, 0.05);
+      const bd = emptyBreakdown(sp.pods.length); mm.accel(st, env0, still, null, bd);
+      const bp = bd.pods.reduce((a, b) => a + b.X, 0) / 9.81e3;
+      assert.ok(Math.abs(bp - bpT) < 0.12 * bpT, `${bp.toFixed(1)} t`);
+    });
+  }
+  test('Voith Schneider: thrust reverses ahead → astern in seconds, through zero, without slewing round', () => {
+    const sp = SHIPS['vsp-tug'], st = makeState(sp, 0, 0, 0, 0); st.pods.forEach(p => { p.rpm = 1; p.alpha = 0; });
+    const c: Cmd = { pods: sp.pods.map(() => ({ alpha: Math.PI, rpm: 1 })), bt: 0 };
+    let minE = 1, side = 0;
+    for (let t = 0; t < 8; t += 0.05) { updateActuators(sp, st, c, 0.05); minE = Math.min(minE, st.pods[0].rpm); side = Math.max(side, Math.abs(Math.sin(st.pods[0].alpha)) * st.pods[0].rpm); }
+    assert.ok(Math.cos(st.pods[0].alpha) < -0.99 && st.pods[0].rpm > 0.9, 'astern at full');
+    assert.ok(minE < 0.05 && side < 0.05, `passed through zero (min ${minE.toFixed(2)}, side ${side.toFixed(2)})`);
+  });
+  test('escort tug hull and skeg at 8 kn, 45° to the flow: side force 1.3–2 × bollard pull', () => {
+    const sp = SHIPS['asd-tug'], mm = new Model(sp, Infinity), st = makeState(sp, 0, 0, 0, 0);
+    st.u = -8 * KN * Math.cos(45 * DEG); st.v = -8 * KN * Math.sin(45 * DEG);
+    const bd = emptyBreakdown(2); mm.accel(st, env0, still, null, bd);
+    const bp = sp.pods.reduce((a, p) => a + p.Tb * (1 - sp.tded), 0), f = Math.hypot(bd.hull.X, bd.hull.Y) / bp;
+    assert.ok(f > 1.3 && f < 2, `${f.toFixed(2)} × BP`);
+  });
+  test('tug roll: natural period 5–9 s; full bollard pull abeam at the winch, held by the hull, heels her 8–20°', () => {
+    const sp = SHIPS['asd-tug'], rs = rollInit(), bd = emptyBreakdown(2);
+    rs.phi = 5 * DEG; let t = 0, cross = [] as number[], last = rs.phi;
+    for (; t < 30; t += 0.02) { stepRoll(sp, rs, bd, [], 0.02); if (last > 0 && rs.phi <= 0) cross.push(t); last = rs.phi; }
+    const Tn = cross[1] - cross[0];
+    assert.ok(Tn > 5 && Tn < 9, `T ${Tn.toFixed(1)} s`);
+    const r2 = rollInit(), Y = 80 * 9.81e3, bh = emptyBreakdown(2);
+    bh.hull.Y = -Y;                                           // girting: the hull resists the line's pull
+    for (t = 0; t < 60; t += 0.02) stepRoll(sp, r2, bh, [{ Y, h: 4 }], 0.02);
+    assert.ok(r2.phi > 8 * DEG && r2.phi < 20 * DEG, `${(r2.phi / DEG).toFixed(1)}°`);
+  });
+  test('escort: towed passively at 8 kn the line takes the tug\'s drag and stays well under its break load', () => {
+    const sp = SHIPS['asd-tug'], sc = SCENARIOS.find(x => x.id === 'escort')!;
+    const st = makeState(sp, 0, 0, 0, 8);
+    const rt = new Runtime(sp, st, { pods: sp.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0 }, calm, OPEN);
+    rt.attachEscort(sc.escort!, SHIPS.kvlcc2);
+    let peak = 0;
+    for (let i = 0; i < 20 * 120; i++) { rt.step(); peak = Math.max(peak, rt.escort!.line.T); }
+    assert.ok(peak > 2e4 && peak < rt.escort!.line.MBL * 0.6, `peak ${(peak / 9.81e3).toFixed(0)} t`);
+    assert.ok(!rt.escort!.line.parted && !rt.capsized);
+  });
+}
+
 console.log(`\n${pass} passed${process.exitCode ? ', some failed' : ''}`);

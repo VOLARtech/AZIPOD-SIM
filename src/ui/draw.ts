@@ -271,6 +271,32 @@ export function drawLines() {
   }
 }
 
+/** The ship a tug is working, and the towline (ink when slack, own colour loaded, warn near the brake). */
+export function drawEscort() {
+  const esc = S.rt.escort; if (!esc) return;
+  const st = esc.st, me = S.rt.state;
+  ctx.save(); bodyTransform(st);
+  ctx.beginPath(); esc.hull.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath();
+  ctx.fillStyle = C.hull; ctx.fill(); ctx.strokeStyle = esc.failed ? C.warn : C.ink; ctx.lineWidth = px(1.6); ctx.stroke();
+  const rd = esc.spec.pods[0]?.shaft?.rudder;
+  if (rd) { ctx.save(); ctx.translate(rd.xR, 0); ctx.rotate(-st.pods[0].alpha); ctx.strokeStyle = esc.failed ? C.warn : C.ink; ctx.lineWidth = px(2.5); ctx.beginPath(); ctx.moveTo(4, 0); ctx.lineTo(-10, 0); ctx.stroke(); ctx.restore(); }
+  ctx.restore();
+  const l = esc.line;
+  if (l.parted || l.mode === 'released') return;
+  const [a, b] = bodyToWorld(me, l.fairTug[0], l.fairTug[1]), [c, d] = bodyToWorld(st, l.fairShip[0], l.fairShip[1]);
+  const load = l.T / l.brake;
+  ctx.strokeStyle = load > 0.85 ? C.warn : load > 0.05 ? C.own : C.ink; ctx.lineWidth = px(load > 0.05 ? 2 : 1.2);
+  if (load <= 0.05) ctx.setLineDash([px(4), px(3)]);
+  ctx.beginPath(); ctx.moveTo(b, a); ctx.lineTo(d, c); ctx.stroke(); ctx.setLineDash([]);
+  if (l.T > 5e3) {
+    ctx.save(); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    const [sx, sy] = toScr((a + c) / 2, (b + d) / 2);
+    ctx.font = `600 12px ${C.fontLabel}`; ctx.fillStyle = ctx.strokeStyle; ctx.textAlign = 'left';
+    ctx.fillText(`LINE ${(l.T / 9.81e3).toFixed(0)} t`, sx + 8, sy - 6);
+    ctx.restore();
+  }
+}
+
 export function drawTugs() {
   const rt = S.rt, est = shownPose();
   for (const t of rt.tugs) {

@@ -10,7 +10,7 @@ import './style.css';
 import { initApp, persist, toast } from './app';
 import type { View3D } from './view3d/view';
 import { DEG, KN, SHIP, SHIPS, propulsionSummary, setShip } from './physics/ship';
-import { buildStation, initialOrders, Station } from './ui/stations';
+import { buildStation, buildTugStation, initialOrders, Station } from './ui/stations';
 import { buildHull, setHull } from './physics/contact';
 import { makeState, wrap } from './physics/sim';
 import { DT, LeverMode, Runtime } from './physics/runtime';
@@ -64,6 +64,7 @@ function loadScenario(sc: Scenario) {
     { windSpeed: 0, windFrom: 0, gusts: false, current: () => [0, 0], depth: sc.depth },
     { obstacles: sc.obstacles, fenders: sc.fenders, bollards: sc.bollards, depthAt: depthAt(sc), mooringSide: sc.mooringSide, tugSide: sc.tugSide, tugBP: sc.tugBP });
   S.rt.sensors.mode = S.sensMode;
+  if (sc.escort) S.rt.attachEscort(sc.escort, SHIPS[sc.escort.ship]);
   applyEnv();
   S.rt.sensors.reset();
   S.view.follow = true; S.view.cN = st.n; S.view.cE = st.e;
@@ -90,8 +91,8 @@ const postedData = new Set<string>();
 async function openScenario(sc: Scenario) {
   // a ship that draws too much for this water: take the scenario's own ship instead
   const want = SHIPS[S.shipId ?? sc.ship ?? 'becancour'];
-  if (S.shipId && !sc.needsData && !fits(sc, want.T, sc.berthFace ? berthFor(sc, want.B, 0) : sc.berth)) {
-    toast(`${sc.name} is too shallow for the ${want.name} (draught ${want.T} m). Loaded with ${SHIPS[sc.ship ?? 'becancour'].name}.`);
+  if (S.shipId && !sc.needsData && !fits(sc, want.T, sc.berthFace ? berthFor(sc, want.B, 0) : sc.berth, !!want.towPoints)) {
+    toast(`${sc.name} ${sc.tugsOnly && !want.towPoints ? 'needs a tug' : `is too shallow for the ${want.name} (draught ${want.T} m)`}. Loaded with ${SHIPS[sc.ship ?? 'becancour'].name}.`);
     S.shipId = null;
   }
   if (sc.needsData || sc.chart) {
@@ -251,7 +252,10 @@ function updateHud() {
   const d = rt.depthHere;
   $('r-depth').textContent = isFinite(d) ? `DEPTH ${d.toFixed(1)} m · SQUAT ${rt.sq.toFixed(2)} m` : 'DEPTH deep';
   const st = rt.status, used = st.podPower.reduce((a, b) => a + b, 0) + st.btPower;
-  $('r-pwr').textContent = `PWR ${(used / 1e6).toFixed(1)}/${(st.avail / 1e6).toFixed(1)} MW${st.limited ? ' LIM' : ''}`;
+  // independent diesels (tugs, two-strokes): show the installed power, not a switchboard
+  const avail = st.avail > 1e8 || !SHIP.pods.some(p => !p.kind || p.kind === 'azipod' || p.shaft?.engine.type === 'electric')
+    ? SHIP.pods.reduce((a, p) => a + p.P, 0) + SHIP.bowThruster.P + (SHIP.sternThruster?.P ?? 0) : st.avail;
+  $('r-pwr').textContent = `PWR ${(used / 1e6).toFixed(1)}/${(avail / 1e6).toFixed(1)} MW${st.limited ? ' LIM' : ''}`;
   const t = Math.floor(rt.state.t);
   $('r-time').textContent = `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')} ${SPEEDS[S.speedIdx]}×${S.paused ? ' PAUSED' : ''}`;
   updateFlag();
@@ -533,7 +537,8 @@ let station: Station | null = null;
 function mountStation() {
   const az = (SHIP.station ?? 'azipod') === 'azipod';
   $('st-az').hidden = !az; $('st-gen').hidden = az;
-  station = az ? null : buildStation($('st-gen'));
+  const kind = SHIP.station ?? 'azipod';
+  station = az ? null : kind === 'asd' || kind === 'vsp' ? buildTugStation($('st-gen'), kind === 'vsp') : buildStation($('st-gen'));
   requestAnimationFrame(() => { station?.resize(); D.refreshLayout(); layout3d(); placePanels(); });
 }
 
@@ -736,9 +741,9 @@ function renderShipList() {
     b.onclick = () => {
       S.shipId = id;
       // stay in this scenario if she fits, otherwise go to the first one that does
-      const target = fits(S.sc, sp.T, S.sc.berthFace ? berthFor(S.sc, sp.B, 0) : S.sc.berth) || S.sc.needsData ? S.sc
+      const target = fits(S.sc, sp.T, S.sc.berthFace ? berthFor(S.sc, sp.B, 0) : S.sc.berth, !!sp.towPoints) || S.sc.needsData ? S.sc
         : SCENARIOS.find(sc => sc.ship === sp.id) ?? SCENARIOS.find(sc => sc.id === 'trials')!;
-      if (target !== S.sc) toast(`${S.sc.name} is too shallow for the ${sp.name}: switched to ${target.name}.`);
+      if (target !== S.sc) toast(`${S.sc.name} ${S.sc.tugsOnly && !sp.towPoints ? 'needs a tug' : `is too shallow for the ${sp.name}`}: switched to ${target.name}.`);
       openScenario(target).then(() => { renderShipList(); $('b-close').click(); });
     };
     box.appendChild(b);
@@ -750,9 +755,9 @@ function renderScenarioList() {
     const b = document.createElement('button');
     b.className = s === S.sc ? 'cur' : '';
     const sp = S.shipId ? SHIPS[S.shipId] : null;
-    const shallow = sp && !s.needsData && !fits(s, sp.T, s.berthFace ? berthFor(s, sp.B, 0) : s.berth);
+    const shallow = sp && !s.needsData && !fits(s, sp.T, s.berthFace ? berthFor(s, sp.B, 0) : s.berth, !!sp.towPoints);
     const own = SHIPS[s.ship ?? 'becancour'];
-    b.innerHTML = `<b>${s.name}</b><span>${s.brief}</span><span class="who">${shallow ? `Too shallow for the ${sp!.name} · opens with the ${own.name}` : sp ? `With the ${sp.name}` : own.name}</span>`;
+    b.innerHTML = `<b>${s.name}</b><span>${s.brief}</span><span class="who">${shallow ? `${s.tugsOnly && !sp!.towPoints ? 'Needs a tug' : `Too shallow for the ${sp!.name}`} · opens with the ${own.name}` : sp ? `With the ${sp.name}` : own.name}</span>`;
     b.onclick = () => { openScenario(s).then(() => $('b-close').click()); };
     box.appendChild(b);
   }
@@ -879,6 +884,7 @@ function frame(now: number) {
     D.drawQuayLines();
     D.drawLines();
     D.drawTugs();
+    D.drawEscort();
     D.drawShip();
     D.drawOverlay();
   }

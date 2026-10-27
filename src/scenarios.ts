@@ -2,6 +2,7 @@ import { DEG, KN } from './physics/ship';
 import type { Fender, Obstacle, Pt } from './physics/contact';
 import { fenderReaction } from './physics/contact';
 import type { CurrentField } from './physics/sim';
+import type { EscortSetup } from './physics/escort';
 import { Shoal, depthField, DepthField, DepthGrid, gridField } from './physics/harbour';
 import { bboxOf } from './physics/contact';
 import { AMSTERDAM, Building } from './scenes/amsterdam';
@@ -27,6 +28,8 @@ export interface Scenario {
   /** Fender face of the berth: a point on it, its direction (deg) and the ship side that lies to it.
    *  The berth pose (CG mark) is derived from it for whichever ship is loaded. */
   berthFace?: { n: number; e: number; psi: number; side: -1 | 1; standoff: number };
+  escort?: EscortSetup;                           // own ship is a tug made fast to this ship
+  tugsOnly?: boolean;                             // only ships with towing points can play it
   tugBP?: number;                                 // tug bollard pull [N]
   buildings?: Building[];                         // 3D-only scenery
   landHeight?: number;                            // quay / bank height above water for 3D
@@ -146,6 +149,15 @@ export const SCENARIOS: Scenario[] = [
     zoom: 0.5,
   },
   {
+    id: 'escort', name: 'Escort · laden VLCC, 8 kn',
+    brief: 'You are the escort tug, made fast on your forward winch to the centre lead aft of a laden VLCC making 8 kn on 000°, 60 m of line out. Work out to her quarter, then steer her with the line in indirect mode: hold your hull at an angle to the flow and let the water do the work. At about three minutes her rudder jams 20° to starboard: stop the swing. Watch the line tension and your heel: a line leading abeam at high tension girts and capsizes a tug.',
+    start: { n: 0, e: 0, psi: 0, kn: 8 },
+    windKn: 10, windFrom: 300, gusts: true, currentKn: 0, currentSet: 0, depth: Infinity,
+    shoals: [], obstacles: [], fenders: [], bollards: [], zoom: 1.6,
+    ship: 'asd-tug', tugsOnly: true,
+    escort: { ship: 'kvlcc2', kn: 8, course: 0, fair: 'aft', tugPoint: 0, L0: 60, failure: { t: 180, kind: 'rudder', rudder: 20, text: 'Escorted ship: RUDDER JAMMED 20° STARBOARD' } },
+  },
+  {
     id: 'trials', name: 'Open water · trials',
     brief: 'Deep, calm, no obstructions. Try a crash stop, a pod-only turn, the joystick, or walking the ship sideways.',
     start: { n: 0, e: 0, psi: 0, kn: 8 },
@@ -193,7 +205,8 @@ export function berthFor(sc: Scenario, B: number, xg: number) {
   return { n: f.n + off * Math.cos(ps + Math.PI / 2) + xg * Math.cos(ps), e: f.e + off * Math.sin(ps + Math.PI / 2) + xg * Math.sin(ps), psi: f.psi };
 }
 /** Water at the start (and the berth) deep enough for a ship of draught T? */
-export function fits(sc: Scenario, T: number, berth = sc.berth) {
+export function fits(sc: Scenario, T: number, berth = sc.berth, tug = true) {
+  if (sc.tugsOnly && !tug) return false;
   const d = depthAt(sc);
   const ok = (n: number, e: number, need: number) => d(n, e) >= need;
   return ok(sc.start.n, sc.start.e, 1.1 * T) && (!berth || ok(berth.n, berth.e, 1.05 * T));

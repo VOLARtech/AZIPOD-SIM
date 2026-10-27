@@ -7,6 +7,7 @@ import { RHO, NU_W, G, DEG } from './consts';
 import { KVLCC2 } from '../ships/kvlcc2';
 import { KCS, PANAMAX, KVLCC2_BALLAST } from '../ships/cargo';
 import { ROPAX, CRUISE_CONV, LNG, ULCV } from '../ships/twin';
+import { ASD_TUG, VSP_TUG, ROTOR_TUG } from '../ships/tugs';
 export { RHO, RHO_AIR, NU_W, G, KN, DEG } from './consts';
 
 export interface PodSpec {
@@ -125,6 +126,11 @@ export interface ShipSpec {
   mmg?: MmgHull;              // published MMG hull derivatives (replace Clarke at manoeuvring speeds)
   type?: string;              // ship type for the fleet picker (cruise, tanker, container…)
   hullForm?: 'ship' | 'tug' | 'cat' | 'barge';
+  /** Roll for heel and girting: metacentric height, CG height above keel, roll radius of gyration,
+   *  height of the windage centroid above the waterline, angle of vanishing stability. */
+  roll?: { GM: number; KG: number; kxx: number; zWind: number; vanish: number };
+  skeg?: { x: number; A: number };            // lifting skeg: x rel. origin, lateral area [m²]
+  towPoints?: { name: string; x: number; h: number }[];   // tug towing points: x on the centreline, height above WL
   load?: string;              // load case shown with the particulars
 }
 
@@ -256,7 +262,7 @@ export const SPIRIT: ShipSpec = {
   },
 };
 
-export const SHIPS: Record<string, ShipSpec> = { becancour: BECANCOUR, lady: LADY, spirit: SPIRIT, kvlcc2: KVLCC2, 'kvlcc2-ballast': KVLCC2_BALLAST, kcs: KCS, panamax: PANAMAX, ulcv: ULCV, lng: LNG, ropax: ROPAX, 'cruise-shaft': CRUISE_CONV };
+export const SHIPS: Record<string, ShipSpec> = { becancour: BECANCOUR, lady: LADY, spirit: SPIRIT, kvlcc2: KVLCC2, 'kvlcc2-ballast': KVLCC2_BALLAST, kcs: KCS, panamax: PANAMAX, ulcv: ULCV, lng: LNG, ropax: ROPAX, 'cruise-shaft': CRUISE_CONV, 'asd-tug': ASD_TUG, 'vsp-tug': VSP_TUG, 'rotor-tug': ROTOR_TUG };
 /** The ship in use. A live binding: importers see the new ship after setShip(). */
 export let SHIP: ShipSpec = BECANCOUR;
 export function setShip(id: string) { SHIP = SHIPS[id] ?? BECANCOUR; return SHIP; }
@@ -305,6 +311,16 @@ export function deriveHydro(s: ShipSpec, depth: number): Hydro {
   let Yr_p = -k * (-0.5 + 2.2 * BL - 0.08 * BT);
   let Nv_p = -k * (0.5 + 2.4 * T / L);
   let Nr_p = -k * (0.25 + 0.039 * BT - 0.56 * BL);
+  // Clarke's regression was fitted to ship hulls (L/B ≳ 4); on short beamy hulls (tugs) it returns
+  // non-physical added masses. Fall back to strip theory there: sway ≈ −k, yaw ≈ −k/12.
+  if (Yvd_p > -0.8 * k) Yvd_p = -k;
+  if (Nrd_p > -0.03 * k) Nrd_p = -k / 12;
+  if (BL > 0.3) {
+    // tug-like hulls: no sway–yaw added-mass coupling for a hull this short and symmetric, and yaw
+    // damping from low-aspect-ratio lifting-surface theory (N'_r ≈ −k/4) where the regression runs out
+    Yrd_p = 0; Nvd_p = 0;
+    Nr_p = Math.min(Nr_p, -k / 4);
+  }
   let Iz = m * (0.25 * L) ** 2, xgDyn = s.xg, XudM = -0.05 * m;
   if (s.mmg) {
     // published captive-test values: MMG non-dimensionals (÷ ½ρLd·U², ½ρL²d) → Clarke primes (× d/L).

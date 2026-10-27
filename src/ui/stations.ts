@@ -367,3 +367,215 @@ export function initialOrders(spec: ShipSpec, kn: number) {
     return { rpm: sh.telegraph.ahead.reduce((b, v) => (Math.abs(v - f) < Math.abs(b - f) ? v : b), sh.telegraph.ahead[0]) };
   });
 }
+
+// ================================================================ tugs and azimuth ships
+/** Combi-lever: drag to set the direction the unit pushes the ship; distance from the centre sets thrust. */
+class CombiLever extends Canvas {
+  constructor(public units: number[], public label: string) {
+    super('combi', `${label} azimuth combi-lever: direction of thrust, distance from centre for power`);
+    const ptr = (e: PointerEvent) => {
+      const r = this.c.getBoundingClientRect(), R = Math.min(r.width, r.height) / 2 - 12;
+      const dx = e.clientX - r.left - r.width / 2, dy = e.clientY - r.top - r.height / 2;
+      const d = Math.hypot(dx, dy);
+      let rpm = Math.min(1, d / R); if (rpm < 0.12) rpm = 0; rpm = Math.round(rpm * 50) / 50;
+      const old = S.cmd.pods[this.units[0]];
+      const a = d > 6 ? Math.atan2(dx, -dy) : old.alpha;
+      if ((rpm === 0) !== (old.rpm === 0)) uiTick('detent');
+      else if (Math.floor(a / DEG / 15) !== Math.floor(old.alpha / DEG / 15)) uiTick('step');
+      for (const i of this.units) { S.cmd.pods[i].alpha = a; S.cmd.pods[i].rpm = rpm; }
+    };
+    this.c.addEventListener('pointerdown', e => { this.c.setPointerCapture(e.pointerId); ptr(e); });
+    this.c.addEventListener('pointermove', e => { if (this.c.hasPointerCapture(e.pointerId)) ptr(e); });
+  }
+  draw() {
+    if (this.w < 60) return;
+    const g = this.begin(), cx = this.w / 2, cy = this.h / 2, R = Math.min(this.w, this.h) / 2 - 12;
+    const i = this.units[0], ps = S.rt.state.pods[i], c = S.cmd.pods[i], col = sideCol(SHIP.pods[i]);
+    g.fillStyle = D.C['panel-solid']; g.strokeStyle = D.C.rule; g.lineWidth = 1.5;
+    g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill(); g.stroke();
+    g.setLineDash([2, 3]); g.beginPath(); g.arc(cx, cy, R * 0.5, 0, Math.PI * 2); g.stroke(); g.setLineDash([]);
+    for (let k = 0; k < 24; k++) {
+      const a = k * 15 * DEG, big = k % 6 === 0;
+      g.strokeStyle = big ? D.C.ink : D.C.muted; g.lineWidth = big ? 1.5 : 1;
+      g.beginPath(); g.moveTo(cx + Math.sin(a) * R, cy - Math.cos(a) * R); g.lineTo(cx + Math.sin(a) * (R - (big ? 9 : 5)), cy - Math.cos(a) * (R - (big ? 9 : 5))); g.stroke();
+    }
+    // actual thrust: arrow along the unit's actual azimuth, length by rpm
+    const L = R * 0.92 * Math.max(0.05, Math.abs(ps.rpm)), a = ps.alpha;
+    const vx = cx + Math.sin(a) * L, vy = cy - Math.cos(a) * L;
+    g.strokeStyle = g.fillStyle = col; g.lineWidth = 4; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(cx, cy); g.lineTo(vx, vy); g.stroke();
+    g.beginPath(); g.moveTo(vx + Math.sin(a) * 6, vy - Math.cos(a) * 6); g.lineTo(vx + Math.sin(a + 2.5) * 8, vy - Math.cos(a + 2.5) * 8); g.lineTo(vx + Math.sin(a - 2.5) * 8, vy - Math.cos(a - 2.5) * 8); g.closePath(); g.fill();
+    // order: handle on the ring for direction, dot for power
+    const hx = cx + Math.sin(c.alpha) * R, hy = cy - Math.cos(c.alpha) * R;
+    const mx = cx + Math.sin(c.alpha) * R * 0.92 * c.rpm, my = cy - Math.cos(c.alpha) * R * 0.92 * c.rpm;
+    g.strokeStyle = D.C.own; g.lineWidth = 1; g.setLineDash([2, 3]); g.beginPath(); g.moveTo(cx, cy); g.lineTo(hx, hy); g.stroke(); g.setLineDash([]);
+    g.lineWidth = 2; g.beginPath(); g.arc(mx, my, 4, 0, Math.PI * 2); g.stroke();
+    g.fillStyle = D.C['panel-solid']; g.lineWidth = 2.5; g.beginPath(); g.arc(hx, hy, 8, 0, Math.PI * 2); g.fill(); g.stroke();
+    this.num(11); g.fillStyle = D.C.ink; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    const deg = ((ps.alpha / DEG) % 360 + 360) % 360;
+    g.fillText(`${String(Math.round(deg)).padStart(3, '0')}° ${Math.round(Math.abs(ps.rpm) * 100)}%`, cx, this.h - 1);
+  }
+}
+
+/** Voith Schneider pad: the thrust vector itself, ahead up, starboard right. */
+class VspPad extends Canvas {
+  constructor(public units: number[], public label: string) {
+    super('vsppad', `${label} Voith Schneider pitch: drag the thrust vector`);
+    const ptr = (e: PointerEvent) => {
+      const r = this.c.getBoundingClientRect(), R = Math.min(r.width, r.height) / 2 - 12;
+      let x = (e.clientX - r.left - r.width / 2) / R, y = -(e.clientY - r.top - r.height / 2) / R;
+      const m = Math.hypot(x, y); if (m > 1) { x /= m; y /= m; }
+      if (Math.abs(x) < 0.06) x = 0; if (Math.abs(y) < 0.06) y = 0;
+      const rpm = Math.min(1, Math.hypot(x, y)), a = rpm > 0 ? Math.atan2(x, y) : S.cmd.pods[this.units[0]].alpha;
+      if ((rpm === 0) !== (S.cmd.pods[this.units[0]].rpm === 0)) uiTick('detent');
+      for (const i of this.units) { S.cmd.pods[i].alpha = a; S.cmd.pods[i].rpm = rpm; }
+    };
+    this.c.addEventListener('pointerdown', e => { this.c.setPointerCapture(e.pointerId); ptr(e); });
+    this.c.addEventListener('pointermove', e => { if (this.c.hasPointerCapture(e.pointerId)) ptr(e); });
+    this.c.addEventListener('dblclick', () => { for (const i of this.units) S.cmd.pods[i].rpm = 0; });
+  }
+  draw() {
+    if (this.w < 60) return;
+    const g = this.begin(), cx = this.w / 2, cy = this.h / 2, R = Math.min(this.w, this.h) / 2 - 12;
+    const i = this.units[0], ps = S.rt.state.pods[i], c = S.cmd.pods[i];
+    g.fillStyle = D.C['panel-solid']; g.strokeStyle = D.C.rule; g.lineWidth = 1.5;
+    g.beginPath(); g.roundRect(cx - R, cy - R, 2 * R, 2 * R, 6); g.fill(); g.stroke();
+    g.setLineDash([2, 3]); g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.stroke(); g.setLineDash([]);
+    g.strokeStyle = D.C.muted; g.lineWidth = 1; g.beginPath(); g.moveTo(cx, cy - R); g.lineTo(cx, cy + R); g.moveTo(cx - R, cy); g.lineTo(cx + R, cy); g.stroke();
+    this.font(9); g.fillStyle = D.C.muted; g.textAlign = 'left'; g.textBaseline = 'top'; g.fillText('AH', cx + 3, cy - R + 2); g.textBaseline = 'bottom'; g.fillText('AS', cx + 3, cy + R - 2);
+    g.fillStyle = D.C.port; g.textBaseline = 'middle'; g.fillText('P', cx - R + 3, cy - 7); g.fillStyle = D.C.stbd; g.textAlign = 'right'; g.fillText('S', cx + R - 3, cy - 7);
+    const px = cx + Math.sin(ps.alpha) * ps.rpm * R, py = cy - Math.cos(ps.alpha) * ps.rpm * R;
+    g.strokeStyle = g.fillStyle = D.C.ink; g.lineWidth = 4; g.lineCap = 'round'; g.beginPath(); g.moveTo(cx, cy); g.lineTo(px, py); g.stroke();
+    g.beginPath(); g.arc(px, py, 4, 0, Math.PI * 2); g.fill();
+    const ox = cx + Math.sin(c.alpha) * c.rpm * R, oy = cy - Math.cos(c.alpha) * c.rpm * R;
+    g.strokeStyle = D.C.own; g.lineWidth = 2.5; g.beginPath(); g.arc(ox, oy, 8, 0, Math.PI * 2); g.stroke();
+    this.num(10.5); g.fillStyle = D.C.ink; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    g.fillText(`${Math.round(ps.rpm * 100)}% · ${String(Math.round(((ps.alpha / DEG) % 360 + 360) % 360)).padStart(3, '0')}°`, cx, this.h - 1);
+  }
+}
+
+/** Heel indicator with the deck edge and the angle of vanishing stability. */
+class HeelGauge extends Canvas {
+  constructor() { super('heel', 'Heel'); }
+  draw() {
+    const rs = S.rt.roll; if (!rs || this.w < 60) return;
+    const g = this.begin(), cx = this.w / 2, R = Math.min(this.w / 2 - 8, this.h - 26), cy = R + 6, sp = SHIP.roll!;
+    const de = Math.atan2(SHIP.look.freeboard, SHIP.B / 2), sweep = 50 * DEG, A = (p: number) => p / sweep * 75 * DEG - Math.PI / 2;
+    g.lineWidth = 6; g.strokeStyle = D.C.rule; g.beginPath(); g.arc(cx, cy, R, A(-sweep), A(sweep)); g.stroke();
+    g.strokeStyle = D.C.warn;
+    for (const s of [1, -1]) { const a0 = A(s * de), a1 = A(s * Math.min(sweep, sp.vanish)); g.beginPath(); g.arc(cx, cy, R, Math.min(a0, a1), Math.max(a0, a1)); g.stroke(); }
+    const a = A(Math.max(-sweep, Math.min(sweep, rs.phi)));
+    g.strokeStyle = D.C.ink; g.lineWidth = 2.5; g.lineCap = 'round'; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * (R - 4), cy + Math.sin(a) * (R - 4)); g.stroke();
+    g.fillStyle = D.C.ink; g.beginPath(); g.arc(cx, cy, 4, 0, Math.PI * 2); g.fill();
+    const deg = rs.phi / DEG;
+    this.num(14); g.fillStyle = Math.abs(rs.phi) > de ? D.C.warn : D.C.ink; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    g.fillText(`${deg < -0.05 ? 'P' : deg > 0.05 ? 'S' : ''} ${Math.abs(deg).toFixed(1)}°`, cx, cy - R * 0.35);
+    this.font(9); g.fillStyle = D.C.muted; g.fillText(`HEEL · DECK EDGE ${(de / DEG).toFixed(0)}°`, cx, cy + 14);
+  }
+}
+
+/** Towline tension against the brake and the breaking load. */
+class TowGauge extends Canvas {
+  constructor() { super('towg', 'Towline tension'); }
+  draw() {
+    const esc = S.rt.escort; if (!esc || this.w < 60) return;
+    const l = esc.line, g = this.begin(), cx = this.w / 2, R = Math.min(this.w / 2 - 10, this.h * 0.62), cy = R + 8, sw = 120 * DEG;
+    const max = l.MBL, A = (t: number) => -sw + Math.min(1, t / max) * 2 * sw - Math.PI / 2;
+    g.lineWidth = 7; g.strokeStyle = D.C.rule; g.beginPath(); g.arc(cx, cy, R, A(0), A(max)); g.stroke();
+    g.strokeStyle = D.C.warn; g.beginPath(); g.arc(cx, cy, R, A(l.brake), A(max)); g.stroke();
+    g.strokeStyle = D.C.ink; g.lineWidth = 3; g.beginPath(); g.arc(cx, cy, R, A(0), A(l.T)); g.stroke();
+    const a = A(l.T); g.lineWidth = 2.5; g.lineCap = 'round'; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * (R - 4), cy + Math.sin(a) * (R - 4)); g.stroke();
+    if (l.mode === 'render') { const ar = A(l.renderT); g.fillStyle = D.C.own; g.beginPath(); g.arc(cx + Math.cos(ar) * (R + 9), cy + Math.sin(ar) * (R + 9), 3.5, 0, Math.PI * 2); g.fill(); }
+    this.num(15); g.fillStyle = l.parted ? D.C.warn : D.C.ink; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    g.fillText(l.parted ? 'PARTED' : l.mode === 'released' ? 'FREE' : `${(l.T / 9.81e3).toFixed(0)} t`, cx, cy + R * 0.42);
+    this.font(9); g.fillStyle = D.C.muted; g.fillText(`TENSION · MBL ${(l.MBL / 9.81e3).toFixed(0)} t`, cx, cy + R * 0.42 + 13);
+  }
+}
+
+/** Station for azimuth-thruster and Voith ships (tugs): one control per unit, towline and heel. */
+export function buildTugStation(host: HTMLElement, vsp: boolean): Station {
+  host.innerHTML = '';
+  const canvases: Canvas[] = [];
+  const cell = (title: string, right = '', cls = '') => {
+    const d = document.createElement('section'); d.className = 'cell ' + cls;
+    d.innerHTML = `<div class="tag"><span>${title}</span><b>${right}</b></div>`; host.appendChild(d); return d;
+  };
+  const units = SHIP.pods.map((p, i) => [p, i] as [PodSpec, number]);
+  const ctl: (CombiLever | VspPad)[] = [];
+  const uc = cell(vsp ? 'Voith Schneider' : 'Azimuth drives', units.length > 1 ? 'INDEPENDENT' : '', 'units');
+  const row = document.createElement('div'); row.className = 'row'; uc.appendChild(row);
+  for (const [p, i] of units) {
+    const w = vsp ? new VspPad([i], p.label) : new CombiLever([i], p.label);
+    const box = document.createElement('div'); box.className = 'unitbox';
+    box.innerHTML = `<span class="unit-tag2" style="color:${sideCol(p)}">${p.label}</span>`;
+    box.appendChild(w.c); row.appendChild(box); ctl.push(w); canvases.push(w);
+  }
+  let linked = false;
+  const linkB = uc.querySelector('b')!;
+  if (units.length > 1) {
+    linkB.style.cursor = 'pointer';
+    linkB.onclick = () => {
+      linked = !linked; linkB.textContent = linked ? 'LINKED' : 'INDEPENDENT';
+      ctl.forEach((c, k) => (c.units = linked ? [units[k][1], ...units.filter((_, j) => j !== k).map(([, i]) => i)] : [units[k][1]]));
+    };
+  }
+  // heel
+  const heel = SHIP.roll ? new HeelGauge() : null;
+  if (heel) { const hc = cell('Stability', `GM ${SHIP.roll!.GM.toFixed(1)} m`, 'heelc'); hc.appendChild(heel.c); canvases.push(heel); }
+  // towline
+  const towg = new TowGauge();
+  const tc = cell('Towline', SHIP.towPoints?.[S.sc.escort?.tugPoint ?? 0]?.name ?? '', 'tow');
+  const trow = document.createElement('div'); trow.className = 'row'; tc.appendChild(trow);
+  trow.appendChild(towg.c); canvases.push(towg);
+  const tstat = document.createElement('div'); tstat.className = 'stat'; trow.appendChild(tstat);
+  const tb = document.createElement('div'); tb.className = 'row wrap'; tc.appendChild(tb);
+  const modes: [string, string][] = [['brake', 'BRAKE'], ['render', 'RENDER'], ['heave', 'HEAVE'], ['pay', 'PAY OUT'], ['released', 'RELEASE']];
+  tb.innerHTML = modes.map(([m, t]) => `<button class="cb${m === 'released' ? ' warn' : ''}" data-m="${m}">${t}</button>`).join('');
+  tb.querySelectorAll<HTMLButtonElement>('button').forEach(b => (b.onclick = () => { const l = S.rt.escort?.line; if (l && !l.parted && l.mode !== 'released') { l.mode = b.dataset.m as typeof l.mode; uiTick('detent'); } }));
+  tc.hidden = !S.rt.escort;
+  // buttons
+  const bc = cell('', '', 'btns');
+  bc.innerHTML = `<button class="cb warn" data-a="stop">ALL STOP</button>`;
+  const stop = () => { for (const [, i] of units) S.cmd.pods[i].rpm = 0; uiTick('detent'); };
+  (bc.querySelector('[data-a=stop]') as HTMLButtonElement).onclick = stop;
+  let statHtml = '';
+  const keyMap: [string, string, string, string][] = [['a', 'd', 'w', 's'], ['j', 'l', 'i', 'k'], ['z', 'c', 'r', 'f']];
+  return {
+    root: host,
+    draw() { for (const c of canvases) c.draw(); },
+    update() {
+      const esc = S.rt.escort;
+      if (esc) {
+        const l = esc.line, st = esc.st, me = S.rt.state;
+        // steering (across the ship) and braking (along) components of the line pull on the escorted ship
+        const c = Math.cos(st.psi), s = Math.sin(st.psi);
+        const tp = [me.n + l.fairTug[0] * Math.cos(me.psi), me.e + l.fairTug[0] * Math.sin(me.psi)];
+        const fn = st.n + l.fairShip[0] * c, fe = st.e + l.fairShip[0] * s;
+        const dn = tp[0] - fn, de = tp[1] - fe, d = Math.hypot(dn, de) || 1;
+        const along = (dn * c + de * s) / d, across = (-dn * s + de * c) / d;
+        const lead = Math.atan2(-(dn * Math.sin(me.psi) - de * Math.cos(me.psi)), -(dn * Math.cos(me.psi) + de * Math.sin(me.psi))) / DEG;
+        const fl = esc.setup.failure;
+        const html = `<div class="k">PAID OUT</div><div class="v">${l.L0.toFixed(0)} m · ${l.mode.toUpperCase()}</div>
+          <div class="k">LEAD</div><div class="v">${Math.abs(lead).toFixed(0)}° ${lead >= 0 ? 'stbd' : 'port'} of bow</div>
+          <div class="k">STEERING</div><div class="v">${(Math.abs(across) * l.T / 9.81e3).toFixed(0)} t ${across >= 0 ? 'stbd' : 'port'}</div>
+          <div class="k">BRAKING</div><div class="v">${(Math.max(0, -along) * l.T / 9.81e3).toFixed(0)} t</div>
+          <div class="k">SHIP</div><div class="v${esc.failed ? ' warn' : ''}">${(((st.psi / DEG) % 360 + 360) % 360).toFixed(0).padStart(3, '0')}° ${(Math.hypot(st.u, st.v) / 0.514444).toFixed(1)} kn${esc.failed && fl ? ' · ' + (fl.kind === 'rudder' ? 'RUDDER JAMMED' : 'ENGINE FAILED') : ''}</div>`;
+        if (html !== statHtml) { statHtml = html; tstat.innerHTML = html; }
+      }
+    },
+    keys(keys, dt) {
+      units.forEach(([, i], k) => {
+        const m = keyMap[k]; if (!m) return;
+        const c = S.cmd.pods[i];
+        if (keys.has(m[0])) c.alpha -= 60 * DEG * dt;
+        if (keys.has(m[1])) c.alpha += 60 * DEG * dt;
+        if (keys.has(m[2])) c.rpm = Math.min(1, c.rpm + 0.5 * dt);
+        if (keys.has(m[3])) c.rpm = Math.max(0, c.rpm - 0.5 * dt);
+        if (linked) for (const [, j] of units) if (j !== i) { S.cmd.pods[j].alpha = c.alpha; S.cmd.pods[j].rpm = c.rpm; }
+      });
+    },
+    keydown(k) { if (k === 'x') { stop(); return true; } return false; },
+    resize() { for (const c of canvases) c.resize(); },
+    zero() { stop(); },
+  };
+}
