@@ -496,6 +496,18 @@ export class View3D {
       const m4 = new THREE.Matrix4();
       boxes.forEach(([x, y, z], i) => { m4.makeTranslation(y, z, -x); mesh.setMatrixAt(i, m4); mesh.setColorAt(i, cols[(i * 7 + Math.floor(x)) % cols.length]); });
       mesh.castShadow = true; g.add(mesh);
+    } else if (SHIP.type === 'gas') {
+      // membrane LNG carrier: a continuous trunk deck over the four tanks, liquid domes on top
+      const trunkM = this.mat(L.topsides, { rough: 0.6 }), dome = this.mat('#d8d6cf', { rough: 0.5 });
+      const len = fwdEnd - houseFwd - 4;
+      const trunk = new THREE.Mesh(new THREE.BoxGeometry(SHIP.B * 0.78, 4.5, len), trunkM);
+      trunk.position.set(0, fb + 2.25, -(houseFwd + 2 + len / 2)); g.add(trunk);
+      for (let k = 0; k < 4; k++) {
+        const d = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 3, 12), dome);
+        d.position.set(0, fb + 6, -(houseFwd + 2 + len * (k + 0.5) / 4)); g.add(d);
+      }
+      const rack = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.8, len), this.mat('#c9c4b4', { rough: 0.5 }));
+      rack.position.set(SHIP.B * 0.2, fb + 5, -(houseFwd + 2 + len / 2)); g.add(rack);
     } else if (SHIP.type === 'bulk') {
       const holds = 7, span = fwdEnd - houseFwd - 6, hl = span / holds;
       const cover = this.mat(L.accent, { rough: 0.65 }), coam = this.mat(L.topsides, { rough: 0.6 });

@@ -361,4 +361,38 @@ test('the terminal berth lies off the fenders by half the beam, for any ship', (
   assert.ok(fits(t, SHIPS.kvlcc2.T, berthFor(t, SHIPS.kvlcc2.B, 0)) && !fits(SCENARIOS.find(s => s.id === 'quai27')!, SHIPS.kvlcc2.T));
 });
 
+console.log('twin screw · CPP · electric shafts');
+{
+  const env0: Env = calm;
+  const sim = (id: string, set: (c: Cmd) => void, T: number, u0 = 0, f0 = 0) => {
+    const sp = SHIPS[id], mm = new Model(sp, Infinity), st = makeState(sp, 0, 0, 0, u0); if (f0) primeRunning(sp, st, f0);
+    const c: Cmd = { pods: sp.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0, sbt: 0 }; engines(sp, c, f0); set(c);
+    const out = emptyStatus(sp.pods.length);
+    for (let t = 0; t < T; t += 0.1) { updateActuators(sp, st, c, 0.1, out); rk4(mm, st, env0, still, null, 0.1); }
+    return { st, out };
+  };
+  test('twin CPP twisting (port astern, starboard ahead) turns her to port on the spot', () => {
+    const { st } = sim('ropax', c => { c.pods[0].pitch = -0.5; c.pods[0].rpm = 1; c.pods[1].pitch = 0.5; c.pods[1].rpm = 1; }, 120);
+    assert.ok(st.r < 0 && st.psi < -5 * DEG, `psi ${(st.psi / DEG).toFixed(1)}°`);
+    assert.ok(Math.hypot(st.u, st.v) < 1.0, `drift ${Math.hypot(st.u, st.v).toFixed(2)} m/s`);
+  });
+  test('twin screw with outward-turning propellers turns alike to port and starboard', () => {
+    const { rows } = trialsOf(SHIPS.ropax);
+    const adv = rows.find(r => r.key === 'adv')!, a = parseFloat(adv.value), b = parseFloat(adv.note!.replace('port ', ''));
+    assert.ok(Math.abs(a - b) < 0.05 * a, `${a} vs ${b}`);
+  });
+  test('CPP: speed rises steadily with pitch at constant shaft speed', () => {
+    let last = -1;
+    for (const f of [0.2, 0.5, 0.8, 1]) { const u = sim('ropax', () => {}, 900, SHIPS.ropax.vmaxKn * f, f).st.u; assert.ok(u > last + 0.5, `pitch ${f}: ${u}`); last = u; }
+  });
+  test('electric shafts reverse through zero in under a minute', () => {
+    const { st } = sim('cruise-shaft', c => { c.pods.forEach(p => (p.rpm = -0.6)); }, 60, 8, 0.4);
+    assert.ok(st.pods.every(p => p.rpm < -0.5), st.pods.map(p => p.rpm.toFixed(2)).join());
+  });
+  test('thrusters on a diesel ship are held to the generating power that is running', () => {
+    const { out } = sim('ropax', c => { c.bt = 1; c.sbt = 1; }, 30);
+    assert.ok(out.btPower <= SHIPS.ropax.powerAvail * 1.001, `${out.btPower}`);
+  });
+}
+
 console.log(`\n${pass} passed${process.exitCode ? ', some failed' : ''}`);

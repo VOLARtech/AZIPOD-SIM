@@ -97,20 +97,26 @@ class Telegraph extends Canvas {
 }
 
 // ---------------------------------------------------------------- CPP pitch lever
+/** Combinator: shaft speed scheduled with pitch (economy); off = constant speed for the shaft generators. */
+let combinator = false;
+const combinatorRpm = (pitch: number) => (combinator ? 0.72 + 0.28 * Math.min(1, Math.abs(pitch)) : 1);
+/** Vertical lever: CPP pitch (shaft at constant speed) or, for electric drive, shaft rpm through zero. */
 class PitchLever extends Canvas {
-  constructor(public units: number[], public astern: number) {
-    super('lev', 'Pitch lever: ahead up, astern down');
+  constructor(public units: number[], public astern: number, public mode: 'pitch' | 'rpm' = 'pitch') {
+    super('lev', mode === 'pitch' ? 'Pitch lever: ahead up, astern down' : 'Propulsion lever: ahead up, astern down');
     const ptr = (e: PointerEvent) => {
       const r = this.c.getBoundingClientRect(), H = r.height - 28;
       let v = (r.height / 2 - (e.clientY - r.top)) / (H / 2);
       v = Math.max(-this.astern, Math.min(1, v)); if (Math.abs(v) < 0.04) v = 0; v = Math.round(v * 100) / 100;
-      const old = S.cmd.pods[this.units[0]].pitch ?? 0;
+      const old = this.get();
       if (v === 0 && old !== 0) uiTick('detent'); else if (Math.floor(v * 10) !== Math.floor(old * 10)) uiTick('step');
-      for (const i of this.units) { S.cmd.pods[i].pitch = v; S.cmd.pods[i].rpm = 1; }
+      this.set(v);
     };
     this.c.addEventListener('pointerdown', e => { this.c.setPointerCapture(e.pointerId); ptr(e); });
     this.c.addEventListener('pointermove', e => { if (this.c.hasPointerCapture(e.pointerId)) ptr(e); });
   }
+  get() { const c = S.cmd.pods[this.units[0]]; return this.mode === 'pitch' ? c.pitch ?? 0 : c.rpm; }
+  set(v: number) { for (const i of this.units) { const c = S.cmd.pods[i]; if (this.mode === 'pitch') { c.pitch = v; c.rpm = combinatorRpm(v); } else c.rpm = v; } }
   y(v: number) { return 14 + (this.h - 28) / 2 * (1 - v); }
   draw() {
     if (this.h < 60) return;
@@ -129,9 +135,9 @@ class PitchLever extends Canvas {
     g.strokeStyle = D.C.warn; g.setLineDash([3, 2]); g.lineWidth = 1.5;
     for (const v of [-this.astern, S.rt.status.rpmLimit[i] < 0.999 ? S.rt.status.rpmLimit[i] : NaN]) if (isFinite(v) && v > -1) { const yy = this.y(v); g.beginPath(); g.moveTo(x - 10, yy); g.lineTo(x + 10, yy); g.stroke(); }
     g.setLineDash([]);
-    const a = ps.pitch ?? 0, y0 = this.y(0);
+    const a = this.mode === 'pitch' ? ps.pitch ?? 0 : ps.rpm, y0 = this.y(0);
     g.fillStyle = col; g.globalAlpha = 0.85; g.fillRect(x - 3, Math.min(y0, this.y(a)), 6, Math.abs(this.y(a) - y0)); g.globalAlpha = 1;
-    const o = S.cmd.pods[i].pitch ?? 0, yo = this.y(o);
+    const o = this.get(), yo = this.y(o);
     g.fillStyle = D.C['panel-solid']; g.strokeStyle = o < 0 ? D.C.warn : D.C.own; g.lineWidth = 2.5;
     g.beginPath(); g.roundRect(x - 13, yo - 7, 26, 14, 3); g.fill(); g.stroke();
   }
@@ -233,6 +239,8 @@ export function buildStation(host: HTMLElement): Station {
   host.innerHTML = '';
   const units = shafts();
   const cpp = units.some(([p]) => p.shaft!.prop.cpp);
+  const telegraph = !cpp && units.some(([p]) => p.shaft!.engine.type === 'direct2s');
+  const elec = !cpp && !telegraph;
   const ruddered = units.filter(([p]) => p.shaft!.rudder).map(([, i]) => i);
   const canvases: Canvas[] = [];
   const cell = (title: string, right = '', cls = '') => {
@@ -243,11 +251,11 @@ export function buildStation(host: HTMLElement): Station {
   let linked = true;
   const levers: (Telegraph | PitchLever)[] = [];
   // engines: telegraph (direct) or pitch lever (CPP) per shaft, linked by default
-  const engCell = cell(cpp ? 'Pitch' : 'Telegraph', units.length > 1 ? 'LINKED' : units[0]?.[0].shaft!.engine.type === 'direct2s' ? 'BRIDGE CONTROL' : '', 'eng');
+  const engCell = cell(cpp ? 'Pitch' : telegraph ? 'Telegraph' : 'Propulsion', units.length > 1 ? 'LINKED' : telegraph ? 'BRIDGE CONTROL' : '', 'eng');
   const engRow = document.createElement('div'); engRow.className = 'row'; engCell.appendChild(engRow);
   const linkB = engCell.querySelector('b')!;
   for (const [p, i] of units) {
-    const w = cpp ? new PitchLever([i], p.shaft!.prop.cpp!.asternPitch) : new Telegraph([i], p.shaft!.telegraph);
+    const w = cpp ? new PitchLever([i], p.shaft!.prop.cpp!.asternPitch) : elec ? new PitchLever([i], 1, 'rpm') : new Telegraph([i], p.shaft!.telegraph);
     if (units.length > 1) { const t = document.createElement('span'); t.className = 'unit-tag'; t.textContent = sideTag(p); t.style.color = sideCol(p); engRow.appendChild(t); }
     engRow.appendChild(w.c); levers.push(w); canvases.push(w);
   }
@@ -259,7 +267,7 @@ export function buildStation(host: HTMLElement): Station {
   relink();
   if (units.length > 1) { linkB.style.cursor = 'pointer'; linkB.onclick = () => { linked = !linked; relink(); }; }
   // shaft gauges
-  const gCell = cell('Shaft', cpp ? 'CONSTANT RPM' : units[0]?.[0].shaft!.engine.type === 'direct2s' ? '2-STROKE · DIRECT' : '', 'gauges');
+  const gCell = cell('Shaft', cpp ? 'GEARED DIESEL' : telegraph ? '2-STROKE · DIRECT' : 'ELECTRIC DRIVE', 'gauges');
   const gRow = document.createElement('div'); gRow.className = 'row'; gCell.appendChild(gRow);
   const gauges = units.map(([, i]) => new ShaftGauge(i));
   gauges.forEach(g => { gRow.appendChild(g.c); canvases.push(g); });
@@ -288,7 +296,15 @@ export function buildStation(host: HTMLElement): Station {
   if (SHIP.sternThruster) addThr('sbt', 'STERN');
   // buttons
   const bc = cell('', '', 'btns');
-  bc.innerHTML = `<button class="cb warn" data-a="stop">${cpp ? 'ZERO PITCH' : 'STOP'}</button><button class="cb" data-a="mid">MIDSHIPS</button>`;
+  bc.innerHTML = `<button class="cb warn" data-a="stop">${cpp ? 'ZERO PITCH' : 'STOP'}</button><button class="cb" data-a="mid">MIDSHIPS</button>${cpp ? '<button class="cb" data-a="comb">CONST RPM</button>' : ''}`;
+  const combB = bc.querySelector('[data-a=comb]') as HTMLButtonElement | null;
+  if (combB) {
+    combinator = false;
+    combB.onclick = () => {
+      combinator = !combinator; combB.textContent = combinator ? 'COMBINATOR' : 'CONST RPM'; combB.classList.toggle('on', combinator);
+      for (const [p, i] of units) if (p.shaft!.prop.cpp) S.cmd.pods[i].rpm = combinatorRpm(S.cmd.pods[i].pitch ?? 0);
+    };
+  }
   const zeroEng = () => { for (const [p, i] of units) { if (p.shaft!.prop.cpp) S.cmd.pods[i].pitch = 0; else S.cmd.pods[i].rpm = 0; } uiTick('detent'); };
   const mid = () => { for (const i of ruddered) S.cmd.pods[i].alpha = 0; uiTick('detent'); };
   (bc.querySelector('[data-a=stop]') as HTMLButtonElement).onclick = zeroEng;
@@ -323,13 +339,13 @@ export function buildStation(host: HTMLElement): Station {
         const [l, r] = t.key === 'bt' ? ['q', 'e'] : ['z', 'c'];
         if (keys.has(l) || keys.has(r)) { S.cmd[t.key] = Math.max(-1, Math.min(1, (S.cmd[t.key] ?? 0) + (keys.has(r) ? 1 : -1) * 0.8 * dt)); t.el.value = String(Math.round((S.cmd[t.key] ?? 0) * 100)); }
       }
-      if (cpp) for (const l of levers) {
-        const [u, d] = ['w', 's'];
-        if (keys.has(u) || keys.has(d)) for (const i of l.units) { const c = S.cmd.pods[i]; c.pitch = Math.max(-(l as PitchLever).astern, Math.min(1, (c.pitch ?? 0) + (keys.has(u) ? 0.4 : -0.4) * dt)); c.rpm = 1; }
+      if (!telegraph && (keys.has('w') || keys.has('s'))) for (const l of levers) {
+        const lv = l as PitchLever;
+        lv.set(Math.max(-lv.astern, Math.min(1, lv.get() + (keys.has('w') ? 0.4 : -0.4) * dt)));
       }
     },
     keydown(k) {
-      if (!cpp && (k === 'w' || k === 's')) { (levers[0] as Telegraph).step(k === 'w' ? -1 : 1); return true; }
+      if (telegraph && (k === 'w' || k === 's')) { (levers[0] as Telegraph).step(k === 'w' ? -1 : 1); return true; }
       if (k === 'x') { zeroEng(); return true; }
       if (k === 'm' && helm) { mid(); return true; }
       return false;
@@ -344,7 +360,8 @@ export function initialOrders(spec: ShipSpec, kn: number) {
   return spec.pods.map(p => {
     if (p.kind !== 'shaft') return null;
     const sh = p.shaft!, f = Math.min(1, kn / spec.vmaxKn);
-    if (sh.prop.cpp) return { rpm: f > 0 ? 1 : 0, pitch: f };
+    if (sh.prop.cpp) return { rpm: 1, pitch: f };
+    if (sh.engine.type !== 'direct2s') return { rpm: f };
     if (f <= 0) return { rpm: 0 };
     // nearest telegraph step
     return { rpm: sh.telegraph.ahead.reduce((b, v) => (Math.abs(v - f) < Math.abs(b - f) ? v : b), sh.telegraph.ahead[0]) };

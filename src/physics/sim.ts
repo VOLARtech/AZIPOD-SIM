@@ -279,6 +279,12 @@ export function updateActuators(spec: ShipSpec, st: ShipState, cmd: Command, dt:
   // units on the switchboard: pods and electrically driven shafts
   const onBoard = (p: PodSpec) => isPod(p) || p.shaft?.engine.type === 'electric';
   const podPmax = spec.pods.reduce((a, p) => a + (onBoard(p) ? p.P : 0), 0);
+  if (podPmax === 0 && btP > spec.powerAvail && btP > 0) {
+    // thrusters alone on the gensets: the power management system holds them to what is running
+    const k = Math.cbrt(spec.powerAvail / btP);
+    st.bt *= k; if (st.sbt) st.sbt *= k;
+    btP = spec.powerAvail;
+  }
   const budget = Math.max(0, spec.powerAvail - btP);
   const powerLim = podPmax > 0 ? Math.min(1, Math.cbrt(budget / podPmax)) : 1;
 

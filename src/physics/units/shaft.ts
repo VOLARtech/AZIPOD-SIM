@@ -20,9 +20,9 @@ export interface ShaftForce { X: number; Y: number; N: number; T: number; FN: nu
 export function shaftN(sh: ShaftSpec, rpm: number) { return rpm * sh.engine.n; }
 
 /** Effective wake 1 − w_P in a turn (MMG standard method, C1 = 2, C2 = 1.6 / 1.1). */
-function wakeFactor(p: PropellerSpec, up: number, vp: number) {
+function wakeFactor(p: PropellerSpec, up: number, vp: number, side: number) {
   if (up <= 0) return 1;                                     // going astern: no hull wake at the propeller
-  const bP = Math.atan2(-vp, up);
+  const bP = Math.atan2(-vp, up) * (side < 0 ? -1 : 1);     // a port wing propeller sees the mirror image
   const C2 = bP > 0 ? 1.6 : 1.1;
   return (1 - p.wP0) * (1 + (1 - Math.exp(-2 * Math.abs(bP))) * (C2 - 1));
 }
@@ -33,14 +33,15 @@ export function propThrust(p: PropellerSpec, n: number, Va: number, pitch = 1) {
   let c: number;
   if (p.cpp) c = pitch >= 0 ? pitch : pitch * p.asternFrac;     // shaft always turns ahead; pitch reverses
   else c = n >= 0 ? 1 : p.asternFrac;
-  return RHO * D * D * (p.k0 * c * nD * Math.abs(nD) + p.k1 * Math.abs(nD) * Va * (p.cpp ? Math.max(0.15, Math.abs(pitch)) : 1) + p.k2 * Va * Math.abs(Va));
+  // CPP: K_T = k0·p + k1 J + k2 J² vanishes near J ∝ p; at zero pitch and full speed the disc brakes hard
+  return RHO * D * D * (p.k0 * c * nD * Math.abs(nD) + p.k1 * Math.abs(nD) * Va + p.k2 * Va * Math.abs(Va));
 }
 
 /** Hydrodynamic torque on the shaft [N m]: positive opposes ahead rotation. */
 export function propTorque(p: PropellerSpec, n: number, Va: number, pitch = 1) {
   const D = p.D, nD = n * D, kq = p.KQ0 / p.k0;
   let c: number;
-  if (p.cpp) c = 0.25 + 0.75 * Math.abs(pitch);                 // feathered blades still absorb some torque
+  if (p.cpp) c = 0.08 + 0.92 * pitch * pitch;                   // torque goes roughly with pitch²; feathered blades still churn
   else c = n >= 0 ? 1 : p.asternFrac;
   const pa = p.cpp ? Math.abs(pitch) : 1;
   return RHO * D * D * D * kq * (p.k0 * c * nD * Math.abs(nD) + 0.8 * p.k1 * Math.abs(nD) * Va * pa + 0.8 * p.k2 * Va * Math.abs(Va) * pa);
@@ -65,7 +66,7 @@ export function shaftForces(s: ShipSpec, u: PodSpec, rpm: number, delta: number,
   const sh = u.shaft!, p = sh.prop, rd = sh.rudder;
   const n = rpm * sh.engine.n;
   const up = ur - u.y * r, vp = vr + p.xP * r;
-  const Va = up * wakeFactor(p, up, vp);
+  const Va = up * wakeFactor(p, up, vp, u.y);
   const T = propThrust(p, n, Va, pitch);
   const tP = T > 0 ? p.tP : 0.5 * p.tP;
   let X = (1 - tP) * T, Y = 0, N = 0;
@@ -99,7 +100,8 @@ export function shaftForces(s: ShipSpec, u: PodSpec, rpm: number, delta: number,
     // flow straightening: v_R = U γ_R (β − l'_R r'), β the drift angle at midship
     const vMid = vr + xMid * r, U = Math.hypot(ur, vMid);
     const bR = U * Math.atan2(-vMid, Math.abs(ur)) - rd.lR * s.L * r;   // U·β_R
-    const vR = (bR > 0 ? rd.gammaP : rd.gammaM) * bR;
+    // γ_R's asymmetry comes from the propeller's swirl: mirror it for a left-handed propeller
+    const vR = (bR * p.hand > 0 ? rd.gammaP : rd.gammaM) * bR;
     const UR2 = uR * uR + vR * vR;
     const aR = delta - Math.atan2(vR, uR);
     const sa = Math.sin(aR), ae = Math.abs(Math.atan2(Math.abs(sa), Math.abs(Math.cos(aR))));
@@ -159,12 +161,15 @@ export function stepEngine(e: EngineSpec, es: EngineState, rpm: number, demand: 
   const direct = e.type === 'direct2s';
   // a non-reversing engine (CPP, geared clutch, electric, turbine) follows its setpoint directly
   if (!direct) {
+    // electric motors reverse through zero; geared diesels and turbines (CPP) hold their speed.
+    // The setpoint ramps at the drive's rate: loadTime from zero to full.
     es.mode = Math.abs(demand) > 0.005 || Math.abs(n) > 0.005 ? 'run' : 'stop';
-    es.target = Math.max(-limit, Math.min(limit, demand));
+    const goal = Math.max(-limit, Math.min(limit, demand)), rate = dt / e.loadTime;
+    es.target += Math.max(-rate, Math.min(rate, goal - es.target));
     const err = es.target - n;
     qEng = Math.max(-torqueCap(e, Math.abs(n)), Math.min(torqueCap(e, Math.abs(n)), (Qh / Qm) + 8 * err));
     if (e.type !== 'electric' && n * qEng < 0 && Math.abs(n) > 0.02) qEng = 0;   // a diesel cannot brake
-    es.msg = '';
+    es.msg = limit < 0.999 && Math.abs(demand) > limit ? 'POWER LIMITED' : '';
   } else {
     const air = e.air!;
     const nFire = air.firing;
