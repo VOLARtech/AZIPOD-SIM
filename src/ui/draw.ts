@@ -1,6 +1,7 @@
 // Chart rendering: ECDIS-style harbour, own ship at the sensed position, predictions,
 // docking aids (quay distance lines), mooring lines, tugs.
 import { DEG, KN, SHIP } from '../physics/ship';
+import type { PodSpec } from '../physics/ship';
 import { HULL } from '../physics/contact';
 import { nearestStructure } from '../physics/harbour';
 import { LINE } from '../physics/mooring';
@@ -307,7 +308,12 @@ export function drawShip() {
   // fairleads
   if (full()) for (const l of rt.lines) { ctx.fillStyle = C.muted; ctx.fillRect(l.fair[0] - 0.8, l.fair[1] - 0.8, 1.6, 1.6); }
   const btx = SHIP.bowThruster.x;
-  ctx.strokeStyle = C.muted; ctx.strokeRect(btx - 1.5, -7, 3, 14);
+  if (SHIP.bowThruster.Tmax > 0) { ctx.strokeStyle = C.muted; ctx.strokeRect(btx - 1.5, -7, 3, 14); }
+  if (SHIP.sternThruster) {
+    const sx = SHIP.sternThruster.x; ctx.strokeStyle = C.muted; ctx.strokeRect(sx - 1.5, -5, 3, 10);
+    const sb = bd.sbt;
+    if (full() && sb && Math.abs(sb.Y) > 2e3) { ctx.strokeStyle = ctx.fillStyle = C.own; ctx.lineWidth = px(2.4); const y0 = Math.sign(sb.Y) * 8; arrow(sx, y0, sx, y0 + sb.Y * 32 / 400e3, Math.max(4, px(9))); }
+  }
   const Fs = 32 / 400e3;
   if (full() && Math.abs(bd.bt.Y) > 2e3) {
     ctx.strokeStyle = ctx.fillStyle = C.own; ctx.lineWidth = px(2.4);
@@ -315,6 +321,7 @@ export function drawShip() {
   }
   SHIP.pods.forEach((p, i) => {
     const ps = st.pods[i], b = bd.pods[i];
+    if (p.kind === 'shaft') { drawShaft(p, ps, b, i, Fs); return; }
     ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(ps.alpha + p.alphaOffset);
     const T = b.T, wl = Math.min(90, Math.abs(T) / 400e3 * 60);
     if (wl > 2) {
@@ -349,6 +356,27 @@ export function drawShip() {
     ctx.strokeStyle = ctx.fillStyle = C.ink; ctx.lineWidth = px(2);
     arrow(ce, cn, ce + Math.sin(r.cog) * r.sog * T, cn + Math.cos(r.cog) * r.sog * T, px(9));
   }
+}
+
+/** Propeller (with its wash) and the rudder behind it, in body coordinates. */
+function drawShaft(p: PodSpec, ps: { alpha: number; rpm: number }, b: { X: number; Y: number; T: number }, i: number, Fs: number) {
+  const sh = p.shaft!, col = SHIP.pods.length > 1 ? podColors[i] : C.own, D = sh.prop.D;
+  const T = b.T, wl = Math.min(90, Math.abs(T) / 400e3 * 50);
+  if (wl > 2) {
+    const sg = T >= 0 ? -1 : 1;
+    ctx.fillStyle = col; ctx.globalAlpha = 0.16;
+    ctx.beginPath(); ctx.moveTo(p.x + sg * 1, p.y - D / 2); ctx.lineTo(p.x + sg * (1 + wl), p.y - D / 2 - wl * 0.15); ctx.lineTo(p.x + sg * (1 + wl), p.y + D / 2 + wl * 0.15); ctx.lineTo(p.x + sg * 1, p.y + D / 2); ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  ctx.fillStyle = col; ctx.fillRect(p.x - 0.7, p.y - D / 2, 1.4, D);
+  if (sh.rudder) {
+    const rd = sh.rudder, chord = rd.A / rd.H;
+    ctx.save(); ctx.translate(rd.xR, p.y); ctx.rotate(-ps.alpha);
+    ctx.strokeStyle = C.ink; ctx.lineWidth = Math.max(px(2.5), 1.2); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(chord * 0.3, 0); ctx.lineTo(-chord * 0.7, 0); ctx.stroke();
+    ctx.restore();
+  }
+  if (full() && Math.hypot(b.X, b.Y) > 5e3) { ctx.strokeStyle = ctx.fillStyle = col; ctx.lineWidth = px(2.4); arrow(p.x, p.y, p.x + b.X * Fs, p.y + b.Y * Fs, Math.max(4, px(9))); }
 }
 
 /** Distance from bow and stern shoulders to the nearest structure, with closing speed. */

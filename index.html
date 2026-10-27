@@ -72,6 +72,7 @@
   </section>
 
   <footer class="tray">
+    <div class="st-az" id="st-az">
     <div class="pod port">
       <div class="podrow">
         <canvas class="dial" id="dial-0" aria-label="Port Azipod azimuth"></canvas>
@@ -99,6 +100,8 @@
       </div>
       <div class="podread"><span class="tag" id="pt-1">STBD</span><span id="pr-1">000° 0%</span></div>
     </div>
+    </div>
+    <div class="st-gen" id="st-gen" hidden aria-label="Bridge controls"></div>
   </footer>
 
   <div class="toast" id="toast" role="status" aria-live="polite" hidden><span id="toast-text"></span><button id="toast-act" class="cb" hidden></button><button id="toast-x" class="x" aria-label="Dismiss">×</button></div>
@@ -120,6 +123,9 @@
       </div>
       <p class="ship" id="shipline"></p>
 
+      <details class="sec" open><summary><h2>Ship</h2></summary>
+      <div id="ships" class="scen ships"></div>
+      </details>
       <details class="sec" open><summary><h2>Scenario</h2></summary>
       <div id="scenarios" class="scen"></div>
       </details>

@@ -368,3 +368,25 @@ export function resistanceCt(s: ShipSpec, u: number, hT: number): number {
 }
 
 export const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+
+/** One-line propulsion summary for lists and the pilot card. */
+export function propulsionSummary(s: ShipSpec) {
+  const parts: string[] = [];
+  const by = (k: string) => s.pods.filter(p => (p.kind ?? 'azipod') === k);
+  const mw = (w: number) => `${(w / 1e6).toFixed(w < 10e6 ? 1 : 0)} MW`;
+  const pods = by('azipod'), az = by('azimuth'), sh = by('shaft'), vsp = by('vsp'), jet = by('waterjet');
+  if (pods.length) parts.push(`${pods.length} × Azipod ${mw(pods[0].P)}`);
+  if (az.length) parts.push(`${az.length} × azimuth ${mw(az[0].P)}`);
+  if (sh.length) {
+    const p = sh[0].shaft!, e = p.engine;
+    const eng = e.type === 'direct2s' ? '2-stroke' : e.type === 'electric' ? 'electric' : e.type === 'turbine' ? 'gas turbine' : 'geared diesel';
+    parts.push(`${sh.length} × ${p.prop.cpp ? 'CPP' : 'FPP'} ${mw(e.P)} ${eng}`);
+    const r = sh.filter(u => u.shaft!.rudder);
+    if (r.length) parts.push(`${r.length} × ${r[0].shaft!.rudder!.type === 'conventional' ? '' : r[0].shaft!.rudder!.type + ' '}rudder`);
+  }
+  if (vsp.length) parts.push(`${vsp.length} × Voith Schneider ${mw(vsp[0].P)}`);
+  if (jet.length) parts.push(`${jet.length} × waterjet ${mw(jet[0].P)}`);
+  if (s.bowThruster.Tmax > 0) parts.push(`bow thrusters ${mw(s.bowThruster.P)}`);
+  if (s.sternThruster) parts.push(`stern thruster ${mw(s.sternThruster.P)}`);
+  return parts.join(' · ');
+}

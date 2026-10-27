@@ -2,6 +2,7 @@
 // actual azimuth and rpm), bow thruster jets, the bow wave arms and the turbulent stern wake.
 // Particles live in the water frame (they stay where they were made, drift with the current
 // and spread), drawn as flat instanced quads just above the surface.
+import { unitAxis } from '../physics/units/kinds';
 import * as THREE from 'three/webgpu';
 import { instancedBufferAttribute, texture, uniform } from 'three/tsl';
 import type { Runtime } from '../physics/runtime';
@@ -71,9 +72,9 @@ export class Wake {
       const rnd = (a: number) => (Math.random() - 0.5) * 2 * a;
       // pod wash: the jet leaves opposite to the direction the pod pulls
       spec.pods.forEach((pd, k) => {
-        const ps = st.pods[k], r = Math.abs(ps.rpm);
+        const ps = st.pods[k], drive = ps.pitch ?? ps.rpm, r = Math.abs(drive);
         if (r < 0.04) return;
-        const sg = ps.rpm >= 0 ? -1 : 1, a = ps.alpha + pd.alphaOffset;
+        const sg = drive >= 0 ? -1 : 1, a = unitAxis(pd, ps);
         const jx = Math.cos(a) * sg, jy = Math.sin(a) * sg;
         const jn = jx * c - jy * s, je = jx * s + jy * c;
         const vj = 2 + 7 * r;

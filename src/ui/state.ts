@@ -9,6 +9,7 @@ export type Palette = 'auto' | 'day' | 'dusk' | 'night';
 
 export const S = {
   sc: null as unknown as Scenario,
+  shipId: null as string | null,          // chosen ship; null = the scenario's own
   rt: null as unknown as Runtime,
   cmd: { pods: [{ alpha: 0, rpm: 0 }, { alpha: 0, rpm: 0 }], bt: 0, mode: 'twin' } as Command,
   env: { windKn: 0, windFrom: 0, curKn: 0, curSet: 0, gusts: false },

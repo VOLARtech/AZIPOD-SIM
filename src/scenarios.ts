@@ -24,6 +24,9 @@ export interface Scenario {
   shelter?: (n: number, e: number) => number;     // current reduction factor 0..1
   zoom: number;
   ship?: string;                                  // ship id (default: MV Bécancour)
+  /** Fender face of the berth: a point on it, its direction (deg) and the ship side that lies to it.
+   *  The berth pose (CG mark) is derived from it for whichever ship is loaded. */
+  berthFace?: { n: number; e: number; psi: number; side: -1 | 1; standoff: number };
   tugBP?: number;                                 // tug bollard pull [N]
   buildings?: Building[];                         // 3D-only scenery
   landHeight?: number;                            // quay / bank height above water for 3D
@@ -39,13 +42,15 @@ export interface Scenario {
 const CONCRETE = { k: 6e6, c: 1.5e6, mu: 0.45, unload: 0.04 };
 const BANK = { k: 1.5e6, c: 2e6, mu: 0.7, unload: 0.02 };   // soft mud/rock bank
 
-/** Row of cone fenders (≈ SCN 1000 class: 1.0 m, 72 % rated deflection, ~900 kN). */
-function fenderRow(n: number, e0: number, e1: number, spacing: number, nn: number, ne: number): Fender[] {
+/** Row of cone fenders (default ≈ SCN 1000 class: 1.0 m, 72 % rated deflection, ~900 kN). */
+function fenderRow(n: number, e0: number, e1: number, spacing: number, nn: number, ne: number, size = { width: 3.2, height: 1.0, Rr: 900e3 }): Fender[] {
   const out: Fender[] = [];
   for (let e = e0; e <= e1 + 1e-6; e += spacing)
-    out.push({ n, e, nn, ne, width: 3.2, height: 1.0, dRated: 0.72, Rr: 900e3, Er: 0, mu: 0.2 });
+    out.push({ n, e, nn, ne, width: size.width, height: size.height, dRated: 0.72, Rr: size.Rr, Er: 0, mu: 0.2 });
   return out;
 }
+/** SCN 2000-class cone fenders for tanker berths: 2.0 m, ~2.8 MN rated reaction. */
+const SCN2000 = { width: 4.0, height: 2.0, Rr: 2.8e6 };
 
 const rect = (n0: number, e0: number, n1: number, e1: number): Pt[] => [[n0, e0], [n0, e1], [n1, e1], [n1, e0]];
 
@@ -117,6 +122,30 @@ export const SCENARIOS: Scenario[] = [
     zoom: 1.0,
   },
   {
+    id: 'terminal', name: 'Crude terminal · jetty, port side to',
+    brief: 'Deep-water tanker jetty: four breasting dolphins on a 26 m berth, mooring dolphins beyond, open water astern. Come in at a shallow angle, take the way off early (a big ship carries it for miles), and land flat on the dolphins at a few centimetres a second. 18 kn wind on the starboard bow, flood tide 0.8 kn along the berth. Two 80 t tugs on the starboard side. Schematic, not a real terminal.',
+    start: { n: -1150, e: -2300, psi: 72, kn: 5 },
+    windKn: 18, windFrom: 40, gusts: true, currentKn: 0.8, currentSet: 90, depth: 30,
+    shoals: [
+      { poly: [[260, -3200], [260, 3200], [900, 3200], [900, -3200]], depth: 12, label: '12' },
+      { poly: [[-3200, 900], [-1600, 1400], [-1300, 3200], [-3200, 3200]], depth: 16, label: '16' },
+      { poly: rect(-60, -260, 30, 260), depth: 26, label: '26' },
+    ],
+    obstacles: [
+      // breasting dolphins (fendered faces on n = 0), loading platform set back, mooring dolphins
+      ...[-130, -45, 45, 130].map(e => ({ poly: rect(0, e - 7, 14, e + 7), ...CONCRETE, kind: 'fendered' as const })),
+      { poly: rect(8, -22, 40, 22), ...CONCRETE, kind: 'pier' as const },
+      ...[-230, -185, 185, 230].map(e => ({ poly: rect(35, e - 6, 47, e + 6), ...CONCRETE, kind: 'pier' as const })),
+      { poly: rect(40, -12, 300, 12), ...CONCRETE, kind: 'pier' as const },                 // trestle to shore
+      { poly: rect(300, -3200, 1400, 3200), ...BANK, kind: 'bank' as const },
+    ],
+    berthFace: { n: -2, e: 0, psi: 90, side: -1, standoff: 0.1 },
+    fenders: [-130, -45, 45, 130].flatMap(e => fenderRow(-2, e - 3, e + 3, 6, -1, 0, SCN2000)),
+    bollards: [-230, -185, -45, 45, 185, 230].map(e => [41, e] as Pt),
+    mooringSide: -1, tugSide: 1, tugBP: 80 * 9.81e3, ship: 'kvlcc2',
+    zoom: 0.5,
+  },
+  {
     id: 'trials', name: 'Open water · trials',
     brief: 'Deep, calm, no obstructions. Try a crash stop, a pod-only turn, the joystick, or walking the ship sideways.',
     start: { n: 0, e: 0, psi: 0, kn: 8 },
@@ -153,4 +182,19 @@ for (const sc of SCENARIOS) for (const f of sc.fenders) {
   const dr = f.dRated * f.height, N = 50; let E = 0;
   for (let i = 0; i < N; i++) E += fenderReaction(f, (i + 0.5) / N * dr) * dr / N;
   f.Er = E;
+}
+
+/** Berth pose (CG mark) for a ship of beam B and CG offset xg, from the scenario's fender face. */
+export function berthFor(sc: Scenario, B: number, xg: number) {
+  const f = sc.berthFace;
+  if (!f) return sc.berth;
+  const ps = f.psi * Math.PI / 180, off = -f.side * (B / 2 + f.standoff);
+  // the ship lies parallel to the face, off it by half her beam and the fender standoff; CG offset along the face
+  return { n: f.n + off * Math.cos(ps + Math.PI / 2) + xg * Math.cos(ps), e: f.e + off * Math.sin(ps + Math.PI / 2) + xg * Math.sin(ps), psi: f.psi };
+}
+/** Water at the start (and the berth) deep enough for a ship of draught T? */
+export function fits(sc: Scenario, T: number, berth = sc.berth) {
+  const d = depthAt(sc);
+  const ok = (n: number, e: number, need: number) => d(n, e) >= need;
+  return ok(sc.start.n, sc.start.e, 1.1 * T) && (!berth || ok(berth.n, berth.e, 1.05 * T));
 }

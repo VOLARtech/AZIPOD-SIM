@@ -419,3 +419,44 @@ details.sec[open] { display: flex; flex-direction: column; gap: 10px; padding-bo
   --dep-dw: #13212b; --dep-md: #19303f; --dep-ms: #213f54; --dep-vs: #2b5170; --dep-it: #2e3a24;
   --sound: #8494a0; --sound-sh: #e2d6b4; --contour: #3f5a6b; --safety: #c9bfa2; --aid-light: #d65aad;
 }
+
+/* ---------- v4: control stations for telegraph / CPP ships ---------- */
+.st-az { display: contents; }
+.st-az[hidden] { display: none; }
+.st-gen { grid-column: 1 / -1; display: flex; gap: 8px; justify-content: center; align-items: stretch; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.st-gen[hidden] { display: none; }
+.st-gen .cell { border: 1px solid var(--rule); border-radius: 4px; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; align-items: center; flex: none; }
+.st-gen .cell > .tag { text-transform: uppercase; align-self: stretch; display: flex; justify-content: space-between; gap: 10px; font-size: 11px; }
+.st-gen .cell > .tag b { color: var(--ink); font-weight: 600; }
+.st-gen .row { display: flex; gap: 6px; align-items: center; }
+.st-gen .unit-tag { font: 600 10px var(--font-label); letter-spacing: 0.08em; writing-mode: vertical-rl; transform: rotate(180deg); }
+.st-gen canvas { display: block; touch-action: none; }
+.st-gen .tel { width: 128px; height: var(--stH); cursor: ns-resize; }
+.st-gen .lev { width: 56px; height: var(--stH); cursor: ns-resize; }
+.st-gen .gauge { width: 132px; height: calc(var(--stH) * 0.62); }
+.st-gen .gauges .row { flex-direction: column; gap: 2px; }
+.st-gen .helm { width: 220px; height: calc(var(--stH) * 0.72); cursor: ew-resize; }
+.st-gen .stat { display: grid; grid-template-columns: auto 1fr; gap: 3px 8px; width: 210px; font: 500 12px var(--font-num); align-items: baseline; }
+.st-gen .stat .k { font: 600 10.5px var(--font-label); letter-spacing: 0.08em; color: var(--muted); white-space: nowrap; }
+.st-gen .stat .v { color: var(--ink); }
+.st-gen .stat .v.warn { color: var(--warn); }
+.st-gen .meter { height: 5px; border-radius: 3px; background: var(--rule); margin-top: 3px; position: relative; overflow: hidden; }
+.st-gen .meter > i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink); }
+.st-gen .thr { width: 190px; justify-content: center; }
+.st-gen .thr .btwrap { width: 100%; }
+.st-gen .btns { justify-content: center; border: none; padding: 0; gap: 6px; }
+.st-gen .btns .cb { width: 96px; }
+.tray { --stH: clamp(150px, 24vh, 200px); }
+@media (max-width: 600px) {
+  .tray { --stH: clamp(140px, 22vh, 180px); }
+  .st-gen { justify-content: flex-start; }
+  .st-gen .gauges { display: none; }
+  .st-gen .helm { width: 168px; }
+  .st-gen .tel { width: 104px; }
+  .st-gen .stat { width: 150px; font-size: 11px; }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .tray { --stH: clamp(120px, 34vh, 160px); }
+}
+.scen span.who { font: 600 11px var(--font-label); letter-spacing: 0.06em; color: var(--own); text-transform: uppercase; }
+.scen.ships { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
