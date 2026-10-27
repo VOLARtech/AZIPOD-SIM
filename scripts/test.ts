@@ -98,11 +98,11 @@ test('landing at 0.5 m/s overloads fenders or reaches the wall', () => {
   assert.ok(ev.maxDefl > 1 || ev.hard, `defl ${(ev.maxDefl * 100).toFixed(0)} %`);
 });
 test('bow into concrete at 2 m/s: restitution < 0.35, crush depth 0.5–3 m (≈20 MJ at 10–25 MN)', () => {
-  const st = makeState(SHIP, 80, 0, 0, 0); st.u = 2;
+  const st = makeState(SHIP, 260, 0, 0, 0); st.u = 2;
   const rt = new Runtime(SHIP, st, { pods: [{ alpha: 0, rpm: 0 }, { alpha: 0, rpm: 0 }], bt: 0 },
     { ...calm, current: () => [0, 0], depth: 8 }, harbourOf(basin));
   let pen = 0;
-  for (let i = 0; i < 800; i++) { rt.step(); pen = Math.max(pen, rt.state.n + SHIP.L / 2 + 4 - SHIP.xg - 150); }
+  for (let i = 0; i < 800; i++) { rt.step(); pen = Math.max(pen, rt.state.n + SHIP.L / 2 + 4 - SHIP.xg - 330); }
   assert.ok(-rt.state.u < 0.35 * 2, `rebound ${rt.state.u.toFixed(2)} m/s`);
   assert.ok(pen > 0.5 && pen < 3, `crush ${pen.toFixed(2)} m`);
 });
@@ -286,6 +286,54 @@ test('PortMiami: steaming out of the channel onto the charted flats runs her agr
   for (let i = 0; i < 20 * 240 && !aground; i++) { rt.step(); aground = (rt.world.aground ?? 0) > 0; }
   setShip('becancour'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
   assert.ok(aground, 'never touched bottom');
+});
+
+console.log('every scenario sails the Spirit');
+test('all built-in scenarios use the Spirit-class ship (3D model, pods)', () => {
+  const other = SCENARIOS.filter(s => s.ship !== 'spirit').map(s => s.id);
+  assert.ok(!other.length, other.join(', '));
+});
+test('Quai 27, channel, swing basin, trials: start clear of structures with ≥ 2 m under the keel', () => {
+  setShip('spirit'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+  const ci = { active: false, points: [], fenders: [] } as Parameters<typeof contactForces>[3] & object;
+  for (const id of ['quai27', 'canal', 'swing', 'trials']) {
+    const sc = SCENARIOS.find(s => s.id === id)!;
+    contactForces(makeState(ACTIVE, sc.start.n, sc.start.e, sc.start.psi, 0), sc.obstacles, sc.fenders, ci);
+    assert.ok(!ci.active, `${id}: start pose in contact`);
+    assert.ok(depthAt(sc)(sc.start.n, sc.start.e) - ACTIVE.T >= 2, `${id}: start UKC`);
+  }
+  setShip('becancour'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+});
+test('Quai 27: Spirit at the berth mark touches nothing and has ≥ 3 m under the keel', () => {
+  setShip('spirit'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+  const ci = { active: false, points: [], fenders: [] } as Parameters<typeof contactForces>[3] & object;
+  const b = quai.berth!;
+  contactForces(makeState(ACTIVE, b.n, b.e, b.psi, 0), quai.obstacles, quai.fenders, ci);
+  const ukc = depthAt(quai)(b.n, b.e) - ACTIVE.T;
+  setShip('becancour'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+  assert.ok(!ci.active && ukc >= 3, `contact ${ci.active}, UKC ${ukc.toFixed(1)} m`);
+});
+test('Quai 27: Spirit parallel landing at 0.10 m/s stays on the fenders, below rated deflection', () => {
+  setShip('spirit'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+  const b = quai.berth!, st = makeState(ACTIVE, b.n - 1.5, b.e, b.psi, 0); st.v = -0.10;
+  const rt = new Runtime(ACTIVE, st, { pods: [{ alpha: 0, rpm: 0 }, { alpha: 0, rpm: 0 }], bt: 0 },
+    { ...calm, current: currentField(quai, 0, 0), depth: quai.depth }, harbourOf(quai));
+  for (let i = 0; i < 1600; i++) rt.step();
+  const ev = rt.contactLog[rt.contactLog.length - 1];
+  setShip('becancour'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+  assert.ok(ev && !ev.hard && ev.maxDefl < 1, ev ? `hard ${ev.hard} defl ${(ev.maxDefl * 100).toFixed(0)} %` : 'no contact');
+});
+test('Swing basin: the Spirit can pivot through 180° in the middle of the basin without touching', () => {
+  setShip('spirit'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+  const ci = { active: false, points: [], fenders: [] } as Parameters<typeof contactForces>[3] & object;
+  let hit = -1;
+  for (let h = 0; h <= 180 && hit < 0; h += 10) { contactForces(makeState(ACTIVE, -275, 0, h, 0), basin.obstacles, basin.fenders, ci); if (ci.active) hit = h; }
+  setShip('becancour'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+  assert.ok(hit < 0, `contact at heading ${hit}°`);
+});
+test('Channel: width ≈ 8 beams and h/T ≈ 1.36 for the Spirit', () => {
+  const ch = SCENARIOS.find(s => s.id === 'canal')!;
+  assert.ok(Math.abs(260 / SPIRIT.B - 8) < 0.2 && Math.abs(ch.depth / SPIRIT.T - 1.36) < 0.02);
 });
 
 console.log(`\n${pass} passed${process.exitCode ? ', some failed' : ''}`);
