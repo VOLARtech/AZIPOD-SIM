@@ -1,0 +1,25 @@
+# Synthesizes the promo voice-over (tools/promo/vo.json) with Kokoro TTS and commits the WAVs
+# to the `chart-data` branch under promo/. Manual only.
+name: voice-over
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  tts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq espeak-ng
+      - run: pip install -q "kokoro>=0.9.4" soundfile torch --extra-index-url https://download.pytorch.org/whl/cpu
+      - run: python tools/promo/tts.py tools/promo/vo.json /tmp/vo
+      - name: commit to chart-data branch
+        run: |
+          trap 'echo "::error::commit step failed at line $LINENO: $BASH_COMMAND"' ERR
+          git config user.name "chart-bot"; git config user.email "chart-bot@users.noreply.github.com"
+          git fetch origin chart-data
+          git checkout -B chart-data origin/chart-data
+          rm -rf promo; mkdir -p promo; cp /tmp/vo/*.wav promo/
+          git add promo; git commit -qm "promo voice-over" || echo "no change"
+          git push origin chart-data 2>&1 | tail -2 | while read -r l; do echo "::warning::$l"; done
