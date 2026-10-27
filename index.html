@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Azipod Bridge</title>
+<meta name="claude:viewport-fit-sides" content="cover" />
+<meta name="description" content="Twin-Azipod ship-handling simulator: realistic 3-DOF manoeuvring, dynamic predictor, berthing, mooring and tugs. Runs offline on phone and desktop." />
+<meta name="theme-color" content="#06121a" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Azipod Bridge" />
+<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+</head>
+<body>
+<div id="app">
+  <canvas id="map" aria-label="Harbour chart with own ship and predictions"></canvas>
+
+  <header class="hud" id="hud" role="button" tabindex="0" aria-expanded="false" aria-label="Conning readouts, tap for wind, current, depth and power">
+    <div class="hud-row primary">
+      <div class="cell"><span class="lab">HDG</span><span class="val" id="r-hdg">000.0</span><span class="unit">°</span></div>
+      <div class="cell"><span class="lab">SOG</span><span class="val" id="r-sog">0.0</span><span class="unit">kn</span></div>
+      <div class="cell"><span class="lab">ROT</span><span class="val" id="r-rot">0</span><span class="unit">°/min</span></div>
+      <div class="cell wide-only"><span class="lab">COG</span><span class="val" id="r-cog">000</span><span class="unit">°</span></div>
+      <div class="cell wide-only"><span class="lab">STW</span><span class="val" id="r-stw">0.0</span><span class="unit">kn</span></div>
+    </div>
+    <div class="hud-row secondary">
+      <div class="cell lat"><span class="lab">FWD</span><span class="val" id="r-bow">0.00</span><span class="unit u-lat">m/s</span></div>
+      <div class="cell lat"><span class="lab">AFT</span><span class="val" id="r-stern">0.00</span><span class="unit u-lat">m/s</span></div>
+      <div class="cell xtra"><span class="lab">LONG</span><span class="val" id="r-long">0.00</span><span class="unit u-lat">m/s</span></div>
+      <div class="cell"><span class="lab">UKC</span><span class="val" id="r-ukc">—</span><span class="unit">m</span></div>
+    </div>
+    <div class="hud-row env">
+      <span id="r-wind">WIND —</span><span id="r-cur">CURRENT —</span><span id="r-depth">—</span><span id="r-pwr">PWR —</span><span id="r-time">00:00</span>
+    </div>
+    <span class="more" aria-hidden="true"></span>
+    <div class="flag" id="r-flag" hidden></div>
+  </header>
+
+  <nav class="mapbtns" aria-label="Chart and simulation">
+    <button id="b-menu" class="mb" aria-label="Scenarios and settings">MENU</button>
+    <button id="b-install" class="mb on" hidden>INSTALL</button>
+    <button id="b-pause" class="mb">PAUSE</button>
+    <button id="b-speed" class="mb">1×</button>
+    <button id="b-pred" class="mb on">PRED</button>
+    <button id="b-view" class="mb">N-UP</button>
+    <button id="b-follow" class="mb on" aria-pressed="true">FOLLOW</button>
+    <button id="b-lines" class="mb" hidden>LINES</button>
+    <button id="b-tugs" class="mb" hidden>TUGS</button>
+    <span class="zoom"><button id="b-zin" class="mb sq" aria-label="Zoom in">+</button><button id="b-zout" class="mb sq" aria-label="Zoom out">−</button></span>
+  </nav>
+
+  <aside class="legend" id="legend" hidden role="button" tabindex="0" aria-expanded="false"></aside>
+
+  <section class="panel" id="p-lines" hidden aria-label="Mooring lines">
+    <div class="panel-head"><span class="tag">MOORING LINES · WINCHES</span><button class="x" data-close="p-lines" aria-label="Close">×</button></div>
+    <div id="lines"></div>
+    <p class="hint">Lines go ashore when the fairlead is within 60 m of a bollard. HEAVE stalls at 16 t, the brake renders above 61 t, lines part at 100 t.</p>
+  </section>
+  <section class="panel" id="p-tugs" hidden aria-label="Tugs">
+    <div class="panel-head"><span class="tag">TUGS · 40 t BOLLARD PULL</span><button class="x" data-close="p-tugs" aria-label="Close">×</button></div>
+    <div id="tugs"></div>
+    <p class="hint">About 20 s to change power, 60 s to swap between pushing and pulling. Tugs lose their grip above about 6 kn.</p>
+  </section>
+
+  <footer class="tray">
+    <div class="pod port">
+      <canvas class="dial" id="dial-0" aria-label="Port Azipod lever"></canvas>
+      <div class="podread"><button class="rev" id="rev-0" aria-pressed="false">REV</button><span class="tag" id="pt-0">PORT</span><span id="pr-0">000° 0%</span></div>
+    </div>
+    <div class="center">
+      <div class="btwrap">
+        <label for="bt" class="tag" id="bt-label">BOW THRUSTER</label>
+        <input type="range" id="bt" min="-100" max="100" step="1" value="0" />
+        <div class="btscale"><span id="bt-l">PORT</span><span id="bt-val">0</span><span id="bt-r">STBD</span></div>
+      </div>
+      <div class="ctl">
+        <button id="b-mode" class="cb">TWIN</button>
+        <button id="b-zero" class="cb warn">ZERO</button>
+        <button id="b-hdg" class="cb joyonly" aria-pressed="false" hidden>HDG HOLD</button>
+        <button id="b-pos" class="cb joyonly" aria-pressed="false" hidden>POS HOLD</button>
+      </div>
+    </div>
+    <div class="pod stbd">
+      <canvas class="dial" id="dial-1" aria-label="Starboard Azipod lever"></canvas>
+      <div class="podread"><button class="rev" id="rev-1" aria-pressed="false">REV</button><span class="tag" id="pt-1">STBD</span><span id="pr-1">000° 0%</span></div>
+    </div>
+  </footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden><span id="toast-text"></span><button id="toast-act" class="cb" hidden></button><button id="toast-x" class="x" aria-label="Dismiss">×</button></div>
+
+  <section class="gate" id="gate" hidden aria-labelledby="gate-h">
+    <div class="gate-card">
+      <h1 id="gate-h">Azipod Bridge</h1>
+      <p>A training simulator for twin-Azipod ship handling. The physics is a published-model approximation, checked against model tests, and it will differ from any real ship.</p>
+      <p><b>Not for navigation.</b> Do not use it to plan or conduct a real manoeuvre.</p>
+      <button id="gate-ok" class="cb">I UNDERSTAND</button>
+    </div>
+  </section>
+
+  <section class="sheet" id="sheet" hidden>
+    <div class="sheet-inner">
+      <div class="sheet-head">
+        <h1>Azipod Bridge</h1>
+        <button id="b-close" class="cb">CLOSE</button>
+      </div>
+      <p class="ship" id="shipline"></p>
+
+      <details class="sec" open><summary><h2>Scenario</h2></summary>
+      <div id="scenarios" class="scen"></div>
+      </details>
+      <details class="sec"><summary><h2>Environment</h2></summary>
+      <div class="env-grid">
+        <label for="s-ws">Wind speed <output id="o-ws"></output></label><input type="range" id="s-ws" min="0" max="45" step="1" />
+        <label for="s-wd">Wind from <output id="o-wd"></output></label><input type="range" id="s-wd" min="0" max="355" step="5" />
+        <label for="s-cs">Current rate <output id="o-cs"></output></label><input type="range" id="s-cs" min="0" max="3" step="0.1" />
+        <label for="s-cd">Current sets to <output id="o-cd"></output></label><input type="range" id="s-cd" min="0" max="355" step="5" />
+        <label class="chk"><input type="checkbox" id="s-gu" /> Gusts (σ 17 %, 12 s)</label>
+      </div>
+      </details>
+      <details class="sec"><summary><h2>Predictor</h2></summary>
+      <div class="env-grid">
+        <label for="s-gc">Ghost hulls <output id="o-gc"></output></label><input type="range" id="s-gc" min="1" max="5" step="1" />
+        <label for="s-gi">Interval <output id="o-gi"></output></label><input type="range" id="s-gi" min="0" max="12" step="1" />
+        <span class="lbl">What-if tracks</span>
+        <div class="chips" id="alts"></div>
+        <span class="lbl">Prediction runs on</span>
+        <div class="seg" id="seg-src"><button data-v="ideal">Ideal model</button><button data-v="onboard">Onboard</button></div>
+        <label class="chk"><input type="checkbox" id="s-static" /> Static ROT arc (what most ECDIS and PPUs draw)</label>
+      </div>
+      <p class="note">Clean chart detail (default) shows the predicted bow and stern tracks with ghost hulls and the forward/aft side speeds; Full adds the shoulder tracks, time labels, force arrows, wash marks and the effects list. Onboard runs the predictor the way a real bridge does: from sensor readings, an estimated current, measured wind and a ship model that is a few percent off. Ideal sees the truth. PRED cycles off, track only, and track plus what-if.</p>
+      </details>
+      <details class="sec"><summary><h2>Sensors &amp; display</h2></summary>
+      <div class="env-grid">
+        <span class="lbl">Chart detail</span>
+        <div class="seg" id="seg-detail"><button data-v="clean">Clean</button><button data-v="full">Full</button></div>
+        <span class="lbl">Position source</span>
+        <div class="seg" id="seg-sens"><button data-v="ideal">Perfect</button><button data-v="real">DGNSS</button><button data-v="ais">AIS feed</button></div>
+        <label for="s-vec">Speed vector <output id="o-vec"></output></label><input type="range" id="s-vec" min="1" max="6" step="1" />
+        <span class="lbl">Lateral speed units</span>
+        <div class="seg" id="seg-unit"><button data-v="cm">cm/s</button><button data-v="ms">m/s</button><button data-v="kn">kn</button></div>
+        <span class="lbl">Palette</span>
+        <div class="seg" id="seg-pal"><button data-v="auto">Auto</button><button data-v="day">Day</button><button data-v="dusk">Dusk</button><button data-v="night">Night</button></div>
+        <label class="chk"><input type="checkbox" id="s-truth" /> Show true position (instructor)</label>
+      </div>
+      </details>
+      <details class="sec"><summary><h2>Pilot card · wheelhouse poster <span class="sub">IMO A.601(15), computed from this model</span></h2></summary>
+      <div id="poster"><p class="note">Computing…</p></div>
+      </details>
+      <details class="sec"><summary><h2>Validation <span class="sub">277 m twin-Azipod stopping tests, TransNav</span></h2></summary>
+      <div id="validation"><p class="note">Computing…</p></div>
+      </details>
+      <details class="sec"><summary><h2>Sea trials <span class="sub">IMO MSC.137(76) limits apply to deep water</span></h2></summary>
+      <div class="tw"><table class="trials" id="trials"><tbody><tr><td>Computing…</td></tr></tbody></table></div>
+      </details>
+      <details class="sec"><summary><h2>Controls</h2></summary>
+      <div class="keys">
+        <p><b>Levers.</b> TWIN drives both pods from either dial. INDEP gives each pod its own lever; with one pod fore-and-aft and the other athwartships, the control system holds the athwartships pod to 70 %. JOY replaces the levers with a joystick for harbour speeds below about 5 kn (left pad: surge and sway; slider: yaw, both spring back to centre) and enables heading and position hold. At neutral stick the pods pull inward against each other so small orders change thrust rather than swing the pods.</p>
+        <p><b>Pods.</b> A dial points the way the pod pulls the stern; distance from centre is rpm. Azimuth turns at 7.5°/s and full ahead to full astern takes 60 s. REV reverses the propeller, but the system ignores a reverse order above 28 % rpm, so take the rpm off first or swing the pod instead. Pods and bow thruster share 7.6 MW. Double-tap a dial to stop that pod.</p>
+        <p><b>Keys.</b> Port pod <kbd>A</kbd><kbd>D</kbd> azimuth, <kbd>W</kbd><kbd>S</kbd> rpm · stbd pod <kbd>J</kbd><kbd>L</kbd>, <kbd>I</kbd><kbd>K</kbd> · bow thruster or yaw <kbd>Q</kbd><kbd>E</kbd> · joystick <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> · <kbd>M</kbd> lever mode · <kbd>X</kbd> zero · <kbd>Space</kbd> pause · <kbd>[</kbd><kbd>]</kbd> time · <kbd>P</kbd> predictor · <kbd>H</kbd> head-up · <kbd>F</kbd> follow</p>
+      </div>
+      </details>
+      <details class="sec"><summary><h2>Install &amp; offline</h2></summary>
+        <div id="about" class="keys"></div>
+      </details>
+      <details class="sec"><summary><h2>Model</h2></summary>
+      <div class="model" id="model"></div>
+      </details>
+    </div>
+  </section>
+</div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

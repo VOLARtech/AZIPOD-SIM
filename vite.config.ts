@@ -1,0 +1,62 @@
+import { defineConfig } from 'vite';
+import { viteSingleFile } from 'vite-plugin-singlefile';
+import { VitePWA } from 'vite-plugin-pwa';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
+
+// Two outputs from one codebase:
+//   default  → the installable PWA (multi-file, service worker, works offline after first visit)
+//   --mode single → one self-contained HTML file to download and open with no internet at all
+export default defineConfig(({ mode }) => {
+  const single = mode === 'single';
+  return {
+    base: process.env.BASE ?? './',
+    define: {
+      __APP_VERSION__: JSON.stringify(pkg.version),
+      __BUILD__: JSON.stringify((process.env.GITHUB_SHA ?? 'local').slice(0, 7)),
+      __PWA__: JSON.stringify(!single),
+      __REPO_URL__: JSON.stringify(process.env.REPO_URL ?? 'https://github.com/VOLARtech/AZIPOD-SIM'),
+    },
+    resolve: single ? { alias: { 'virtual:pwa-register': fileURLToPath(new URL('./src/pwa-stub.ts', import.meta.url)) } } : {},
+    build: {
+      target: 'es2020',
+      outDir: single ? 'dist-single' : 'dist',
+      assetsInlineLimit: single ? 100_000_000 : 4096,
+    },
+    plugins: single ? [viteSingleFile()] : [
+      VitePWA({
+        registerType: 'prompt',
+        injectRegister: false,
+        includeAssets: ['favicon.svg', 'icons/apple-touch-icon.png'],
+        manifest: {
+          id: './',
+          name: 'Azipod Bridge — ship-handling simulator',
+          short_name: 'Azipod Bridge',
+          description: 'Twin-Azipod ship-handling simulator: 3-DOF manoeuvring model, dynamic predictor, berthing, mooring, tugs.',
+          lang: 'en',
+          start_url: './',
+          scope: './',
+          display: 'standalone',
+          orientation: 'any',
+          background_color: '#06121a',
+          theme_color: '#06121a',
+          categories: ['education', 'navigation', 'simulation'],
+          icons: [
+            { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+            { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+            { src: 'icons/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          ],
+        },
+        workbox: {
+          globPatterns: ['**/*.{js,css,html,woff2,png,svg,webmanifest}'],
+          globIgnores: ['**/azipod-bridge-offline.html'],
+          navigateFallback: 'index.html',
+          cleanupOutdatedCaches: true,
+          maximumFileSizeToCacheInBytes: 5_000_000,
+        },
+      }),
+    ],
+  };
+});

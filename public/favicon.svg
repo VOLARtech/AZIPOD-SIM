@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#06121a"/>
+  <!-- predicted track ahead -->
+  <path d="M256 70 C 300 120, 340 150, 380 160" fill="none" stroke="#c4489a" stroke-width="14" stroke-linecap="round" stroke-dasharray="2 30"/>
+  <!-- own ship, plan view -->
+  <path d="M256 92 C 300 150, 312 200, 312 260 L 312 400 L 200 400 L 200 260 C 200 200, 212 150, 256 92 Z" fill="none" stroke="#d27a2a" stroke-width="18" stroke-linejoin="round"/>
+  <line x1="256" y1="140" x2="256" y2="380" stroke="#d27a2a" stroke-width="6" stroke-dasharray="14 14"/>
+  <!-- the two pods: port red, starboard green, angled -->
+  <rect x="210" y="404" width="22" height="58" rx="11" fill="#d2475a" transform="rotate(-18 221 433)"/>
+  <rect x="280" y="404" width="22" height="58" rx="11" fill="#36ad66" transform="rotate(18 291 433)"/>
+</svg>
