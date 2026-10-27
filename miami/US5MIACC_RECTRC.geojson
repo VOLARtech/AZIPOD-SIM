@@ -1,0 +1,1 @@
+{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"ORIENT":114.8},"geometry":{"type":"LineString","coordinates":[[-80.1290003,25.7618011],[-80.1266255,25.7608131],[-80.1170581,25.7568326]]}},{"type":"Feature","properties":{"ORIENT":249.5},"geometry":{"type":"LineString","coordinates":[[-80.1,25.7608769],[-80.102183,25.7601492],[-80.1123318,25.7567663]]}}]}
