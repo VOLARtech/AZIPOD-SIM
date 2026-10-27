@@ -7,20 +7,19 @@ import { C } from './draw';
 
 const $ = (id: string) => document.getElementById(id)!;
 const f = (x: number, d = 0) => x.toFixed(d);
-const L = SHIP.L;
 
 let lastPoster: Poster | null = null;
 export function renderPoster(p: Poster) {
   lastPoster = p;
-  const turn = p.turning.map(t => `<tr><td>${t.label}</td><td>${f(t.adv / L, 2)} L</td><td>${f(t.tr / L, 2)} L</td><td>${f(t.td / L, 2)} L</td><td>${f(t.t90)} / ${f(t.t180)} / ${f(t.t360)} s</td></tr>`).join('');
-  const stop = p.stopping.map(s => `<tr><td>${s.label}</td><td>${f(s.track / L, 2)} L</td><td>${f(s.head / L, 2)} L</td><td>${f(Math.abs(s.side) / L, 2)} L ${s.side < 0 ? 'P' : 'S'}</td><td>${f(s.time)} s</td></tr>`).join('');
+  const turn = p.turning.map(t => `<tr><td>${t.label}</td><td>${f(t.adv / SHIP.L, 2)} L</td><td>${f(t.tr / SHIP.L, 2)} L</td><td>${f(t.td / SHIP.L, 2)} L</td><td>${f(t.t90)} / ${f(t.t180)} / ${f(t.t360)} s</td></tr>`).join('');
+  const stop = p.stopping.map(s => `<tr><td>${s.label}</td><td>${f(s.track / SHIP.L, 2)} L</td><td>${f(s.head / SHIP.L, 2)} L</td><td>${f(Math.abs(s.side) / SHIP.L, 2)} L ${s.side < 0 ? 'P' : 'S'}</td><td>${f(s.time)} s</td></tr>`).join('');
   const spd = p.speedTable.map(s => `<tr><td>${f(s.rpm * 100)} %</td><td>${f(s.kn, 1)} kn</td></tr>`).join('');
   const thr = p.thruster.map(t => `<tr><td>${t.kn} kn</td><td>${f(t.eff * 100)} %</td></tr>`).join('');
   const sq12 = p.squatTable.filter(s => s.hT === 0), sq15 = p.squatTable.filter(s => s.hT === 1);
   const sq = sq12.map((s, i) => `<tr><td>${s.kn} kn</td><td>${f(s.sq, 2)} m</td><td>${f(sq15[i].sq, 2)} m</td></tr>`).join('');
   const wind = p.windDrift.map(w => `<tr><td>${w.kn} kn</td><td>${f(w.drift, 2)} kn</td></tr>`).join('');
   $('poster').innerHTML = `
-    <p class="note">${SHIP.name} · Lpp ${L} m · B ${SHIP.B} m · T ${SHIP.T} m even keel · 2 × Azipod ${f(SHIP.pods[0].P / 1e6, 1)} MW, ${f(SHIP.pods[0].Tb / 9.81e3)} t bollard each · bow thrusters ${f(SHIP.bowThruster.P / 1e6, 1)} MW · switchboard ${f(SHIP.powerAvail / 1e6, 1)} MW for propulsion · azimuth 7.5°/s · full ahead → full astern 60 s · astern max ${f(SHIP.asternMax * 100)} % · reversal blocked above ${f(SHIP.revInterlock * 100)} % rpm.</p>
+    <p class="note">${SHIP.name} · LOA ${SHIP.LOA} m · Lpp ${SHIP.L} m · B ${SHIP.B} m · T ${SHIP.T} m even keel · 2 × Azipod ${f(SHIP.pods[0].P / 1e6, 1)} MW, ${f(SHIP.pods[0].Tb / 9.81e3)} t bollard each · bow thrusters ${f(SHIP.bowThruster.P / 1e6, 1)} MW · switchboard ${f(SHIP.powerAvail / 1e6, 1)} MW for propulsion · azimuth 7.5°/s · full ahead → full astern 60 s · astern max ${f(SHIP.asternMax * 100)} % · reversal blocked above ${f(SHIP.revInterlock * 100)} % rpm.</p>
     <div class="poster-grid">
       <div><h3>Turning circles · pods 35°</h3><canvas class="pcanvas" id="pc-turn"></canvas>
         <div class="tw"><table class="ptable"><tr><th></th><th>Advance</th><th>Transfer</th><th>Tactical Ø</th><th>90/180/360°</th></tr>${turn}</table></div></div>
@@ -50,14 +49,14 @@ function plot(id: string, paths: Path[], cols: string[]) {
   g.fillStyle = C.water; g.fillRect(0, 0, Wc, Hc);
   let xmin = 0, xmax = 0, ymin = 0, ymax = 0;
   for (const p of paths) for (const [x, y] of p.pts) { xmin = Math.min(xmin, x); xmax = Math.max(xmax, x); ymin = Math.min(ymin, y); ymax = Math.max(ymax, y); }
-  const pad = 26, span = Math.max(xmax - xmin, ymax - ymin, L) * 1.1;
+  const pad = 26, span = Math.max(xmax - xmin, ymax - ymin, SHIP.L) * 1.1;
   const s = (Math.min(Wc, Hc) - 2 * pad) / span;
   const cx = (xmin + xmax) / 2, cy = (ymin + ymax) / 2;
   const X = (x: number) => Wc / 2 + (x - cx) * s, Y = (y: number) => Hc / 2 - (y - cy) * s;
   // grid in ship lengths
   g.strokeStyle = C.grid; g.lineWidth = 1; g.font = `11px ${C.fontNum}`; g.fillStyle = C.muted;
-  for (let k = Math.ceil((cx - span / 2) / L); k * L <= cx + span / 2; k++) { g.beginPath(); g.moveTo(X(k * L), 0); g.lineTo(X(k * L), Hc); g.stroke(); }
-  for (let k = Math.ceil((cy - span / 2) / L); k * L <= cy + span / 2; k++) { g.beginPath(); g.moveTo(0, Y(k * L)); g.lineTo(Wc, Y(k * L)); g.stroke(); }
+  for (let k = Math.ceil((cx - span / 2) / SHIP.L); k * SHIP.L <= cx + span / 2; k++) { g.beginPath(); g.moveTo(X(k * SHIP.L), 0); g.lineTo(X(k * SHIP.L), Hc); g.stroke(); }
+  for (let k = Math.ceil((cy - span / 2) / SHIP.L); k * SHIP.L <= cy + span / 2; k++) { g.beginPath(); g.moveTo(0, Y(k * SHIP.L)); g.lineTo(Wc, Y(k * SHIP.L)); g.stroke(); }
   g.fillText('grid = 1 L', 6, Hc - 6);
   paths.forEach((p, i) => {
     g.strokeStyle = cols[i % cols.length]; g.lineWidth = 2;

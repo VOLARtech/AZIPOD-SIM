@@ -24,6 +24,7 @@ export default defineConfig(({ mode }) => {
       target: 'es2020',
       outDir: single ? 'dist-single' : 'dist',
       assetsInlineLimit: single ? 100_000_000 : 4096,
+      chunkSizeWarningLimit: 1200,   // the lazily loaded 3D view (three.js) is ~0.9 MB, ~260 kB gzipped
     },
     plugins: single ? [viteSingleFile()] : [
       VitePWA({
@@ -34,7 +35,7 @@ export default defineConfig(({ mode }) => {
           id: './',
           name: 'Azipod Bridge — ship-handling simulator',
           short_name: 'Azipod Bridge',
-          description: 'Twin-Azipod ship-handling simulator: 3-DOF manoeuvring model, dynamic predictor, berthing, mooring, tugs.',
+          description: 'Twin-Azipod ship-handling simulator: 3-DOF manoeuvring model, dynamic predictor, 3D bridge view, berthing, mooring, tugs.',
           lang: 'en',
           start_url: './',
           scope: './',

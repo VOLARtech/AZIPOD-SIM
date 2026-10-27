@@ -49,9 +49,11 @@ export function fenderReaction(f: Fender, defl: number): number {
 
 // Waterline outline, body frame [x fwd, y stbd] about CG. Set by setHull().
 export let HULL: [number, number][] = [];
-export function buildHull(L: number, B: number, xg: number): [number, number][] {
+export function buildHull(L: number, B: number, xg: number, LOA = L + 5): [number, number][] {
+  // waterline outline: transom aft, parallel body, faired bow (overhang = LOA − Lpp, mostly forward)
+  const over = Math.max(5, LOA - L);
   const pts: [number, number][] = [];
-  const xs = -L / 2 - 1, xb = L / 2 + 4, xm1 = -L / 2 + 22, xm2 = L * 0.12;
+  const xs = -L / 2 - over * 0.2, xb = L / 2 + over * 0.8, xm1 = -L / 2 + 0.17 * L, xm2 = L * 0.12;
   const half = B / 2;
   const side: [number, number][] = [];
   for (let i = 0; i <= 26; i++) {

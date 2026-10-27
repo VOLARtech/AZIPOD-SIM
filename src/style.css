@@ -378,3 +378,10 @@ details.sec[open] { display: flex; flex-direction: column; gap: 10px; padding-bo
 .gate-card p { margin: 0; line-height: 1.55; font-size: 15px; }
 .gate-card .cb { height: 44px; margin-top: 8px; }
 #about a { color: var(--own); }
+
+/* ---------- 3D view ---------- */
+#v3d { position: absolute; z-index: 1; overflow: hidden; background: #0b141b; }
+#v3d.split-top { border-bottom: 1px solid var(--rule); }
+#v3d.split-left { border-right: 1px solid var(--rule); }
+#c3d { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+.v3d-tag { position: absolute; right: 8px; bottom: 6px; font: 500 10px var(--font-num); letter-spacing: 0.06em; color: rgba(255, 255, 255, 0.55); pointer-events: none; }

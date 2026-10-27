@@ -22,7 +22,7 @@ export const S = {
     tracks: [] as Track[], jobId: 0, pending: false, lastSend: 0,
     interval: 30, horizon: 150,
   },
-  disp: { vecMin: 1, unit: 'ms' as Unit, palette: 'auto' as Palette, truth: false, detail: 'clean' as 'clean' | 'full' },
+  disp: { vecMin: 1, unit: 'ms' as Unit, palette: 'auto' as Palette, truth: false, detail: 'clean' as 'clean' | 'full', view: '2d' as '2d' | 'split' | '3d', cam: 'bridge' as 'bridge' | 'port' | 'stbd' | 'chase' },
   sensMode: 'real' as SensorMode,
   speedIdx: 0, paused: false,
   rev: [false, false],

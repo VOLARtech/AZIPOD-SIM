@@ -30,7 +30,7 @@ export function resizeCanvas() {
   cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
 }
 /** Layout read once per resize (not per frame): reading layout every frame stalls phones. */
-export const LAY = { hudBottom: 0, chipsBottom: 0, trayTop: 0, padL: 16, padR: 16, overlayTray: false };
+export const LAY = { hudBottom: 0, chipsBottom: 0, trayTop: 0, padL: 16, padR: 16, overlayTray: false, split: null as null | 'top' | 'left', splitAt: 0 };
 export function refreshLayout() {
   const hud = document.getElementById('hud')!, tray = document.querySelector('.tray') as HTMLElement;
   const chips = document.querySelector('.mapbtns') as HTMLElement;
@@ -46,6 +46,8 @@ export function refreshLayout() {
 }
 export function chartCentre() {
   const bot = LAY.overlayTray ? H : LAY.trayTop;
+  if (LAY.split === 'top') return [W / 2, (LAY.splitAt + bot) / 2] as const;
+  if (LAY.split === 'left') return [(LAY.splitAt + W) / 2, (LAY.chipsBottom + bot) / 2] as const;
   return [W / 2, (LAY.chipsBottom + bot) / 2] as const;
 }
 let M = [1, 0, 0, 1, 0, 0];
@@ -265,7 +267,7 @@ export function drawTugs() {
     if (Math.abs(t.F) > 5e3) {
       ctx.save(); bodyTransform(est);
       ctx.strokeStyle = ctx.fillStyle = C.ink; ctx.lineWidth = px(2);
-      const Fs = 32 / 400e3, y0 = -Math.sign(t.F) * (SHIP.B / 2 + 2);
+      const Fs = SHIP.L * 0.25 / t.Fmax, y0 = -Math.sign(t.F) * (SHIP.B / 2 + 2);
       arrow(t.x, y0, t.x, y0 + t.F * Fs, Math.max(4, px(9)));
       void pushing;
       ctx.restore();
@@ -278,7 +280,7 @@ export function drawShip() {
   if (S.disp.truth) { ctx.save(); bodyTransform(st); hullPath(); ctx.strokeStyle = C.muted; ctx.lineWidth = px(1); ctx.setLineDash([px(2), px(2)]); ctx.stroke(); ctx.restore(); }
   ctx.save(); bodyTransform(est);
   hullPath(); ctx.fillStyle = C.hull; ctx.fill(); ctx.strokeStyle = C.own; ctx.lineWidth = px(2); ctx.stroke();
-  ctx.fillStyle = C.own; ctx.globalAlpha = 0.16; ctx.fillRect(-30 - SHIP.xg, -8, 62, 16); ctx.globalAlpha = 1;
+  { const d0 = SHIP.look.decks[0], hw = SHIP.B / 2 - d0.inset - 1.5; ctx.fillStyle = C.own; ctx.globalAlpha = 0.16; ctx.fillRect(d0.x0 * 0.85, -hw * 0.75, (d0.x1 - d0.x0) * 0.85, hw * 1.5); ctx.globalAlpha = 1; }
   ctx.strokeStyle = C.own; ctx.lineWidth = px(1);
   ctx.strokeRect(SHIP.bridgeX - 4, -SHIP.B / 2 + 0.5, 8, SHIP.B - 1);            // bridge / conning position
   ctx.beginPath(); ctx.arc(SHIP.bridgeX, 0, px(3), 0, Math.PI * 2); ctx.stroke(); // CCRP
@@ -343,7 +345,7 @@ export function updateQuayLines(dt: number) {
       if (!r) continue;
       let d = r[2];
       const fendered = S.sc.obstacles.some(o => o.kind === 'fendered' && o.bbox && r[0] >= o.bbox[0] - 0.1 && r[0] <= o.bbox[2] + 0.1 && r[1] >= o.bbox[1] - 0.1 && r[1] <= o.bbox[3] + 0.1);
-      if (fendered) d -= 1.0; // to the fender face
+      if (fendered) d -= S.sc.fenders[0]?.height ?? 1.0; // to the fender face
       if (!best || d < best.d) best = { d, n: r[0], e: r[1], pn, pe };
     }
     const q = S.quay[k];
@@ -427,7 +429,7 @@ export function drawOverlay() {
   const trayTop = LAY.trayTop;
   const target = 110 / S.view.scale;
   const nice = [10, 20, 25, 50, 100, 200, 250, 500, 1000].find(v => v >= target * 0.6) ?? 1000;
-  const L = nice * S.view.scale, x0 = LAY.padL, y0 = trayTop - 14;
+  const L = nice * S.view.scale, x0 = LAY.split === 'left' ? LAY.splitAt + 12 : LAY.padL, y0 = trayTop - 14;
   ctx.font = `500 11px ${C.fontNum}`;
   ctx.strokeStyle = ctx.fillStyle = C.ink; ctx.lineWidth = 1.5;
   ctx.beginPath(); ctx.moveTo(x0, y0 - 4); ctx.lineTo(x0, y0); ctx.lineTo(x0 + L, y0); ctx.lineTo(x0 + L, y0 - 4); ctx.stroke();

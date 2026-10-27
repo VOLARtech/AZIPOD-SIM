@@ -41,13 +41,31 @@ export interface ShipSpec {
   powerAvail: number;         // electrical power available for propulsion + thrusters [W]
   bridgeX: number;            // GNSS antenna / conning position, x rel. CG [m]
   ramK: number;               // propeller cross-flow momentum recovery (calibrated on 277 m stopping tests)
+  id: string;
+  vmaxKn: number;             // steady speed at 100 % rpm, deep water (from trials)
+  LOA: number;                // length overall [m] (L is between perpendiculars)
+  look: ShipLook;             // 3D appearance
+  note?: string;              // provenance shown in the app
+}
+
+/** What the 3D view needs to draw the ship (heights above the waterline, x rel. CG). */
+export interface ShipLook {
+  freeboard: number;          // main/mooring deck height above WL
+  decks: { x0: number; x1: number; h: number; inset: number }[]; // superstructure tiers, top height
+  bridgeH: number;            // bridge deck height above WL (eye = +1.7)
+  bridgeLen: number;          // fore-aft depth of the bridge block
+  wingOut: number;            // how far the wings reach past the hull side
+  funnel: { x: number; h: number; w: number; l: number };
+  hull: string; topsides: string; super: string; glass: string; accent: string;
 }
 
 // Fictional 130 m twin-Azipod expedition/ro-pax vessel.
 // Azipod figures follow published practice: 7.5°/s azimuth, 60 s full reversal,
 // astern rpm ≈ 150/180 of ahead, reversal blocked above ≈ 50/180 rpm (IMPA/TransNav).
-export const SHIP: ShipSpec = {
+export const BECANCOUR: ShipSpec = {
+  id: 'becancour', LOA: 135, vmaxKn: 16.6,
   name: 'MV Bécancour',
+  note: 'Fictional 130 m expedition / ro-pax ship.',
   L: 130, B: 21, T: 5.5, Cb: 0.62, xg: -1.5,
   pods: [
     { label: 'PORT', x: -56, y: -5.2, Tb: 400e3, asternFrac: 0.75, strutArea: 16, D: 3.8, P: 3.4e6, slewMul: 1, thrustMul: 1, alphaOffset: 0 },
@@ -64,7 +82,56 @@ export const SHIP: ShipSpec = {
   powerAvail: 7.6e6,
   bridgeX: 30,
   ramK: 0.85,
+  look: {
+    freeboard: 6.5, bridgeH: 18, bridgeLen: 8, wingOut: 1.2,
+    decks: [{ x0: -48, x1: 30, h: 12, inset: 0.5 }, { x0: -38, x1: 30, h: 15.5, inset: 1 }, { x0: -20, x1: 34, h: 18, inset: 1.5 }],
+    funnel: { x: -30, h: 25, w: 6, l: 9 },
+    hull: '#1f2a33', topsides: '#e9ecee', super: '#f4f5f6', glass: '#2b3b48', accent: '#c9541a',
+  },
 };
+
+/**
+ * Lady-class 278 m cruise ship, modelled on the published particulars of Valiant Lady
+ * (Fincantieri 2021): 278 m LOA, 38 m beam, 8.05 m draught, 110,000 GT, 2 × 16 MW ABB Azipod XO,
+ * 4 Wärtsilä 46F gensets totalling 48 MW, 20 kn service / 22 kn max.
+ * Not published, so assumed: Lpp, Cb, bow thrusters (3 × 3 MW), windage, slew rate, pod geometry.
+ */
+export const LADY: ShipSpec = {
+  id: 'lady', LOA: 278, vmaxKn: 22.4,
+  name: 'Lady-class 278 m',
+  note: 'Modelled on Valiant Lady\'s published particulars (278 m, 38 m beam, 8.05 m draught, 2 × 16 MW Azipods). Bow thrusters, hull form and windage are estimates; this is not the real ship\'s manoeuvring data.',
+  L: 250, B: 38, T: 8.05, Cb: 0.68, xg: -4,
+  pods: [
+    { label: 'PORT', x: -113, y: -9.5, Tb: 1.9e6, asternFrac: 0.75, strutArea: 55, D: 6.0, P: 16e6, slewMul: 1, thrustMul: 1, alphaOffset: 0 },
+    { label: 'STBD', x: -113, y: 9.5, Tb: 1.9e6, asternFrac: 0.75, strutArea: 55, D: 6.0, P: 16e6, slewMul: 1.04, thrustMul: 0.98, alphaOffset: 0.4 * DEG },
+  ],
+  bowThruster: { x: 112, Tmax: 3 * 330e3, P: 3 * 3e6 },
+  windage: { AF: 1650, AL: 10200, cx: 0.7, cy: 0.9, cn: 0.1, xw: 4 },
+  wake: 0.1, tded: 0.1, Vzero: 20, Cd: 0.72, formFactor: 1.2,
+  podSlew: 6 * DEG,
+  podRpmTime: 30,
+  asternMax: 0.83,
+  revInterlock: 0.28,
+  btRpmTime: 10,
+  powerAvail: 38e6,
+  bridgeX: 98,
+  ramK: 0.85,
+  look: {
+    freeboard: 11, bridgeH: 36, bridgeLen: 10, wingOut: 1.5,
+    decks: [
+      // stepped forward face: tiers ahead of the wheelhouse stay well below the eye (36 m)
+      { x0: -132, x1: 116, h: 20, inset: 0.2 }, { x0: -126, x1: 104, h: 27, inset: 0.6 }, { x0: -118, x1: 97, h: 33, inset: 1 },
+      { x0: -112, x1: 92, h: 44, inset: 1.2 }, { x0: -90, x1: 86, h: 50, inset: 2.5 }, { x0: -40, x1: 60, h: 56, inset: 5 },
+    ],
+    funnel: { x: -70, h: 66, w: 10, l: 20 },
+    hull: '#232c34', topsides: '#eef0f1', super: '#f6f7f8', glass: '#28394a', accent: '#b8202f',
+  },
+};
+
+export const SHIPS: Record<string, ShipSpec> = { becancour: BECANCOUR, lady: LADY };
+/** The ship in use. A live binding: importers see the new ship after setShip(). */
+export let SHIP: ShipSpec = BECANCOUR;
+export function setShip(id: string) { SHIP = SHIPS[id] ?? BECANCOUR; return SHIP; }
 
 export interface Hydro {
   m: number; Iz: number; xg: number;

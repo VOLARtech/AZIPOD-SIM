@@ -17,6 +17,10 @@
 <body>
 <div id="app">
   <canvas id="map" aria-label="Harbour chart with own ship and predictions"></canvas>
+  <section id="v3d" hidden aria-label="Out-of-the-window 3D view">
+    <canvas id="c3d"></canvas>
+    <span class="v3d-tag" id="v3d-tag"></span>
+  </section>
 
   <header class="hud" id="hud" role="button" tabindex="0" aria-expanded="false" aria-label="Conning readouts, tap for wind, current, depth and power">
     <div class="hud-row primary">
@@ -46,6 +50,8 @@
     <button id="b-speed" class="mb">1×</button>
     <button id="b-pred" class="mb on">PRED</button>
     <button id="b-view" class="mb">N-UP</button>
+    <button id="b-3d" class="mb" aria-label="Chart, split or 3D view">2D</button>
+    <button id="b-cam" class="mb" hidden aria-label="3D camera: bridge, port wing, starboard wing, chase">BRIDGE</button>
     <button id="b-follow" class="mb on" aria-pressed="true">FOLLOW</button>
     <button id="b-lines" class="mb" hidden>LINES</button>
     <button id="b-tugs" class="mb" hidden>TUGS</button>
@@ -60,7 +66,7 @@
     <p class="hint">Lines go ashore when the fairlead is within 60 m of a bollard. HEAVE stalls at 16 t, the brake renders above 61 t, lines part at 100 t.</p>
   </section>
   <section class="panel" id="p-tugs" hidden aria-label="Tugs">
-    <div class="panel-head"><span class="tag">TUGS · 40 t BOLLARD PULL</span><button class="x" data-close="p-tugs" aria-label="Close">×</button></div>
+    <div class="panel-head"><span class="tag" id="tug-head">TUGS</span><button class="x" data-close="p-tugs" aria-label="Close">×</button></div>
     <div id="tugs"></div>
     <p class="hint">About 20 s to change power, 60 s to swap between pushing and pulling. Tugs lose their grip above about 6 kn.</p>
   </section>
@@ -159,7 +165,7 @@
       <div class="keys">
         <p><b>Levers.</b> TWIN drives both pods from either dial. INDEP gives each pod its own lever; with one pod fore-and-aft and the other athwartships, the control system holds the athwartships pod to 70 %. JOY replaces the levers with a joystick for harbour speeds below about 5 kn (left pad: surge and sway; slider: yaw, both spring back to centre) and enables heading and position hold. At neutral stick the pods pull inward against each other so small orders change thrust rather than swing the pods.</p>
         <p><b>Pods.</b> A dial points the way the pod pulls the stern; distance from centre is rpm. Azimuth turns at 7.5°/s and full ahead to full astern takes 60 s. REV reverses the propeller, but the system ignores a reverse order above 28 % rpm, so take the rpm off first or swing the pod instead. Pods and bow thruster share 7.6 MW. Double-tap a dial to stop that pod.</p>
-        <p><b>Keys.</b> Port pod <kbd>A</kbd><kbd>D</kbd> azimuth, <kbd>W</kbd><kbd>S</kbd> rpm · stbd pod <kbd>J</kbd><kbd>L</kbd>, <kbd>I</kbd><kbd>K</kbd> · bow thruster or yaw <kbd>Q</kbd><kbd>E</kbd> · joystick <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> · <kbd>M</kbd> lever mode · <kbd>X</kbd> zero · <kbd>Space</kbd> pause · <kbd>[</kbd><kbd>]</kbd> time · <kbd>P</kbd> predictor · <kbd>H</kbd> head-up · <kbd>F</kbd> follow</p>
+        <p><b>Keys.</b> Port pod <kbd>A</kbd><kbd>D</kbd> azimuth, <kbd>W</kbd><kbd>S</kbd> rpm · stbd pod <kbd>J</kbd><kbd>L</kbd>, <kbd>I</kbd><kbd>K</kbd> · bow thruster or yaw <kbd>Q</kbd><kbd>E</kbd> · joystick <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> · <kbd>M</kbd> lever mode · <kbd>X</kbd> zero · <kbd>Space</kbd> pause · <kbd>[</kbd><kbd>]</kbd> time · <kbd>P</kbd> predictor · <kbd>H</kbd> head-up · <kbd>F</kbd> follow · <kbd>V</kbd> chart / split / 3D · <kbd>C</kbd> 3D camera</p>
       </div>
       </details>
       <details class="sec"><summary><h2>Install &amp; offline</h2></summary>

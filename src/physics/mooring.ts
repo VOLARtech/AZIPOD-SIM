@@ -117,10 +117,10 @@ export interface Tug {
   repos: number;             // seconds left repositioning (push ↔ pull)
   Fmax: number;              // bollard pull [N]
 }
-export function makeTugs(L: number, xg: number, side: -1 | 1): Tug[] {
+export function makeTugs(L: number, xg: number, side: -1 | 1, Fmax = 400e3): Tug[] {
   return [
-    { name: 'TUG FWD', x: L * 0.36 - xg, side, order: 0, F: 0, repos: 0, Fmax: 400e3 },
-    { name: 'TUG AFT', x: -L * 0.36 - xg, side, order: 0, F: 0, repos: 0, Fmax: 400e3 },
+    { name: 'TUG FWD', x: L * 0.36 - xg, side, order: 0, F: 0, repos: 0, Fmax },
+    { name: 'TUG AFT', x: -L * 0.36 - xg, side, order: 0, F: 0, repos: 0, Fmax },
   ];
 }
 /** Tug response: ~20 s to change power, ~60 s to switch between pushing and pulling. */

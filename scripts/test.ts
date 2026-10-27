@@ -7,9 +7,9 @@ import { Runtime } from '../src/physics/runtime';
 import { SCENARIOS, currentField, depthAt } from '../src/scenarios';
 import type { Scenario } from '../src/scenarios';
 const OPEN = { obstacles: [], fenders: [], bollards: [], depthAt: () => Infinity };
-const harbourOf = (sc: Scenario) => ({ obstacles: sc.obstacles, fenders: sc.fenders, bollards: sc.bollards, depthAt: depthAt(sc), mooringSide: sc.mooringSide, tugSide: sc.tugSide });
+const harbourOf = (sc: Scenario) => ({ obstacles: sc.obstacles, fenders: sc.fenders, bollards: sc.bollards, depthAt: depthAt(sc), mooringSide: sc.mooringSide, tugSide: sc.tugSide, tugBP: sc.tugBP });
 
-setHull(buildHull(SHIP.L, SHIP.B, SHIP.xg));
+setHull(buildHull(SHIP.L, SHIP.B, SHIP.xg, SHIP.LOA));
 const calm: Env = { windSpeed: 0, windFrom: 0, gusts: false, current: () => [0, 0], depth: Infinity };
 const model = new Model(SHIP, Infinity);
 const still = { V: 0, from: 0 };
@@ -202,7 +202,7 @@ import { runValidation } from '../src/physics/validation';
 test('ideal predictor matches the ship it predicts (60 s, calm, < 1 m)', () => {
   const st = makeState(SHIP, 0, 0, 0, 8); st.pods.forEach(p => (p.rpm = 0.5));
   const cmd = { pods: [{ alpha: -20 * DEG, rpm: 0.5 }, { alpha: -20 * DEG, rpm: 0.5 }], bt: 0 };
-  const [tr] = runPrediction(SHIP, { id: 1, onboard: false, state: st, cmd, wind: { V: 0, from: 0 }, current: [0, 0], scenarioId: 'trials', curKn: 0, curSet: 0, depth: Infinity, lines: [], ext: { X: 0, Y: 0, N: 0 }, horizon: 60, alts: ['current'] }, scenarioWorld('trials'));
+  const [tr] = runPrediction(SHIP, { id: 1, shipId: 'becancour', onboard: false, state: st, cmd, wind: { V: 0, from: 0 }, current: [0, 0], scenarioId: 'trials', curKn: 0, curSet: 0, depth: Infinity, lines: [], ext: { X: 0, Y: 0, N: 0 }, horizon: 60, alts: ['current'] }, scenarioWorld('trials'));
   const rt = new Runtime(SHIP, makeState(SHIP, 0, 0, 0, 8), cmd, calm, OPEN);
   rt.state.pods.forEach(p => (p.rpm = 0.5)); rt.sensors.mode = 'ideal';
   for (let i = 0; i < 1200; i++) rt.step();
@@ -214,6 +214,40 @@ test('277 m validation: reversal methods within 15 %, pod swing within 30 % of m
   const v = runValidation(), by = Object.fromEntries(v.rows.map(r => [r.key, r]));
   for (const k of ['reverse', 'indirect']) assert.ok(Math.abs(by[k].err) < 0.15, `${k} ${(by[k].err * 100).toFixed(0)} %`);
   assert.ok(Math.abs(by.swing180.err) < 0.3, `swing ${(by.swing180.err * 100).toFixed(0)} %`);
+});
+
+console.log('lady-class + amsterdam');
+import { LADY, setShip, SHIP as ACTIVE } from '../src/physics/ship';
+import { runTrials as trialsOf } from '../src/physics/trials';
+import { contactForces } from '../src/physics/contact';
+test('Lady-class: 100 % rpm gives 20–23 kn (published 20 kn service, 22 kn max)', () => {
+  const { Vs } = trialsOf(LADY, Infinity);
+  assert.ok(Vs / KN > 20 && Vs / KN < 23, `${(Vs / KN).toFixed(1)} kn`);
+});
+test('Amsterdam PTA: ship at the berth mark touches nothing; start position is clear and afloat', () => {
+  setShip('lady'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+  const ams = SCENARIOS.find(s => s.id === 'amsterdam-pta')!;
+  const ci = { active: false, points: [], fenders: [] } as Parameters<typeof contactForces>[3] & object;
+  const b = ams.berth!;
+  contactForces(makeState(ACTIVE, b.n, b.e, b.psi, 0), ams.obstacles, ams.fenders, ci);
+  assert.ok(!ci.active, 'berth pose in contact');
+  contactForces(makeState(ACTIVE, ams.start.n, ams.start.e, ams.start.psi, 0), ams.obstacles, ams.fenders, ci);
+  assert.ok(!ci.active, 'start pose in contact');
+  assert.ok(depthAt(ams)(ams.start.n, ams.start.e) - ACTIVE.T > 2, 'start UKC');
+});
+test('Amsterdam PTA: 0.10 m/s parallel landing stays on the fenders, below rated deflection', () => {
+  const ams = SCENARIOS.find(s => s.id === 'amsterdam-pta')!;
+  const b = ams.berth!, c = Math.cos(b.psi * DEG), sn = Math.sin(b.psi * DEG);
+  // 1.5 m off the berth mark, toward the north bank (port side), drifting to starboard
+  const st = makeState(ACTIVE, b.n - 1.5 * -sn * -1 + 1.5 * (-sn) * 0, b.e, b.psi, 0);
+  st.n = b.n + 1.5 * (-sn) * -1 * 0 + 1.5 * Math.cos(b.psi * DEG - Math.PI / 2); st.e = b.e + 1.5 * Math.sin(b.psi * DEG - Math.PI / 2);
+  st.v = 0.10; void c;
+  const rt = new Runtime(ACTIVE, st, { pods: [{ alpha: 0, rpm: 0 }, { alpha: 0, rpm: 0 }], bt: 0 },
+    { ...calm, current: currentField(ams, 0, 0), depth: 10.5 }, harbourOf(ams));
+  for (let i = 0; i < 1600; i++) rt.step();
+  const ev = rt.contactLog[rt.contactLog.length - 1];
+  setShip('becancour'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+  assert.ok(ev && !ev.hard && ev.maxDefl < 1, ev ? `hard ${ev.hard} defl ${(ev.maxDefl * 100).toFixed(0)} %` : 'no contact');
 });
 
 console.log(`\n${pass} passed${process.exitCode ? ', some failed' : ''}`);

@@ -14,6 +14,7 @@ export const ALT_LABEL: Record<Alt, string> = {
 
 export interface PredictJob {
   id: number;
+  shipId: string;
   onboard: boolean;
   state: ShipState; cmd: Command;
   wind: { V: number; from: number };

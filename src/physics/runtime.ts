@@ -22,7 +22,7 @@ export type LeverMode = 'twin' | 'indep' | 'joy';
 
 export interface HarbourSetup {
   obstacles: Obstacle[]; fenders: Fender[]; bollards: Pt[]; depthAt: DepthField;
-  mooringSide?: -1 | 1; tugSide?: -1 | 1; confined?: number;
+  mooringSide?: -1 | 1; tugSide?: -1 | 1; tugBP?: number; confined?: number;
 }
 
 export class Runtime {
@@ -54,7 +54,7 @@ export class Runtime {
     this.status = emptyStatus(spec.pods.length);
     this.sensors = new Sensors(spec);
     if (harbour.mooringSide) this.lines = makeLines(spec.L, spec.B, spec.xg, harbour.mooringSide);
-    if (harbour.tugSide) this.tugs = makeTugs(spec.L, spec.xg, harbour.tugSide);
+    if (harbour.tugSide) this.tugs = makeTugs(spec.L, spec.xg, harbour.tugSide, harbour.tugBP);
     this.world = {
       obstacles: harbour.obstacles, fenders: harbour.fenders, lines: this.lines, bollards: harbour.bollards,
       lineT: this.lines.map(() => 0), ext: { X: 0, Y: 0, N: 0 }, depthAt: harbour.depthAt, squat: 0, aground: 0,

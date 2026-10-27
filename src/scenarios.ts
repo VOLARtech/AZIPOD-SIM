@@ -4,6 +4,8 @@ import { fenderReaction } from './physics/contact';
 import type { CurrentField } from './physics/sim';
 import { Shoal, depthField, DepthField } from './physics/harbour';
 import { bboxOf } from './physics/contact';
+import { AMSTERDAM, Building } from './scenes/amsterdam';
+export type { Building };
 
 export interface Scenario {
   id: string; name: string; brief: string;
@@ -20,6 +22,10 @@ export interface Scenario {
   tugSide?: -1 | 1;                               // tugs available, working on this side
   shelter?: (n: number, e: number) => number;     // current reduction factor 0..1
   zoom: number;
+  ship?: string;                                  // ship id (default: MV Bécancour)
+  tugBP?: number;                                 // tug bollard pull [N]
+  buildings?: Building[];                         // 3D-only scenery
+  landHeight?: number;                            // quay / bank height above water for 3D
 }
 
 // Hull-on-structure: stiff while loading, little stored energy returned (plating crush) → e ≈ 0.2
@@ -44,6 +50,7 @@ export function currentField(sc: Scenario, kn: number, setDeg: number): CurrentF
 }
 
 export const SCENARIOS: Scenario[] = [
+  AMSTERDAM,
   {
     id: 'quai27', name: 'Quai 27 · port side to',
     brief: 'Land port side to on the fenders with the CG on the berth mark, then put out head, stern and springs. Offshore wind, ebb setting west, weaker water inside the pier. 9 m alongside; silt off the pier head carries 6.2 m. Two tugs on call on the starboard side.',

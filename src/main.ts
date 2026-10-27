@@ -7,8 +7,9 @@ import '@fontsource/ibm-plex-mono/latin-400.css';
 import '@fontsource/ibm-plex-mono/latin-500.css';
 import '@fontsource/ibm-plex-mono/latin-500-italic.css';
 import './style.css';
-import { initApp, persist } from './app';
-import { DEG, KN, SHIP } from './physics/ship';
+import { initApp, persist, toast } from './app';
+import type { View3D } from './view3d/view';
+import { DEG, KN, SHIP, setShip } from './physics/ship';
 import { buildHull, setHull } from './physics/contact';
 import { makeState, wrap } from './physics/sim';
 import { DT, LeverMode, Runtime } from './physics/runtime';
@@ -21,7 +22,7 @@ import { renderModel, renderPoster, renderTrials, renderValidation, drawPosterPl
 import PredictWorker from './predict.worker?worker&inline';
 import TrialsWorker from './trials.worker?worker&inline';
 
-setHull(buildHull(SHIP.L, SHIP.B, SHIP.xg));
+setHull(buildHull(SHIP.L, SHIP.B, SHIP.xg, SHIP.LOA));
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const pad3 = (x: number) => String(Math.round(((x % 360) + 360) % 360)).padStart(3, '0');
 const sgn = (x: number, d = 0) => (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(d);
@@ -38,15 +39,20 @@ function applyEnv() {
 
 function loadScenario(sc: Scenario) {
   S.sc = sc;
+  const shipChanged = setShip(sc.ship ?? 'becancour') !== S.rt?.spec;
+  if (shipChanged) {
+    setHull(buildHull(SHIP.L, SHIP.B, SHIP.xg, SHIP.LOA));
+    sheetStarted = false;                 // pilot card, trials: recompute for this ship
+  }
   const st = makeState(SHIP, sc.start.n, sc.start.e, sc.start.psi, sc.start.kn);
-  const rpm0 = Math.min(1, sc.start.kn / 16.6);
+  const rpm0 = Math.min(1, sc.start.kn / SHIP.vmaxKn);
   st.pods.forEach(p => (p.rpm = rpm0));
   S.cmd = { pods: SHIP.pods.map(() => ({ alpha: 0, rpm: rpm0 })), bt: 0, mode: 'twin' };
   S.rev = [false, false];
   Object.assign(S.env, { windKn: sc.windKn, windFrom: sc.windFrom, curKn: sc.currentKn, curSet: sc.currentSet, gusts: sc.gusts });
   S.rt = new Runtime(SHIP, st, S.cmd,
     { windSpeed: 0, windFrom: 0, gusts: false, current: () => [0, 0], depth: sc.depth },
-    { obstacles: sc.obstacles, fenders: sc.fenders, bollards: sc.bollards, depthAt: depthAt(sc), mooringSide: sc.mooringSide, tugSide: sc.tugSide });
+    { obstacles: sc.obstacles, fenders: sc.fenders, bollards: sc.bollards, depthAt: depthAt(sc), mooringSide: sc.mooringSide, tugSide: sc.tugSide, tugBP: sc.tugBP });
   S.rt.sensors.mode = S.sensMode;
   applyEnv();
   S.rt.sensors.reset();
@@ -60,8 +66,94 @@ function loadScenario(sc: Scenario) {
   setLever('twin');
   buildLines(); buildTugs();
   D.initParticles();
+  if (shipChanged) renderModel(S.rt.model.h);
+  onScenarioLoaded();
   renderScenarioList();
   syncButtons();
+}
+
+let sheetStarted = false;
+let onScenarioLoaded = () => { v3?.build(); };
+
+// ---------------------------------------------------------------- 3D view (lazy)
+let v3: View3D | null = null, v3Loading = false;
+(globalThis as unknown as { __azb: unknown }).__azb = { S, D, get v3() { return v3; } };   // console / test handle
+const CAMS: [typeof S.disp.cam, string][] = [['bridge', 'BRIDGE'], ['port', 'PORT WING'], ['stbd', 'STBD WING'], ['chase', 'CHASE']];
+function timeOfDay(): 'day' | 'dusk' | 'night' {
+  const p = S.disp.palette;
+  if (p !== 'auto') return p;
+  const t = document.documentElement.getAttribute('data-theme');
+  if (t) return t === 'dark' ? 'night' : 'day';
+  return matchMedia('(prefers-color-scheme: dark)').matches ? 'night' : 'day';
+}
+function layout3d() {
+  const pane = $('v3d'), mode = S.disp.view;
+  pane.hidden = mode === '2d';
+  $('map').style.visibility = mode === '3d' ? 'hidden' : '';
+  D.LAY.split = null;
+  pane.className = '';
+  if (mode === '2d') return;
+  const bot = D.LAY.overlayTray ? innerHeight : D.LAY.trayTop;
+  const portrait = innerHeight > innerWidth * 1.05;
+  let x = 0, y = 0, w = innerWidth, h = Math.round(bot);
+  if (mode === 'split' && portrait) {
+    y = D.LAY.chipsBottom + 4; h = Math.round((bot - y) * 0.52);
+    D.LAY.split = 'top'; D.LAY.splitAt = y + h; pane.className = 'split-top';
+  } else if (mode === 'split') {
+    y = D.LAY.hudBottom; h = bot - y; w = Math.round(innerWidth * 0.5);
+    D.LAY.split = 'left'; D.LAY.splitAt = w; pane.className = 'split-left';
+  }
+  Object.assign(pane.style, { left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px` });
+  v3?.resize(w, h);
+}
+$('b-cam').onclick = () => {
+  const i = CAMS.findIndex(c => c[0] === S.disp.cam);
+  S.disp.cam = CAMS[(i + 1) % CAMS.length][0];
+  if (v3) v3.cam = S.disp.cam;
+  syncButtons();
+};
+async function ensure3d() {
+  if (v3 || v3Loading) return;
+  v3Loading = true; $('v3d-tag').textContent = 'LOADING 3D…';
+  try {
+    const m = await import('./view3d/view');
+    const v = await m.createView($<HTMLCanvasElement>('c3d'));
+    v.cam = S.disp.cam;
+    v3 = v; v.build(); layout3d();
+    $('v3d-tag').textContent = v.backend;
+  } catch (err) {
+    console.error(err);
+    S.disp.view = '2d'; layout3d(); syncButtons();
+    toast(`3D view could not start on this device (${(err as Error).message || err}). Staying on the chart.`);
+  } finally { v3Loading = false; }
+}
+function set3d(mode: typeof S.disp.view) {
+  S.disp.view = mode;
+  if (mode !== '2d') ensure3d();
+  layout3d(); syncButtons();
+  requestAnimationFrame(() => { D.refreshLayout(); layout3d(); placePanels(); });
+}
+// look around: drag; zoom (binoculars) with wheel or pinch
+{
+  const c = $('c3d'), pts = new Map<number, [number, number]>();
+  let pinch0 = 0;
+  c.addEventListener('pointerdown', e => { c.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]); pinch0 = 0; });
+  c.addEventListener('pointermove', e => {
+    const p = pts.get(e.pointerId); if (!p || !v3) return;
+    if (pts.size === 2) {
+      const [a, b] = [...pts.values()], d0 = Math.hypot(a[0] - b[0], a[1] - b[1]);
+      pts.set(e.pointerId, [e.clientX, e.clientY]);
+      const [a2, b2] = [...pts.values()], d1 = Math.hypot(a2[0] - b2[0], a2[1] - b2[1]);
+      if (pinch0 && d0 > 0) v3.zoomBy(d1 / d0);
+      pinch0 = d1; return;
+    }
+    v3.drag(e.clientX - p[0], e.clientY - p[1], c.clientHeight);
+    pts.set(e.pointerId, [e.clientX, e.clientY]);
+  });
+  const up = (e: PointerEvent) => { pts.delete(e.pointerId); pinch0 = 0; };
+  c.addEventListener('pointerup', up); c.addEventListener('pointercancel', up);
+  c.addEventListener('wheel', e => { e.preventDefault(); v3?.zoomBy(Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
+  c.addEventListener('dblclick', () => v3?.resetLook());
 }
 
 // ---------------------------------------------------------------- predictor worker
@@ -79,7 +171,7 @@ function requestPrediction(now: number) {
   const base = onboard ? { ...rt.state, ...r.est } : rt.state;
   const alts: Alt[] = ['current', ...(S.pred.mode === 2 ? [...S.pred.alts] : [])];
   const job: PredictJob = {
-    id: ++S.pred.jobId, onboard,
+    id: ++S.pred.jobId, shipId: SHIP.id, onboard,
     state: { ...base, pods: rt.state.pods.map(p => ({ ...p })) },
     cmd: { pods: rt.cmd.pods.map(p => ({ ...p })), bt: rt.cmd.bt, mode: rt.cmd.mode },
     wind: onboard ? { V: r.windTrueSpeed, from: r.windTrueFrom } : { V: rt.env.windSpeed, from: rt.env.windFrom },
@@ -390,6 +482,7 @@ function updateLinesPanel() {
 }
 function buildTugs() {
   const box = $('tugs');
+  $('tug-head').textContent = `TUGS · ${Math.round((S.rt.tugs[0]?.Fmax ?? 0) / 9.81e3)} t BOLLARD PULL`;
   box.innerHTML = S.rt.tugs.map((t, i) => `
     <div class="tugrow"><span class="tag">${t.name}</span>
       <input type="range" id="tg-${i}" min="-100" max="100" step="25" value="0" aria-label="${t.name} order: pull to push" />
@@ -443,6 +536,10 @@ function syncButtons() {
   $('b-pred').textContent = ['PRED OFF', 'PRED', 'PRED+IF'][S.pred.mode];
   tog('b-pred', S.pred.mode > 0); tog('b-follow', S.view.follow);
   $('b-view').textContent = S.view.headUp ? 'HEAD-UP' : 'N-UP';
+  $('b-3d').textContent = ({ '2d': '2D', split: 'SPLIT', '3d': '3D' })[S.disp.view];
+  $('b-3d').classList.toggle('on', S.disp.view !== '2d');
+  $('b-cam').hidden = S.disp.view === '2d';
+  $('b-cam').textContent = CAMS.find(c => c[0] === S.disp.cam)![1];
   $('b-pause').textContent = S.paused ? 'RUN' : 'PAUSE';
   $('b-speed').textContent = SPEEDS[S.speedIdx] + '×';
   $('b-hdg').setAttribute('aria-pressed', String(S.rt?.dp.hdgHold ?? false));
@@ -451,6 +548,7 @@ function syncButtons() {
 $('b-pred').onclick = () => { S.pred.mode = ((S.pred.mode + 1) % 3) as 0 | 1 | 2; S.pred.tracks = []; syncButtons(); };
 $('b-follow').onclick = () => { S.view.follow = !S.view.follow; syncButtons(); };
 $('b-view').onclick = () => { S.view.headUp = !S.view.headUp; syncButtons(); };
+$('b-3d').onclick = () => set3d(({ '2d': 'split', split: '3d', '3d': '2d' } as const)[S.disp.view]);
 $('b-zin').onclick = () => zoomTo(S.view.scale * 1.4);
 $('b-zout').onclick = () => zoomTo(S.view.scale / 1.4);
 $('b-pause').onclick = () => { S.paused = !S.paused; syncButtons(); };
@@ -482,6 +580,8 @@ addEventListener('keydown', e => {
   if (k === 'm') $('b-mode').click();
   if (k === 'p') $('b-pred').click();
   if (k === 'h') $('b-view').click();
+  if (k === 'v') $('b-3d').click();
+  if (k === 'c') $('b-cam').click();
   if (k === 'f') $('b-follow').click();
   if (k === '[') { S.speedIdx = Math.max(0, S.speedIdx - 1); syncButtons(); }
   if (k === ']') { S.speedIdx = Math.min(SPEEDS.length - 1, S.speedIdx + 1); syncButtons(); }
@@ -579,7 +679,7 @@ function syncEnvUI() {
   $('o-vec').textContent = `${S.disp.vecMin} min`;
 }
 
-let sheetStarted = false;
+
 function startSheetWork() {
   if (sheetStarted) return;
   sheetStarted = true;
@@ -592,7 +692,7 @@ function startSheetWork() {
     if (d.kind === 'validation') renderValidation(d.v);
     if (++got === 3) w.terminate();
   };
-  w.postMessage({});
+  w.postMessage({ shipId: SHIP.id });
 }
 
 // ---------------------------------------------------------------- loop
@@ -620,18 +720,21 @@ function frame(now: number) {
   S.view.rot += wrap((S.view.headUp ? est.psi : 0) - S.view.rot) * Math.min(1, dtReal * 6);
   D.updateQuayLines(S.paused ? 0 : dtReal * SPEEDS[S.speedIdx]);
 
-  D.setWorld();
-  D.drawChart();
-  D.drawParticles(dtReal);
-  D.drawStructures();
-  D.drawTrail();
-  D.drawPredictions();
-  D.drawStaticArc();
-  D.drawQuayLines();
-  D.drawLines();
-  D.drawTugs();
-  D.drawShip();
-  D.drawOverlay();
+  if (S.disp.view !== '3d') {
+    D.setWorld();
+    D.drawChart();
+    D.drawParticles(dtReal);
+    D.drawStructures();
+    D.drawTrail();
+    D.drawPredictions();
+    D.drawStaticArc();
+    D.drawQuayLines();
+    D.drawLines();
+    D.drawTugs();
+    D.drawShip();
+    D.drawOverlay();
+  }
+  if (v3 && S.disp.view !== '2d') { v3.setTime(timeOfDay()); v3.render(); }
   for (const d of dials) d.draw();
   slowT -= dtReal;
   if (slowT <= 0) { slowT = 0.1; updateHud(); updateLinesPanel(); updateTugsPanel(); }
@@ -653,8 +756,8 @@ async function syncWakeLock() {
 }
 setInterval(syncWakeLock, 2000);
 
-function resize() { D.resizeCanvas(); for (const d of dials) d.resize(); D.refreshLayout(); placePanels(); }
-const ro = new ResizeObserver(() => { D.refreshLayout(); placePanels(); for (const d of dials) d.resize(); });
+function resize() { D.resizeCanvas(); for (const d of dials) d.resize(); D.refreshLayout(); layout3d(); placePanels(); }
+const ro = new ResizeObserver(() => { D.refreshLayout(); layout3d(); placePanels(); for (const d of dials) d.resize(); });
 for (const el of [$('hud'), document.querySelector('.tray')!, document.querySelector('.mapbtns')!]) ro.observe(el);
 // no long-press menus or text selection on the controls
 $('app').addEventListener('contextmenu', e => { if (!(e.target as HTMLElement).closest('.sheet')) e.preventDefault(); });
@@ -682,5 +785,6 @@ uiSyncs.forEach(f => f());
 renderModel(S.rt.model.h);
 syncEnvUI();
 requestAnimationFrame(t => { last = t; frame(t); });
+if (S.disp.view !== '2d') set3d(S.disp.view);
 syncWakeLock();
 initApp(() => { last = performance.now(); });

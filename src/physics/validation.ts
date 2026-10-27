@@ -2,11 +2,11 @@
 // (TransNav). 277.5 m × 43.2 m × 12.0 m, Cb 0.79, two pulling Azipods, approach ≈12 kn
 // (≈65 % of service speed), slew 7.5°/s, 60 s propeller reversal, deep calm water.
 // Track reach Sd/L reported for six stopping methods.
-import { DEG, KN, ShipSpec, SHIP } from './ship';
+import { DEG, KN, ShipSpec, BECANCOUR } from './ship';
 import { Command, Env, Model, ShipState, cloneState, makeState, rk4, updateActuators } from './sim';
 
 export const VAL277: ShipSpec = {
-  ...SHIP,
+  ...BECANCOUR, id: 'val277', LOA: 290, vmaxKn: 18.3,
   name: 'Validation hull 277 m',
   L: 277.5, B: 43.2, T: 12.0, Cb: 0.79, xg: 3,
   pods: [
