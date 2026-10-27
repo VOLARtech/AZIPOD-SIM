@@ -25,7 +25,6 @@ export const S = {
   disp: { vecMin: 1, unit: 'ms' as Unit, palette: 'auto' as Palette, truth: false, detail: 'clean' as 'clean' | 'full', view: '2d' as '2d' | 'split' | '3d', cam: 'bridge' as 'bridge' | 'port' | 'stbd' | 'chase' },
   sensMode: 'real' as SensorMode,
   speedIdx: 0, paused: false,
-  rev: [false, false],
   quay: [{ d: Infinity, rate: 0, n: 0, e: 0, pn: 0, pe: 0 }, { d: Infinity, rate: 0, n: 0, e: 0, pn: 0, pe: 0 }],
 };
 export const full = () => S.disp.detail === 'full';

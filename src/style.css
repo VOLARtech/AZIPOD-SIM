@@ -385,3 +385,13 @@ details.sec[open] { display: flex; flex-direction: column; gap: 10px; padding-bo
 #v3d.split-left { border-right: 1px solid var(--rule); }
 #c3d { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
 .v3d-tag { position: absolute; right: 8px; bottom: 6px; font: 500 10px var(--font-num); letter-spacing: 0.06em; color: rgba(255, 255, 255, 0.55); pointer-events: none; }
+
+/* ---------- v3.1: azimuth dial + separate RPM lever per pod ---------- */
+.tray { --dialS: clamp(88px, 24vw, 140px); --leverW: clamp(30px, 8vw, 40px); }
+.podrow { display: flex; align-items: center; gap: 4px; }
+.pod { width: auto; }
+.dial { width: var(--dialS); height: var(--dialS); }
+.rpm { width: var(--leverW); height: var(--dialS); flex: none; touch-action: none; cursor: ns-resize; display: block; }
+@media (orientation: landscape) and (max-height: 520px) {
+  .tray { --dialS: clamp(84px, 25vh, 120px); --leverW: clamp(28px, 7vh, 36px); }
+}

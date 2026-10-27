@@ -1,6 +1,6 @@
 {
   "name": "azipod-bridge",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Twin-Azipod ship-handling simulator (PWA)",
   "scripts": {
     "dev": "vite",

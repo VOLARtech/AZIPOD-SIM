@@ -48,7 +48,6 @@ function loadScenario(sc: Scenario) {
   const rpm0 = Math.min(1, sc.start.kn / SHIP.vmaxKn);
   st.pods.forEach(p => (p.rpm = rpm0));
   S.cmd = { pods: SHIP.pods.map(() => ({ alpha: 0, rpm: rpm0 })), bt: 0, mode: 'twin' };
-  S.rev = [false, false];
   Object.assign(S.env, { windKn: sc.windKn, windFrom: sc.windFrom, curKn: sc.currentKn, curSet: sc.currentSet, gusts: sc.gusts });
   S.rt = new Runtime(SHIP, st, S.cmd,
     { windSpeed: 0, windFrom: 0, gusts: false, current: () => [0, 0], depth: sc.depth },
@@ -283,8 +282,7 @@ $('legend').onclick = () => { legendOpen = !legendOpen; updateLegend(); };
 
 // ---------------------------------------------------------------- tray: levers / joystick
 class Dial {
-  c: HTMLCanvasElement; g: CanvasRenderingContext2D; size = 120; lastTap = 0;
-  beforeTap: { alpha: number; rpm: number }[] = [];
+  c: HTMLCanvasElement; g: CanvasRenderingContext2D; size = 120;
   dragging = false;
   constructor(public i: number) {
     this.c = $('dial-' + i) as HTMLCanvasElement;
@@ -292,13 +290,6 @@ class Dial {
     this.c.addEventListener('pointerdown', e => {
       this.c.setPointerCapture(e.pointerId); this.dragging = true;
       if (S.rt.lever === 'joy') { if (this.i === 0) this.joyFrom(e); return; }
-      const now = performance.now();
-      if (now - this.lastTap < 300) {
-        S.cmd.pods.forEach((p, j) => { if (this.beforeTap[j]) Object.assign(p, this.beforeTap[j]); });
-        this.set(S.cmd.pods[this.i].alpha, 0); this.lastTap = 0; return;
-      }
-      this.lastTap = now;
-      this.beforeTap = S.cmd.pods.map(p => ({ ...p }));
       this.fromEvent(e);
     });
     this.c.addEventListener('pointermove', e => {
@@ -320,14 +311,12 @@ class Dial {
     S.rt.joy.x = Math.max(-1, Math.min(1, dx / R * k));
     S.rt.joy.y = Math.max(-1, Math.min(1, -dy / R * k));
   }
+  /** Azimuth only: the dial sets where the pod points; rpm lives on its own lever. */
   fromEvent(e: PointerEvent) {
-    const { dx, dy, R } = this.geom(e), d = Math.hypot(dx, dy);
-    const rpm = d < R * 0.14 ? 0 : Math.min(1, (d - R * 0.14) / (R * 0.86));
-    this.set(d < R * 0.14 ? S.cmd.pods[this.i].alpha : Math.atan2(dx, -dy), rpm);
-  }
-  set(a: number, mag: number) {
-    const targets = S.rt.lever === 'twin' ? [0, 1] : [this.i];
-    for (const j of targets) { S.cmd.pods[j].alpha = wrap(a); S.cmd.pods[j].rpm = S.rev[j] ? -mag : mag; }
+    const { dx, dy, R } = this.geom(e);
+    if (Math.hypot(dx, dy) < R * 0.18) return;          // centre: no direction, ignore
+    const a = wrap(Math.atan2(dx, -dy));
+    for (const j of S.rt.lever === 'twin' ? [0, 1] : [this.i]) S.cmd.pods[j].alpha = a;
   }
   draw() {
     const g = this.g, Sz = this.size, R = Sz / 2 - 14;
@@ -344,15 +333,12 @@ class Dial {
     g.beginPath(); g.moveTo(0, 0); g.lineTo(Math.sin(pull) * ra, -Math.cos(pull) * ra); g.stroke();
     // pod body orientation
     g.save(); g.rotate(ps.alpha); g.fillStyle = col; g.globalAlpha = 0.35; g.fillRect(-3, -R * 0.12, 6, R * 0.24); g.restore(); g.globalAlpha = 1;
-    const c = S.cmd.pods[this.i];
-    const rc = (0.14 + 0.86 * Math.abs(c.rpm)) * R, ca = c.alpha + (c.rpm < 0 ? Math.PI : 0);
-    const hx = Math.sin(ca) * rc, hy = -Math.cos(ca) * rc;
+    // ordered azimuth: handle on the rim (where the pod is told to point)
+    const c = S.cmd.pods[this.i], rc = R * 0.86;
+    const hx = Math.sin(c.alpha) * rc, hy = -Math.cos(c.alpha) * rc;
     g.fillStyle = D.C['panel-solid']; g.strokeStyle = col; g.lineWidth = 2;
     g.beginPath(); g.arc(hx, hy, 9, 0, Math.PI * 2); g.fill(); g.stroke();
     g.fillStyle = col; g.beginPath(); g.arc(hx, hy, 3.5, 0, Math.PI * 2); g.fill();
-    // rpm ceiling (power / split)
-    const lim = S.rt.status.rpmLimit[this.i];
-    if (lim < 0.999) { g.strokeStyle = D.C.warn; g.setLineDash([3, 3]); g.lineWidth = 1; g.beginPath(); g.arc(0, 0, (0.14 + 0.86 * lim) * R, 0, Math.PI * 2); g.stroke(); g.setLineDash([]); }
     this.extras(R);
   }
   /** Power arc outside the ticks and control-system warnings inside the dial. */
@@ -408,7 +394,71 @@ class Dial {
     if (Math.abs(bt) > 0.02) { g.strokeStyle = D.C.own; g.lineWidth = 3; g.beginPath(); g.moveTo(0, -R * 0.3); g.lineTo(bt * R * 0.6, -R * 0.3); g.stroke(); }
   }
 }
+
+/** RPM lever, one per pod: ahead up, astern down, detent at zero. Linked pods move together. */
+class RpmLever {
+  c: HTMLCanvasElement; g: CanvasRenderingContext2D; w = 34; h = 120; lastTap = 0;
+  constructor(public i: number) {
+    this.c = $('rpm-' + i) as HTMLCanvasElement;
+    this.g = this.c.getContext('2d')!;
+    this.c.addEventListener('pointerdown', e => {
+      if (S.rt.lever === 'joy') return;
+      this.c.setPointerCapture(e.pointerId);
+      const now = performance.now();
+      if (now - this.lastTap < 300) { this.lastTap = 0; this.set(0); return; }   // double tap: stop
+      this.lastTap = now;
+      this.fromEvent(e);
+    });
+    this.c.addEventListener('pointermove', e => { if (this.c.hasPointerCapture(e.pointerId) && S.rt.lever !== 'joy') this.fromEvent(e); });
+  }
+  resize() {
+    this.w = this.c.clientWidth; this.h = this.c.clientHeight;
+    this.c.width = Math.round(this.w * D.DPR); this.c.height = Math.round(this.h * D.DPR);
+  }
+  get pad() { return 10; }
+  y(v: number) { const H = this.h - 2 * this.pad; return this.pad + H / 2 - v * H / 2; }
+  fromEvent(e: PointerEvent) {
+    const r = this.c.getBoundingClientRect(), H = r.height - 2 * this.pad;
+    let v = Math.max(-1, Math.min(1, (r.height / 2 - (e.clientY - r.top)) / (H / 2)));
+    if (Math.abs(v) < 0.05) v = 0;                      // zero detent
+    this.set(Math.round(v * 100) / 100);
+  }
+  set(v: number) { for (const j of S.rt.lever === 'twin' ? [0, 1] : [this.i]) S.cmd.pods[j].rpm = v; }
+  draw() {
+    const g = this.g, w = this.w, joy = S.rt.lever === 'joy', col = D.podColors[this.i];
+    g.setTransform(D.DPR, 0, 0, D.DPR, 0, 0); g.clearRect(0, 0, w, this.h);
+    const x0 = w / 2, y0 = this.y(0);
+    // slot
+    g.fillStyle = D.C.rule; g.fillRect(x0 - 3, this.y(1), 6, this.y(-1) - this.y(1));
+    // scale: ticks every 25 %, zero heavy
+    g.strokeStyle = D.C.muted; g.lineWidth = 1;
+    for (let k = -4; k <= 4; k++) {
+      const yy = Math.round(this.y(k / 4)) + 0.5, big = k === 0;
+      g.strokeStyle = big ? D.C.ink : D.C.muted; g.lineWidth = big ? 1.5 : 1;
+      g.beginPath(); g.moveTo(2, yy); g.lineTo(big ? 9 : 6, yy); g.moveTo(w - 2, yy); g.lineTo(w - (big ? 9 : 6), yy); g.stroke();
+    }
+    g.fillStyle = D.C.muted; g.font = `600 9px ${D.C.fontLabel}`; g.textAlign = 'center';
+    g.textBaseline = 'top'; g.fillText('AH', x0, 0);
+    g.textBaseline = 'bottom'; g.fillText('AS', x0, this.h);
+    // control-system ceiling (power / berthing split / astern limit)
+    const lim = S.rt.status.rpmLimit[this.i], am = SHIP.asternMax * lim;
+    g.strokeStyle = D.C.warn; g.setLineDash([3, 2]); g.lineWidth = 1.5;
+    for (const v of [lim < 0.999 ? lim : NaN, -am]) if (isFinite(v)) { const yy = this.y(v); g.beginPath(); g.moveTo(3, yy); g.lineTo(w - 3, yy); g.stroke(); }
+    g.setLineDash([]);
+    // actual rpm: bar from zero (lags the order: 30 s run-up, 60 s through a reversal)
+    const a = S.rt.state.pods[this.i].rpm;
+    g.fillStyle = col; g.globalAlpha = 0.85;
+    g.fillRect(x0 - 3, Math.min(y0, this.y(a)), 6, Math.abs(this.y(a) - y0)); g.globalAlpha = 1;
+    if (joy) return;
+    // ordered rpm: handle
+    const yc = this.y(S.cmd.pods[this.i].rpm), hw = Math.min(w - 4, 30);
+    g.fillStyle = D.C['panel-solid']; g.strokeStyle = S.cmd.pods[this.i].rpm < 0 ? D.C.warn : col; g.lineWidth = 2;
+    g.beginPath(); g.roundRect(x0 - hw / 2, yc - 7, hw, 14, 3); g.fill(); g.stroke();
+    g.strokeStyle = g.fillStyle = col; g.beginPath(); g.moveTo(x0 - hw / 2 + 4, yc); g.lineTo(x0 + hw / 2 - 4, yc); g.lineWidth = 1.5; g.stroke();
+  }
+}
 const dials = [new Dial(0), new Dial(1)];
+const levers = [new RpmLever(0), new RpmLever(1)];
 
 function updateTray() {
   const rt = S.rt, joy = rt.lever === 'joy';
@@ -424,7 +474,6 @@ function updateTray() {
       $('pr-' + i).textContent = `${pad3(p.alpha / DEG)}° ${p.rpm < 0 ? 'R' : ''}${Math.round(Math.abs(p.rpm) * 100)}%`;
     }
     void st;
-    const rb = $('rev-' + i); rb.hidden = joy; rb.setAttribute('aria-pressed', String(S.rev[i]));
   }
   $('bt-val').textContent = joy ? sgn(rt.joy.r, 2) : `${Math.round(rt.state.bt * 100)}`;
 }
@@ -432,11 +481,12 @@ function updateTray() {
 function setLever(m: LeverMode) {
   S.rt.setLever(m);
   const joy = m === 'joy';
-  $('b-mode').textContent = { twin: 'TWIN', indep: 'INDEP', joy: 'JOY' }[m];
+  $('b-mode').textContent = { twin: 'LINKED', indep: 'INDEP', joy: 'JOY' }[m];
+  $('b-mode').setAttribute('aria-pressed', String(m === 'twin'));
   document.querySelectorAll<HTMLElement>('.joyonly').forEach(b => (b.hidden = !joy));
   $('bt-label').textContent = joy ? 'YAW' : 'BOW THRUSTER';
   btIn.value = '0';
-  if (m === 'twin') { S.cmd.pods[1].alpha = S.cmd.pods[0].alpha; S.cmd.pods[1].rpm = S.cmd.pods[0].rpm; S.rev[1] = S.rev[0]; }
+  if (m === 'twin') { S.cmd.pods[1].alpha = S.cmd.pods[0].alpha; S.cmd.pods[1].rpm = S.cmd.pods[0].rpm; }
   if (!joy) S.cmd.bt = 0;
   syncButtons();
 }
@@ -447,12 +497,6 @@ btIn.oninput = () => {
 const btRelease = () => { if (S.rt.lever === 'joy') { btIn.value = '0'; S.rt.joy.r = 0; } };
 btIn.addEventListener('pointerup', btRelease); btIn.addEventListener('change', btRelease);
 btIn.ondblclick = () => { btIn.value = '0'; S.cmd.bt = 0; };
-for (let i = 0; i < 2; i++) $('rev-' + i).onclick = () => {
-  const targets = S.rt.lever === 'twin' ? [0, 1] : [i];
-  const v = !S.rev[i];
-  for (const j of targets) { S.rev[j] = v; S.cmd.pods[j].rpm = (v ? -1 : 1) * Math.abs(S.cmd.pods[j].rpm); }
-};
-
 // ---------------------------------------------------------------- panels: lines & tugs
 const MODES: [WinchMode, string][] = [['heave', 'HEAVE'], ['brake', 'BRAKE'], ['slack', 'SLACK'], ['auto', 'AUTO-T']];
 let linesSig = '';
@@ -736,12 +780,13 @@ function frame(now: number) {
   }
   if (v3 && S.disp.view !== '2d') { v3.setTime(timeOfDay()); v3.render(); }
   for (const d of dials) d.draw();
+  for (const l of levers) l.draw();
   slowT -= dtReal;
   if (slowT <= 0) { slowT = 0.1; updateHud(); updateLinesPanel(); updateTugsPanel(); }
   // adaptive resolution: if frames run long for 2 s, render at a lower pixel density
   frameEma += (performance.now() - t0 - frameEma) * 0.05;
   slowFor = frameEma > 14 ? slowFor + dtReal : 0;
-  if (slowFor > 2) { slowFor = 0; if (D.lowerDpr()) for (const d of dials) d.resize(); }
+  if (slowFor > 2) { slowFor = 0; if (D.lowerDpr()) for (const d of [...dials, ...levers]) d.resize(); }
 }
 
 // keep the screen on while the ship is moving
@@ -756,9 +801,9 @@ async function syncWakeLock() {
 }
 setInterval(syncWakeLock, 2000);
 
-function resize() { D.resizeCanvas(); for (const d of dials) d.resize(); D.refreshLayout(); layout3d(); placePanels(); }
-const ro = new ResizeObserver(() => { D.refreshLayout(); layout3d(); placePanels(); for (const d of dials) d.resize(); });
-for (const el of [$('hud'), document.querySelector('.tray')!, document.querySelector('.mapbtns')!]) ro.observe(el);
+function resize() { D.resizeCanvas(); for (const d of [...dials, ...levers]) d.resize(); D.refreshLayout(); layout3d(); placePanels(); }
+const ro = new ResizeObserver(() => { D.refreshLayout(); layout3d(); placePanels(); for (const d of [...dials, ...levers]) d.resize(); });
+for (const el of [$('hud'), document.querySelector('.tray')!, document.querySelector('.mapbtns')!, $('rpm-0'), $('rpm-1')]) ro.observe(el);
 // no long-press menus or text selection on the controls
 $('app').addEventListener('contextmenu', e => { if (!(e.target as HTMLElement).closest('.sheet')) e.preventDefault(); });
 document.querySelectorAll('details.sec').forEach(d => d.addEventListener('toggle', () => setTimeout(drawPosterPlots, 20)));
