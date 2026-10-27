@@ -1,0 +1,25 @@
+# Fetches official chart data (NOAA ENC) for a box and commits the extracted layers to the
+# `chart-data` branch. Manual only: the app never downloads charts at run time.
+name: chart data
+on:
+  workflow_dispatch:
+    inputs:
+      name: { description: 'area id', default: 'miami' }
+      bbox: { description: 'S W N E (degrees)', default: '25.70 -80.22 25.82 -80.05' }
+permissions:
+  contents: write
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq gdal-bin python3-gdal
+      - run: python3 tools/chart/fetch_noaa.py ${{ inputs.bbox }} /tmp/out/${{ inputs.name }}
+      - name: commit to chart-data branch
+        run: |
+          git config user.name "chart-bot"; git config user.email "chart-bot@users.noreply.github.com"
+          git fetch origin chart-data || true
+          if git rev-parse --verify origin/chart-data >/dev/null 2>&1; then git checkout -B chart-data origin/chart-data; else git checkout --orphan chart-data; git rm -rq . ; fi
+          rm -rf "${{ inputs.name }}"; mkdir -p "${{ inputs.name }}"; cp -r /tmp/out/${{ inputs.name }}/. "${{ inputs.name }}/"
+          git add "${{ inputs.name }}"; git commit -qm "chart data: ${{ inputs.name }} (${{ inputs.bbox }})" || echo "no change"
+          git push origin chart-data
