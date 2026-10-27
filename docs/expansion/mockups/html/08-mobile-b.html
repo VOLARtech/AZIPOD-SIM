@@ -1,0 +1,83 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+@font-face { font-family: "Barlow Condensed"; font-weight: 500; src: url(../../../../node_modules/@fontsource/barlow-condensed/files/barlow-condensed-latin-500-normal.woff2); }
+@font-face { font-family: "Barlow Condensed"; font-weight: 600; src: url(../../../../node_modules/@fontsource/barlow-condensed/files/barlow-condensed-latin-600-normal.woff2); }
+@font-face { font-family: "Barlow Condensed"; font-weight: 700; src: url(../../../../node_modules/@fontsource/barlow-condensed/files/barlow-condensed-latin-700-normal.woff2); }
+@font-face { font-family: "Barlow"; font-weight: 400; src: url(../../../../node_modules/@fontsource/barlow/files/barlow-latin-400-normal.woff2); }
+@font-face { font-family: "Barlow"; font-weight: 500; src: url(../../../../node_modules/@fontsource/barlow/files/barlow-latin-500-normal.woff2); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 400; src: url(../../../../node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 500; src: url(../../../../node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2); }
+:root {
+  --water: #06121a; --water2: #0a1c27; --grid: #10283a; --land: #2b2513; --landEdge: #5e512a; --shoal: #0d2a3a; --ink: #d4c49a; --muted: #7d7660; --panel: rgba(6,13,18,0.92); --panelSolid: #08121a; --rule: #1e3242; --own: #d27a2a; --hull: #13232e; --port: #d2475a; --stbd: #36ad66; --predict: #c4489a; --warn: #e0583a; --ok: #36ad66; --sound: #5f7380; --contour: #2c4757; --info: #4f9fbf;
+  --font-label: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --font-body: "Barlow", system-ui, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; overflow: hidden; }
+body { background: var(--water); color: var(--ink); font-family: var(--font-body); position: relative; }
+svg text { font-family: var(--font-label); }
+.lab, .tag { font-family: var(--font-label); font-weight: 600; letter-spacing: 0.08em; font-size: 12px; color: var(--muted); text-transform: uppercase; }
+.val { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-weight: 500; }
+.unit { font-family: var(--font-label); font-size: 12px; color: var(--muted); }
+.mono { font-family: var(--font-num); }
+.hud { position: absolute; left: 0; right: 0; top: 0; z-index: 3; background: var(--panel); border-bottom: 1px solid var(--rule); padding: 10px 16px 8px; }
+.hud-row { display: flex; align-items: baseline; gap: 6px 30px; flex-wrap: wrap; }
+.hud .cell { display: flex; align-items: baseline; gap: 6px; }
+.hud .primary .val { font-size: 26px; }
+.hud .secondary { margin-top: 2px; }
+.hud .secondary .val { font-size: 22px; }
+.hud .env { font-family: var(--font-num); font-size: 11.5px; color: var(--muted); margin-top: 6px; gap: 4px 28px; }
+.c-port { color: var(--port) !important; } .c-stbd { color: var(--stbd) !important; } .c-own { color: var(--own) !important; }
+.c-warn { color: var(--warn) !important; } .c-ok { color: var(--ok) !important; } .c-muted { color: var(--muted) !important; } .c-info { color: var(--info) !important; }
+.mb { font-family: var(--font-label); font-weight: 600; letter-spacing: 0.08em; font-size: 12px; min-width: 56px; height: 32px; padding: 0 10px;
+  border-radius: 3px; background: var(--panel); border: 1px solid var(--rule); color: var(--muted); display: inline-flex; align-items: center; justify-content: center; }
+.mb.on { color: var(--ink); border-color: var(--own); }
+.mapbtns { position: absolute; z-index: 3; left: 16px; display: flex; gap: 6px; }
+.shipchip { position: absolute; z-index: 3; right: 16px; display: flex; align-items: center; gap: 10px; padding: 6px 12px 6px 8px;
+  background: var(--panel); border: 1px solid var(--rule); border-radius: 3px; }
+.shipchip .nm { font-family: var(--font-label); font-weight: 700; font-size: 15px; letter-spacing: 0.02em; }
+.shipchip .sp { font-family: var(--font-num); font-size: 11px; color: var(--muted); }
+.flag { position: absolute; z-index: 3; font-family: var(--font-label); font-weight: 600; letter-spacing: 0.06em; font-size: 13px;
+  padding: 4px 10px; border-radius: 3px; background: var(--panelSolid); border: 1px solid var(--rule); }
+.flag.heavy { color: var(--warn); border-color: var(--warn); } .flag.good { color: var(--ok); border-color: var(--ok); } .flag.info { color: var(--info); border-color: var(--info); }
+.tray { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; background: var(--panel); border-top: 1px solid var(--rule); padding: 10px 16px 12px;
+  display: flex; gap: 10px; align-items: stretch; justify-content: center; }
+.pn { border: 1px solid var(--rule); border-radius: 4px; padding: 8px 10px 8px; display: flex; flex-direction: column; align-items: center; gap: 4px; background: color-mix(in srgb, var(--panelSolid) 70%, transparent); }
+.pn > .tag { align-self: stretch; display: flex; justify-content: space-between; gap: 10px; }
+.pn > .tag b { color: var(--ink); font-weight: 600; }
+.rd { font-family: var(--font-num); font-size: 12px; font-variant-numeric: tabular-nums; display: flex; gap: 8px; align-items: baseline; }
+.rd .k { font-family: var(--font-label); font-weight: 600; letter-spacing: 0.08em; font-size: 11px; color: var(--muted); }
+.cb { font-family: var(--font-label); font-weight: 600; letter-spacing: 0.08em; font-size: 12px; height: 30px; border-radius: 3px; border: 1px solid var(--rule);
+  color: var(--muted); display: flex; align-items: center; justify-content: center; padding: 0 10px; }
+.cb.on { color: var(--ink); border-color: var(--own); } .cb.warn { color: var(--warn); border-color: var(--warn); }
+.row { display: flex; gap: 6px; } .col { display: flex; flex-direction: column; gap: 6px; }
+.chip { font-family: var(--font-label); font-weight: 600; letter-spacing: 0.06em; font-size: 11px; padding: 2px 7px; border-radius: 2px; border: 1px solid var(--rule); color: var(--muted); white-space: nowrap; }
+.chip.on { color: var(--ink); border-color: var(--own); } .chip.ok { color: var(--ok); border-color: var(--ok); } .chip.info { color: var(--info); border-color: var(--info); } .chip.warn { color: var(--warn); border-color: var(--warn); }
+.meter { width: 100%; height: 6px; border-radius: 3px; background: var(--rule); position: relative; overflow: hidden; }
+.meter > i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink); border-radius: 3px; }
+.legend { position: absolute; z-index: 3; font-family: var(--font-num); font-size: 10.5px; color: var(--muted); }
+</style></head>
+<body style="width:390px;height:844px"><div style="position:absolute;inset:0;background:var(--panelSolid);padding:16px 14px;display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-family:var(--font-label);font-weight:700;font-size:24px">Fleet</span><span class="mb">CLOSE</span></div>
+      <div style="display:flex;gap:6px;overflow:hidden"><span class="chip">ALL</span><span class="chip">AZIPOD</span><span class="chip on">SHAFT + RUDDER</span><span class="chip">CPP</span><span class="chip">ASD</span><span class="chip">VSP</span><span class="chip">JET</span></div>
+      <div style="border:1px solid var(--own);border-radius:4px;padding:8px 10px;display:flex;flex-direction:column;gap:2px">
+      <svg width="340" height="50" viewBox="0 0 340 50">
+  <line x1="0" y1="36" x2="340" y2="36" stroke="var(--info)" stroke-width="1" opacity="0.5"/>
+  <path d="M20.4,2 L51,2 L51,27 L20.4,27 Z" fill="var(--ink)" opacity="0.82"/><path d="M27.2,-6 L40.8,-6 L40.8,2 L27.2,2 Z" fill="var(--ink)" opacity="0.82"/>
+  <path d="M68,25 L312.8,25 L312.8,27 L68,27 Z" fill="var(--muted)"/>
+  <path d="M6.8,27 L326.4,27 L340,25 L329.8,41.6 L316.2,50 L20.4,50 L13.6,36 L0,29 Z" fill="var(--muted)"/></svg><div style="font-family:var(--font-label);font-weight:700;font-size:16px">VLCC · KVLCC2 hull</div><div class="mono" style="font-size:10.5px;color:var(--muted)">320 m · 1 × FPP · 2-stroke · rudder</div><svg width="340" height="36" viewBox="0 0 340 36"><path d="M332,18 L324.3,24.4 L313.8,25 L11.5,25 L8,23.5 L8,12.5 L11.5,11 L313.8,11 L324.3,11.6 Z" fill="none" stroke="var(--muted)" stroke-width="1.2"/><rect x="18" y="13" width="4" height="10" fill="var(--own)"/><line x1="14" y1="18" x2="5" y2="18" stroke="var(--ink)" stroke-width="2.5"/></svg></div>
+      <div style="border:1px solid var(--rule);border-radius:4px;padding:8px 10px;display:flex;flex-direction:column;gap:2px">
+      <svg width="340" height="50" viewBox="0 0 340 50">
+  <line x1="0" y1="36" x2="340" y2="36" stroke="var(--info)" stroke-width="1" opacity="0.5"/>
+  <path d="M40.8,13 L53.7,13 L53.7,27 L40.8,27 Z" fill="var(--ink)" opacity="0.82"/><path d="M55.1,13 L68,13 L68,27 L55.1,27 Z" fill="var(--ink)" opacity="0.82"/><path d="M69.4,7 L82.3,7 L82.3,27 L69.4,27 Z" fill="var(--ink)" opacity="0.82"/><path d="M83.6,9 L96.6,9 L96.6,27 L83.6,27 Z" fill="var(--ink)" opacity="0.82"/><path d="M97.9,9 L110.8,9 L110.8,27 L97.9,27 Z" fill="var(--ink)" opacity="0.82"/><path d="M112.2,11 L125.1,11 L125.1,27 L112.2,27 Z" fill="var(--ink)" opacity="0.82"/><path d="M126.5,11 L139.4,11 L139.4,27 L126.5,27 Z" fill="var(--ink)" opacity="0.82"/><path d="M140.8,13 L153.7,13 L153.7,27 L140.8,27 Z" fill="var(--ink)" opacity="0.82"/><path d="M155,9 L168,9 L168,27 L155,27 Z" fill="var(--ink)" opacity="0.82"/><path d="M169.3,9 L182.2,9 L182.2,27 L169.3,27 Z" fill="var(--ink)" opacity="0.82"/><path d="M183.6,11 L196.5,11 L196.5,27 L183.6,27 Z" fill="var(--ink)" opacity="0.82"/><path d="M197.9,13 L210.8,13 L210.8,27 L197.9,27 Z" fill="var(--ink)" opacity="0.82"/><path d="M212.2,7 L225.1,7 L225.1,27 L212.2,27 Z" fill="var(--ink)" opacity="0.82"/><path d="M255,9 L267.9,9 L267.9,27 L255,27 Z" fill="var(--ink)" opacity="0.82"/><path d="M269.3,13 L282.2,13 L282.2,27 L269.3,27 Z" fill="var(--ink)" opacity="0.82"/><path d="M283.6,11 L296.5,11 L296.5,27 L283.6,27 Z" fill="var(--ink)" opacity="0.82"/><path d="M297.8,11 L310.8,11 L310.8,27 L297.8,27 Z" fill="var(--ink)" opacity="0.82"/><path d="M312.1,9 L325,9 L325,27 L312.1,27 Z" fill="var(--ink)" opacity="0.82"/><path d="M224.4,-4 L241.4,-4 L241.4,27 L224.4,27 Z" fill="var(--ink)" opacity="0.82"/>
+  
+  <path d="M6.8,27 L323,27 L340,25 L329.8,40.8 L316.2,48 L20.4,48 L13.6,36 L0,29 Z" fill="var(--muted)"/></svg><div style="font-family:var(--font-label);font-weight:700;font-size:16px">Container 14 000 TEU · DTC</div><div class="mono" style="font-size:10.5px;color:var(--muted)">355 m · 1 × FPP · rudder · 2 BT</div><svg width="340" height="36" viewBox="0 0 340 36"><path d="M332,18 L324.3,24.4 L313.8,25 L11.5,25 L8,23.5 L8,12.5 L11.5,11 L313.8,11 L324.3,11.6 Z" fill="none" stroke="var(--muted)" stroke-width="1.2"/><rect x="18" y="13" width="4" height="10" fill="var(--own)"/><line x1="14" y1="18" x2="5" y2="18" stroke="var(--ink)" stroke-width="2.5"/><line x1="310" y1="14" x2="310" y2="22" stroke="var(--info)" stroke-width="2.5"/></svg></div>
+      <div style="border:1px solid var(--rule);border-radius:4px;padding:8px 10px;display:flex;flex-direction:column;gap:2px">
+      <svg width="340" height="50" viewBox="0 0 340 50">
+  <line x1="0" y1="36" x2="340" y2="36" stroke="var(--info)" stroke-width="1" opacity="0.5"/>
+  <path d="M17,6 L51,6 L51,27 L17,27 Z" fill="var(--ink)" opacity="0.82"/><path d="M23.8,0 L40.8,0 L40.8,6 L23.8,6 Z" fill="var(--ink)" opacity="0.82"/>
+  <path d="M68,23 L91.8,23 L91.8,27 L68,27 Z" fill="var(--muted)"/><path d="M102,23 L125.8,23 L125.8,27 L102,27 Z" fill="var(--muted)"/><path d="M136,23 L159.8,23 L159.8,27 L136,27 Z" fill="var(--muted)"/><path d="M170,23 L193.8,23 L193.8,27 L170,27 Z" fill="var(--muted)"/><path d="M204,23 L227.8,23 L227.8,27 L204,27 Z" fill="var(--muted)"/><path d="M238,23 L261.8,23 L261.8,27 L238,27 Z" fill="var(--muted)"/><path d="M272,23 L295.8,23 L295.8,27 L272,27 Z" fill="var(--muted)"/><path d="M306,23 L329.8,23 L329.8,27 L306,27 Z" fill="var(--muted)"/>
+  <path d="M6.8,27 L326.4,27 L340,25 L329.8,40.8 L316.2,48 L20.4,48 L13.6,36 L0,29 Z" fill="var(--muted)"/></svg><div style="font-family:var(--font-label);font-weight:700;font-size:16px">Panamax bulker</div><div class="mono" style="font-size:10.5px;color:var(--muted)">225 m · 1 × FPP · rudder</div><svg width="340" height="36" viewBox="0 0 340 36"><path d="M332,18 L324.3,24.4 L313.8,25 L11.5,25 L8,23.5 L8,12.5 L11.5,11 L313.8,11 L324.3,11.6 Z" fill="none" stroke="var(--muted)" stroke-width="1.2"/><rect x="18" y="13" width="4" height="10" fill="var(--own)"/><line x1="14" y1="18" x2="5" y2="18" stroke="var(--ink)" stroke-width="2.5"/></svg></div>
+      <div class="tag" style="margin-top:2px">Load case</div>
+      <div class="row"><span class="cb on" style="flex:1">LADEN</span><span class="cb" style="flex:1">BALLAST</span></div>
+      <div style="height:44px;border:1.5px solid var(--own);border-radius:3px;display:flex;align-items:center;justify-content:center;font-family:var(--font-label);font-weight:700;letter-spacing:0.1em;margin-top:auto">LOAD SHIP</div></div></body></html>

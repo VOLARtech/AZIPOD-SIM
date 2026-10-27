@@ -1,0 +1,104 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+@font-face { font-family: "Barlow Condensed"; font-weight: 500; src: url(../../../../node_modules/@fontsource/barlow-condensed/files/barlow-condensed-latin-500-normal.woff2); }
+@font-face { font-family: "Barlow Condensed"; font-weight: 600; src: url(../../../../node_modules/@fontsource/barlow-condensed/files/barlow-condensed-latin-600-normal.woff2); }
+@font-face { font-family: "Barlow Condensed"; font-weight: 700; src: url(../../../../node_modules/@fontsource/barlow-condensed/files/barlow-condensed-latin-700-normal.woff2); }
+@font-face { font-family: "Barlow"; font-weight: 400; src: url(../../../../node_modules/@fontsource/barlow/files/barlow-latin-400-normal.woff2); }
+@font-face { font-family: "Barlow"; font-weight: 500; src: url(../../../../node_modules/@fontsource/barlow/files/barlow-latin-500-normal.woff2); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 400; src: url(../../../../node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 500; src: url(../../../../node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2); }
+:root {
+  --water: #06121a; --water2: #0a1c27; --grid: #10283a; --land: #2b2513; --landEdge: #5e512a; --shoal: #0d2a3a; --ink: #d4c49a; --muted: #7d7660; --panel: rgba(6,13,18,0.92); --panelSolid: #08121a; --rule: #1e3242; --own: #d27a2a; --hull: #13232e; --port: #d2475a; --stbd: #36ad66; --predict: #c4489a; --warn: #e0583a; --ok: #36ad66; --sound: #5f7380; --contour: #2c4757; --info: #4f9fbf;
+  --font-label: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --font-body: "Barlow", system-ui, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; overflow: hidden; }
+body { background: var(--water); color: var(--ink); font-family: var(--font-body); position: relative; }
+svg text { font-family: var(--font-label); }
+.lab, .tag { font-family: var(--font-label); font-weight: 600; letter-spacing: 0.08em; font-size: 12px; color: var(--muted); text-transform: uppercase; }
+.val { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-weight: 500; }
+.unit { font-family: var(--font-label); font-size: 12px; color: var(--muted); }
+.mono { font-family: var(--font-num); }
+.hud { position: absolute; left: 0; right: 0; top: 0; z-index: 3; background: var(--panel); border-bottom: 1px solid var(--rule); padding: 10px 16px 8px; }
+.hud-row { display: flex; align-items: baseline; gap: 6px 30px; flex-wrap: wrap; }
+.hud .cell { display: flex; align-items: baseline; gap: 6px; }
+.hud .primary .val { font-size: 26px; }
+.hud .secondary { margin-top: 2px; }
+.hud .secondary .val { font-size: 22px; }
+.hud .env { font-family: var(--font-num); font-size: 11.5px; color: var(--muted); margin-top: 6px; gap: 4px 28px; }
+.c-port { color: var(--port) !important; } .c-stbd { color: var(--stbd) !important; } .c-own { color: var(--own) !important; }
+.c-warn { color: var(--warn) !important; } .c-ok { color: var(--ok) !important; } .c-muted { color: var(--muted) !important; } .c-info { color: var(--info) !important; }
+.mb { font-family: var(--font-label); font-weight: 600; letter-spacing: 0.08em; font-size: 12px; min-width: 56px; height: 32px; padding: 0 10px;
+  border-radius: 3px; background: var(--panel); border: 1px solid var(--rule); color: var(--muted); display: inline-flex; align-items: center; justify-content: center; }
+.mb.on { color: var(--ink); border-color: var(--own); }
+.mapbtns { position: absolute; z-index: 3; left: 16px; display: flex; gap: 6px; }
+.shipchip { position: absolute; z-index: 3; right: 16px; display: flex; align-items: center; gap: 10px; padding: 6px 12px 6px 8px;
+  background: var(--panel); border: 1px solid var(--rule); border-radius: 3px; }
+.shipchip .nm { font-family: var(--font-label); font-weight: 700; font-size: 15px; letter-spacing: 0.02em; }
+.shipchip .sp { font-family: var(--font-num); font-size: 11px; color: var(--muted); }
+.flag { position: absolute; z-index: 3; font-family: var(--font-label); font-weight: 600; letter-spacing: 0.06em; font-size: 13px;
+  padding: 4px 10px; border-radius: 3px; background: var(--panelSolid); border: 1px solid var(--rule); }
+.flag.heavy { color: var(--warn); border-color: var(--warn); } .flag.good { color: var(--ok); border-color: var(--ok); } .flag.info { color: var(--info); border-color: var(--info); }
+.tray { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; background: var(--panel); border-top: 1px solid var(--rule); padding: 10px 16px 12px;
+  display: flex; gap: 10px; align-items: stretch; justify-content: center; }
+.pn { border: 1px solid var(--rule); border-radius: 4px; padding: 8px 10px 8px; display: flex; flex-direction: column; align-items: center; gap: 4px; background: color-mix(in srgb, var(--panelSolid) 70%, transparent); }
+.pn > .tag { align-self: stretch; display: flex; justify-content: space-between; gap: 10px; }
+.pn > .tag b { color: var(--ink); font-weight: 600; }
+.rd { font-family: var(--font-num); font-size: 12px; font-variant-numeric: tabular-nums; display: flex; gap: 8px; align-items: baseline; }
+.rd .k { font-family: var(--font-label); font-weight: 600; letter-spacing: 0.08em; font-size: 11px; color: var(--muted); }
+.cb { font-family: var(--font-label); font-weight: 600; letter-spacing: 0.08em; font-size: 12px; height: 30px; border-radius: 3px; border: 1px solid var(--rule);
+  color: var(--muted); display: flex; align-items: center; justify-content: center; padding: 0 10px; }
+.cb.on { color: var(--ink); border-color: var(--own); } .cb.warn { color: var(--warn); border-color: var(--warn); }
+.row { display: flex; gap: 6px; } .col { display: flex; flex-direction: column; gap: 6px; }
+.chip { font-family: var(--font-label); font-weight: 600; letter-spacing: 0.06em; font-size: 11px; padding: 2px 7px; border-radius: 2px; border: 1px solid var(--rule); color: var(--muted); white-space: nowrap; }
+.chip.on { color: var(--ink); border-color: var(--own); } .chip.ok { color: var(--ok); border-color: var(--ok); } .chip.info { color: var(--info); border-color: var(--info); } .chip.warn { color: var(--warn); border-color: var(--warn); }
+.meter { width: 100%; height: 6px; border-radius: 3px; background: var(--rule); position: relative; overflow: hidden; }
+.meter > i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink); border-radius: 3px; }
+.legend { position: absolute; z-index: 3; font-family: var(--font-num); font-size: 10.5px; color: var(--muted); }
+.hud { padding: 8px 12px 6px; } .hud .primary .val { font-size: 20px; } .hud .secondary .val { font-size: 16px; } .hud-row { gap: 4px 14px; } .hud .env { font-size: 10px; gap: 2px 12px; }
+  .tray { padding: 8px 10px 22px; gap:6px; } .pn { padding:6px; }</style></head>
+<body style="width:390px;height:844px"><svg width="390" height="534" style="position:absolute;left:0;top:0" viewBox="0 0 390 534" style="position:absolute;left:0;top:0">
+  <rect width="390" height="534" fill="var(--water2)"/>
+  <path d="M270,0 L320,0 L300,300 L330,534 L250,534 L250,300 Z" fill="var(--shoal)" stroke="var(--contour)" stroke-width="1"/>
+  
+  <text x="71.5" y="56" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">17<tspan font-size="8" dy="3">0</tspan></text><text x="112.8" y="157.6" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">19<tspan font-size="8" dy="3">3</tspan></text><text x="341.8" y="495.9" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">15<tspan font-size="8" dy="3">9</tspan></text><text x="250.1" y="62.4" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">9<tspan font-size="8" dy="3">2</tspan></text><text x="319.3" y="249.1" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">10<tspan font-size="8" dy="3">8</tspan></text><text x="240.5" y="472.6" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">17<tspan font-size="8" dy="3">1</tspan></text><text x="234.3" y="291.1" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">18<tspan font-size="8" dy="3">8</tspan></text><text x="79.5" y="165.3" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">30<tspan font-size="8" dy="3">7</tspan></text><text x="53.3" y="371" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">21<tspan font-size="8" dy="3">4</tspan></text><text x="306.7" y="81.5" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">21<tspan font-size="8" dy="3">6</tspan></text><text x="130.3" y="125.4" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">16<tspan font-size="8" dy="3">4</tspan></text><text x="330.5" y="289.7" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">20<tspan font-size="8" dy="3">9</tspan></text><text x="71.1" y="406.2" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">18<tspan font-size="8" dy="3">9</tspan></text><text x="65.2" y="371.5" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">9<tspan font-size="8" dy="3">9</tspan></text><text x="237.7" y="391.1" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">26<tspan font-size="8" dy="3">1</tspan></text><text x="210.5" y="325.3" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">20<tspan font-size="8" dy="3">5</tspan></text><text x="141.1" y="44.3" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">28<tspan font-size="8" dy="3">0</tspan></text><text x="22.7" y="49.1" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">23<tspan font-size="8" dy="3">2</tspan></text><text x="70.9" y="193.7" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">16<tspan font-size="8" dy="3">3</tspan></text><text x="36.4" y="66" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">10<tspan font-size="8" dy="3">4</tspan></text><text x="224.7" y="390.8" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">18<tspan font-size="8" dy="3">9</tspan></text><text x="135.1" y="453.5" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">28<tspan font-size="8" dy="3">1</tspan></text><text x="148.1" y="508.6" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">24<tspan font-size="8" dy="3">1</tspan></text><text x="129.7" y="503" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">24<tspan font-size="8" dy="3">0</tspan></text><text x="110.4" y="23.5" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">22<tspan font-size="8" dy="3">8</tspan></text><text x="174.9" y="265.2" font-family="IBM Plex Mono" font-size="11" fill="var(--sound)">10<tspan font-size="8" dy="3">7</tspan></text>
+  <path d="M390,0 L390,534 L330,534 L300,300 L320,0 Z" fill="var(--land)" stroke="var(--landEdge)" stroke-width="1.2"/>
+  <rect x="230" y="160" width="10" height="120" fill="var(--landEdge)"/><text x="160" y="152" font-size="10" font-style="italic" fill="var(--muted)">Jetty 2</text><g><line x1="110" y1="330" x2="95" y2="304" stroke="var(--warn)" stroke-width="2.5"/><path d="M95,304 L102.8,308.5 L95,313 Z" fill="var(--warn)"/>
+  <text x="88" y="295.9" font-size="12" font-weight="600" letter-spacing="0.06em" fill="var(--warn)" text-anchor="end">STERN → PORT</text></g>
+  <path d="M150,300 L180,250 L205,220" fill="none" stroke="var(--predict)" stroke-width="2"/><path d="M231.8,197.5 L230.2,206.7 L223,213.3 L184.9,245.4 L181.4,246.4 L174.9,238.6 L176.5,235.4 L214.7,203.4 L222.5,197.5 Z" fill="none" stroke="var(--predict)" stroke-width="1.2" stroke-dasharray="3 3"/><path d="M167.5,269.7 L169.1,278.9 L164.7,287.6 L139.8,330.7 L136.9,332.8 L128.1,327.8 L128.5,324.2 L153.4,281.1 L158.7,272.9 Z" fill="var(--hull)" stroke="var(--own)" stroke-width="2"/>
+  
+  <g transform="translate(16,506)"><line x1="0" y1="10" x2="60" y2="10" stroke="var(--ink)" stroke-width="1.5"/><line x1="0" y1="5" x2="0" y2="10" stroke="var(--ink)"/><line x1="60" y1="5" x2="60" y2="10" stroke="var(--ink)"/>
+  <text x="2" y="2" font-family="IBM Plex Mono" font-size="11" fill="var(--ink)">200 m</text></g>
+  <text x="16" y="498" font-family="IBM Plex Mono" font-size="10.5" fill="var(--muted)"></text>
+</svg>
+    <header class="hud" style="top:0px">
+  <div class="hud-row primary"><div class="cell"><span class="lab">HDG</span><span class="val ">030</span><span class="unit">°</span></div><div class="cell"><span class="lab">SOG</span><span class="val ">3.1</span><span class="unit">kn</span></div><div class="cell"><span class="lab">ROT</span><span class="val ">+6</span><span class="unit">°/m</span></div></div>
+  <div class="hud-row secondary"><div class="cell"><span class="lab">FWD</span><span class="val c-stbd">▸0.04</span><span class="unit"></span></div><div class="cell"><span class="lab">AFT</span><span class="val c-port">◂0.11</span><span class="unit"></span></div><div class="cell"><span class="lab">UKC</span><span class="val ">2.1</span><span class="unit">m</span></div></div>
+  <div class="hud-row env"><span>WIND 220° 18</span><span>ME 14 rpm AS</span></div></header>
+    <nav class="mapbtns" style="top:96px;left:12px"><span class="mb">MENU</span><span class="mb on">PRED</span><span class="mb on">FORCES</span></nav>
+    <footer class="tray" style="height:310px;flex-direction:column;align-items:stretch">
+      <div class="row" style="gap:6px;justify-content:center">
+        <section class="pn" style=""><div class="tag"><span>Telegraph</span><b></b></div><svg width="104" height="196" viewBox="0 0 104 196">
+  <rect x="27" y="6" width="14" height="184" rx="7" fill="var(--panelSolid)" stroke="var(--rule)"/>
+  <rect x="32" y="98" width="4" height="84" fill="var(--rule)"/><line x1="44" y1="14" x2="50" y2="14" stroke="var(--muted)" stroke-width="1"/>
+    <text x="62" y="18" font-size="11.5" font-weight="600" letter-spacing="0.06em" fill="var(--muted)">NAV</text><line x1="44" y1="30.8" x2="50" y2="30.8" stroke="var(--muted)" stroke-width="1"/>
+    <text x="62" y="34.8" font-size="11.5" font-weight="600" letter-spacing="0.06em" fill="var(--muted)">FULL</text><line x1="44" y1="47.6" x2="50" y2="47.6" stroke="var(--muted)" stroke-width="1"/>
+    <text x="62" y="51.6" font-size="11.5" font-weight="600" letter-spacing="0.06em" fill="var(--muted)">HALF</text><line x1="44" y1="64.4" x2="50" y2="64.4" stroke="var(--muted)" stroke-width="1"/>
+    <text x="62" y="68.4" font-size="11.5" font-weight="600" letter-spacing="0.06em" fill="var(--muted)">SLOW</text><line x1="44" y1="81.2" x2="50" y2="81.2" stroke="var(--muted)" stroke-width="1"/>
+    <text x="62" y="85.2" font-size="11.5" font-weight="600" letter-spacing="0.06em" fill="var(--muted)">D SLOW</text><line x1="44" y1="98" x2="56" y2="98" stroke="var(--ink)" stroke-width="2"/>
+    <text x="62" y="102" font-size="11.5" font-weight="600" letter-spacing="0.06em" fill="var(--muted)">STOP</text><line x1="44" y1="114.8" x2="50" y2="114.8" stroke="var(--muted)" stroke-width="1"/>
+    <text x="62" y="118.8" font-size="11.5" font-weight="600" letter-spacing="0.06em" fill="var(--muted)">D SLOW</text><line x1="44" y1="131.6" x2="50" y2="131.6" stroke="var(--muted)" stroke-width="1"/>
+    <text x="62" y="135.6" font-size="13" font-weight="700" letter-spacing="0.06em" fill="var(--ink)">SLOW</text><line x1="44" y1="148.4" x2="50" y2="148.4" stroke="var(--muted)" stroke-width="1"/>
+    <text x="62" y="152.4" font-size="11.5" font-weight="600" letter-spacing="0.06em" fill="var(--muted)">HALF</text><line x1="44" y1="165.2" x2="50" y2="165.2" stroke="var(--muted)" stroke-width="1"/>
+    <text x="62" y="169.2" font-size="11.5" font-weight="600" letter-spacing="0.06em" fill="var(--muted)">FULL</text><line x1="44" y1="182" x2="50" y2="182" stroke="var(--muted)" stroke-width="1"/>
+    <text x="62" y="186" font-size="11.5" font-weight="600" letter-spacing="0.06em" fill="var(--muted)">EMERG</text><text x="34" y="8" font-size="9" fill="var(--muted)" text-anchor="middle" letter-spacing="0.1em">AH</text><path d="M22,98 l-9,-6 v12 Z" fill="var(--ink)"/><rect x="19" y="122.6" width="30" height="18" rx="3" fill="var(--panelSolid)" stroke="var(--own)" stroke-width="2.5"/><line x1="26" y1="131.6" x2="42" y2="131.6" stroke="var(--own)" stroke-width="2"/></svg></section>
+        <div class="col" style="gap:6px"><section class="pn" style=""><div class="tag"><span>Helm</span><b>FU</b></div><svg width="220" height="136" viewBox="0 0 220 136">
+  <path d="M25,83.2 A88,88 0 0 1 110,18" fill="none" stroke="var(--port)" stroke-width="6" opacity="0.35"/>
+  <path d="M110,18 A88,88 0 0 1 195,83.2" fill="none" stroke="var(--stbd)" stroke-width="6" opacity="0.35"/><line x1="29.8" y1="84.5" x2="38.5" y2="86.8" stroke="var(--muted)" stroke-width="1.5"/><text x="13.4" y="83.1" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="var(--port)">35</text><line x1="35.2" y1="70" x2="43.3" y2="73.9" stroke="var(--muted)" stroke-width="1.5"/><text x="19.9" y="65.6" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="var(--port)">30</text><line x1="43.2" y1="56.7" x2="46.4" y2="59.1" stroke="var(--muted)" stroke-width="1"/><line x1="53.5" y1="45.2" x2="59.7" y2="51.8" stroke="var(--muted)" stroke-width="1.5"/><text x="42" y="35.7" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="var(--port)">20</text><line x1="65.8" y1="35.7" x2="68" y2="39.1" stroke="var(--muted)" stroke-width="1"/><line x1="79.7" y1="28.7" x2="83" y2="37.1" stroke="var(--muted)" stroke-width="1.5"/><text x="73.5" y="15.9" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="var(--port)">10</text><line x1="94.6" y1="24.4" x2="95.3" y2="28.4" stroke="var(--muted)" stroke-width="1"/><line x1="110" y1="23" x2="110" y2="32" stroke="var(--muted)" stroke-width="1.5"/><line x1="125.4" y1="24.4" x2="124.7" y2="28.4" stroke="var(--muted)" stroke-width="1"/><line x1="140.3" y1="28.7" x2="137" y2="37.1" stroke="var(--muted)" stroke-width="1.5"/><text x="146.5" y="15.9" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="var(--stbd)">10</text><line x1="154.2" y1="35.7" x2="152" y2="39.1" stroke="var(--muted)" stroke-width="1"/><line x1="166.5" y1="45.2" x2="160.3" y2="51.8" stroke="var(--muted)" stroke-width="1.5"/><text x="178" y="35.7" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="var(--stbd)">20</text><line x1="176.8" y1="56.7" x2="173.6" y2="59.1" stroke="var(--muted)" stroke-width="1"/><line x1="184.8" y1="70" x2="176.7" y2="73.9" stroke="var(--muted)" stroke-width="1.5"/><text x="200.1" y="65.6" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="var(--stbd)">30</text><line x1="190.2" y1="84.5" x2="181.5" y2="86.8" stroke="var(--muted)" stroke-width="1.5"/><text x="206.6" y="83.1" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="var(--stbd)">35</text><path d="M66,29.8 A88,88 0 0 1 110,18" fill="none" stroke="var(--port)" stroke-width="6"/><line x1="110" y1="106" x2="67.5" y2="32.4" stroke="var(--ink)" stroke-width="2.5" stroke-linecap="round"/><circle cx="110" cy="106" r="5" fill="var(--ink)"/><path d="M48.8,40 L37.8,38.3 L47.9,28.9 Z" fill="var(--own)"/><text x="110" y="130" text-anchor="middle" font-size="10" font-weight="600" letter-spacing="0.1em" fill="var(--muted)">RUDDER</text>
+  <text x="96" y="90" text-anchor="end" font-family="IBM Plex Mono" font-size="15" fill="var(--ink)">P 14°</text>
+  <text x="124" y="90" font-family="IBM Plex Mono" font-size="12" fill="var(--own)">P 20°</text></svg></section>
+        <div class="pn" style="flex-direction:row;gap:10px;justify-content:space-between;align-items:center"><div class="col" style="gap:3px"><div class="rd"><span class="k">SHAFT</span><span class="">14 AS</span></div><div class="rd"><span class="k">AIR</span><span class="">24 bar · ≈ 9</span></div></div><span class="chip warn">BARRED 42–52</span></div></div>
+      </div>
+      <div class="row" style="justify-content:center"><span class="cb on">TUGS</span><span class="cb">VIEW</span><span class="cb">3D</span><span class="cb">COACH</span></div>
+    </footer></body></html>
