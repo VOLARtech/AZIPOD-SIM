@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { SHIP, DEG, KN } from '../src/physics/ship';
 import { buildHull, setHull } from '../src/physics/contact';
-import { Model, makeState, emptyBreakdown, Env } from '../src/physics/sim';
+import { Model, makeState, emptyBreakdown, Env, rk4 } from '../src/physics/sim';
 import { Runtime } from '../src/physics/runtime';
 import { SCENARIOS, currentField, depthAt } from '../src/scenarios';
 import type { Scenario } from '../src/scenarios';
@@ -287,5 +287,61 @@ test('PortMiami: steaming out of the channel onto the charted flats runs her agr
   setShip('becancour'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
   assert.ok(aground, 'never touched bottom');
 });
+
+console.log('shaft + rudder ships (KVLCC2)');
+import { SHIPS } from '../src/physics/ship';
+import { runMmgValidation } from '../src/physics/validation-mmg';
+import { engines, helm, primeRunning } from '../src/physics/pilot';
+{
+  const VL = SHIPS.kvlcc2, vm = new Model(VL, Infinity);
+  const go = (u0: number, f0: number, set: (c: Cmd) => void, T: number, each?: (st: ReturnType<typeof makeState>, out: ReturnType<typeof emptyStatus>) => void) => {
+    const st = makeState(VL, 0, 0, 0, u0); if (f0) primeRunning(VL, st, f0);
+    const c: Cmd = { pods: [{ alpha: 0, rpm: 0 }], bt: 0 }; engines(VL, c, f0); set(c);
+    const out = emptyStatus(1);
+    for (let t = 0; t < T; t += 0.1) { updateActuators(VL, st, c, 0.1, out); rk4v(st); each?.(st, out); }
+    return { st, out };
+  };
+  const rk4v = (st: ReturnType<typeof makeState>) => rk4(vm, st, calm, still, null, 0.1);
+  test('rudder 35° to starboard turns her to starboard', () => {
+    const { st } = go(VL.vmaxKn, 1, c => helm(VL, c, 35 * DEG), 120);
+    assert.ok(st.r > 0 && st.psi > 0, `r=${st.r}`);
+  });
+  test('right-hand propeller, slow astern from rest: stern walks to port, bow swings to starboard', () => {
+    const { st } = go(0, 0, c => engines(VL, c, -0.42), 180);
+    assert.ok(st.u < 0, 'going astern');
+    assert.ok(st.r > 0 && st.psi > 0, `r=${st.r} psi=${st.psi}`);
+  });
+  test('stopped engine at 10 kn: the propeller windmills ahead', () => {
+    const { st } = go(10, 0, () => {}, 60);
+    assert.ok(st.pods[0].rpm > 0.05 && st.pods[0].rpm < 0.4, `rpm ${st.pods[0].rpm}`);
+  });
+  test('full astern from 11 kn: engine stops, reverses on air, and the ship stops in 6–9 L', () => {
+    let reversedAt = NaN, x = 0;
+    const { st } = go(11.3, 0.72, c => engines(VL, c, -0.8), 1500, (s) => { if (isNaN(reversedAt) && s.pods[0].rpm < -0.15) reversedAt = s.t; if (s.u > 0) x = s.n; });
+    assert.ok(reversedAt > 5 && reversedAt < 60, `reversed at ${reversedAt}s`);
+    assert.ok(x / VL.L > 5 && x / VL.L < 9, `head reach ${(x / VL.L).toFixed(2)} L`);
+    assert.ok(st.pods[0].eng!.starts >= 1);
+  });
+  test('engine never settles inside the barred speed range', () => {
+    const { st } = go(9, 0.42, c => engines(VL, c, 0.5), 300);
+    const n = st.pods[0].rpm, [lo, hi] = VL.pods[0].shaft!.engine.barred!;
+    assert.ok(n < lo || n > hi, `rpm ${n}`);
+  });
+  test('starting air below the minimum receiver pressure: no start, the engine room says so', () => {
+    const { out, st } = go(0, 0, c => engines(VL, c, 0.3), 0.2);
+    st.pods[0].eng!.air = 11; st.pods[0].eng!.mode = 'stop'; st.pods[0].rpm = 0;
+    const c: Cmd = { pods: [{ alpha: 0, rpm: 0.3 }], bt: 0 };
+    updateActuators(VL, st, c, 0.1, out);
+    assert.ok(out.msg[0] === 'NO STARTING AIR', out.msg[0]);
+  });
+  test('KVLCC2: simulator reproduces the published MMG model (turning, zig-zag) within 3 %', () => {
+    const { rows } = runMmgValidation(VL);
+    for (const r of rows) assert.ok(Math.abs(r.sim - r.ref) <= 0.03 * Math.abs(r.ref) + 0.3, `${r.label}: ${r.sim.toFixed(2)} vs ${r.ref.toFixed(2)}`);
+  });
+  test('KVLCC2 meets IMO MSC.137(76) in deep water (turning, initial turning, zig-zags, stopping)', () => {
+    const { rows } = trialsOf(VL);
+    for (const r of rows) if (r.pass === false) assert.fail(`${r.label}: ${r.value} (${r.limit})`);
+  });
+}
 
 console.log(`\n${pass} passed${process.exitCode ? ', some failed' : ''}`);

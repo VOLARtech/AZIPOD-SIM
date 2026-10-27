@@ -6,6 +6,7 @@ import { Command, Env, Model, ShipState, World, cloneState, mismatched, rk4, upd
 import { ContactInfo, contactForces, Fender, Obstacle, Pt } from './contact';
 import type { MooringLine } from './mooring';
 import type { DepthField } from './harbour';
+import { engines, fullAstern, helm, isShaftShip } from './pilot';
 
 export type Alt = 'current' | 'port' | 'stbd' | 'crash' | 'coast';
 export const ALT_LABEL: Record<Alt, string> = {
@@ -42,10 +43,18 @@ export function runPrediction(spec: ShipSpec, job: PredictJob, sw: ScenarioWorld
   return job.alts.map(alt => {
     const st = cloneState(job.state);
     world.aground = 0;
-    const cmd: Command = { pods: job.cmd.pods.map(p => ({ ...p })), bt: job.cmd.bt, mode: job.cmd.mode };
+    const cmd: Command = { pods: job.cmd.pods.map(p => ({ ...p })), bt: job.cmd.bt, sbt: job.cmd.sbt, mode: job.cmd.mode };
     const rpm0 = Math.max(0.5, ...job.cmd.pods.map(p => Math.abs(p.rpm)));
-    if (alt === 'port' || alt === 'stbd') cmd.pods.forEach(p => { p.alpha = (alt === 'port' ? 35 : -35) * DEG; p.rpm = rpm0; });
-    if (alt === 'coast') cmd.pods.forEach(p => (p.rpm = 0));
+    const shafts = isShaftShip(spec);
+    if (shafts) {
+      // what-ifs on the telegraph and the wheel: hard over with the engine as set, full astern, stop
+      if (alt === 'port' || alt === 'stbd') helm(spec, cmd, (alt === 'port' ? -35 : 35) * DEG);
+      if (alt === 'crash') engines(spec, cmd, fullAstern(spec));
+      if (alt === 'coast') engines(spec, cmd, 0);
+    } else {
+      if (alt === 'port' || alt === 'stbd') cmd.pods.forEach(p => { p.alpha = (alt === 'port' ? 35 : -35) * DEG; p.rpm = rpm0; });
+      if (alt === 'coast') cmd.pods.forEach(p => (p.rpm = 0));
+    }
     const poses: Pose[] = [];
     let stopT: number | null = null, contactT: number | null = null, groundT: number | null = null, dist = 0, stopDist = 0;
     let lastN = st.n, lastE = st.e, nextRec = 0;
@@ -60,7 +69,7 @@ export function runPrediction(spec: ShipSpec, job: PredictJob, sw: ScenarioWorld
         }
         if ((world.aground ?? 0) > 0.05) { groundT = t; break; }
       }
-      if (alt === 'crash') {
+      if (alt === 'crash' && !shafts) {
         // swing outboard through 180°, rpm eased during the sweep, then full
         st.pods.forEach((p, i) => {
           cmd.pods[i].alpha = (spec.pods[i].y < 0 ? -179.9 : 179.9) * DEG;

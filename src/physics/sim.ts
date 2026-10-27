@@ -6,15 +6,24 @@ import { DEG, Hydro, RHO, RHO_AIR, ShipSpec, deriveHydro, resistanceCt } from '.
 import { Obstacle, Fender, contactForces, ContactInfo, Pt } from './contact';
 import { MooringLine, lineForces } from './mooring';
 import { DepthField, groundingForces } from './harbour';
+import { ShaftForce, EngineState, initEngine, propTorque, shaftForces, stepEngine } from './units/shaft';
+import { mmgHull } from './hull/mmg';
+import type { PodSpec } from './ship';
+import { isPod, unitAxis } from './units/kinds';
 
-export interface PodState { alpha: number; rpm: number }
+/** State of one propulsion unit; see PodSpec.kind for what alpha and rpm mean. */
+export interface PodState { alpha: number; rpm: number; pitch?: number; bucket?: number; eng?: EngineState }
 export interface ShipState {
   t: number; n: number; e: number; psi: number;
   u: number; v: number; r: number;
   pods: PodState[]; bt: number;
+  sbt?: number;               // stern tunnel thruster, −1..1 (+ pushes the stern to starboard)
 }
 export type LeverMode = 'twin' | 'indep';
-export interface Command { pods: PodState[]; bt: number; mode?: LeverMode }
+export interface PodCmd { alpha: number; rpm: number; pitch?: number; bucket?: number }
+export interface Command { pods: PodCmd[]; bt: number; sbt?: number; mode?: LeverMode }
+
+export { isPod, unitAxis };
 
 /** What the propulsion control system is doing to your orders. */
 export interface ActStatus {
@@ -22,9 +31,10 @@ export interface ActStatus {
   rpmLimit: number[];         // current rpm ceiling per pod (power / berthing split)
   split: boolean[];           // athwartships pod power-reduced in berthing split
   podPower: number[]; btPower: number; avail: number; limited: boolean;
+  msg: string[];              // engine / control-system state per unit, for the station
 }
 export function emptyStatus(n: number): ActStatus {
-  return { revBlocked: Array(n).fill(false), rpmLimit: Array(n).fill(1), split: Array(n).fill(false), podPower: Array(n).fill(0), btPower: 0, avail: 0, limited: false };
+  return { revBlocked: Array(n).fill(false), rpmLimit: Array(n).fill(1), split: Array(n).fill(false), podPower: Array(n).fill(0), btPower: 0, avail: 0, limited: false, msg: Array(n).fill('') };
 }
 
 export interface World {
@@ -46,8 +56,9 @@ export interface Env {
 }
 
 export interface Wrench { X: number; Y: number; N: number }
+export interface UnitBreakdown extends Wrench { T: number; eff: number; FN?: number; TT?: number; uR?: number; Q?: number }
 export interface Breakdown {
-  hull: Wrench; pods: (Wrench & { T: number; eff: number })[]; bt: Wrench & { eff: number };
+  hull: Wrench; pods: UnitBreakdown[]; bt: Wrench & { eff: number }; sbt?: Wrench & { eff: number };
   wind: Wrench & { relSpeed: number; relAngle: number }; contact: Wrench; current: [number, number];
 }
 const W = (): Wrench => ({ X: 0, Y: 0, N: 0 });
@@ -68,6 +79,8 @@ function podThrust(Tb: number, asternFrac: number, Vz: number, n: number, Va: nu
 
 export class Model {
   h: Hydro;
+  private sf: ShaftForce = { X: 0, Y: 0, N: 0, T: 0, FN: 0, uR: 0, TT: 0, Q: 0 };
+  private mm = { X: 0, Y: 0, N: 0, w: 0 };
   constructor(public spec: ShipSpec, depth: number) { this.h = deriveHydro(spec, depth); }
   setDepth(d: number) { this.h = deriveHydro(this.spec, d); }
 
@@ -110,6 +123,15 @@ export class Model {
       const f = -h.cfK * Math.abs(vl) * vl * sp.dx;
       Yh += f; Nh += f * sp.x;
     }
+    if (s.mmg) {
+      // MMG standard method at manoeuvring speed, the low-speed cross-flow model below it.
+      // The polynomial N_H already holds the Munk moment, which C_A(ν_r)ν_r added above.
+      const m = mmgHull(s, h, ur, vr, r, this.mm);
+      if (m.w > 0) {
+        const munk = (h.Yvd - h.Xud) * ur * vr;
+        Xh += m.w * (m.X - Xh); Yh += m.w * (m.Y - Yh); Nh += m.w * (m.N - munk - Nh);
+      }
+    }
     X += Xh; Y += Yh; N += Nh;
     if (bd) { bd.hull.X = Xh; bd.hull.Y = Yh; bd.hull.N = Nh; bd.current = [cN, cE]; }
 
@@ -117,6 +139,12 @@ export class Model {
     const np = s.pods.length;
     for (let i = 0; i < np; i++) {
       const p = s.pods[i], ps = st.pods[i];
+      if (p.kind === 'shaft') {
+        const f = shaftForces(s, p, ps.rpm, ps.alpha, ps.pitch ?? 1, ur, vr, r, s.mmg ? 0 : -s.xg, this.sf);
+        X += f.X; Y += f.Y; N += f.N;
+        if (bd) { const b = bd.pods[i]; b.X = f.X; b.Y = f.Y; b.N = f.N; b.T = f.T; b.eff = 1; b.FN = f.FN; b.TT = f.TT; b.uR = f.uR; b.Q = f.Q; }
+        continue;
+      }
       const pa = ps.alpha + p.alphaOffset;
       const ca = Math.cos(pa), sa = Math.sin(pa);
       const up = ur - p.y * r, vp = vr + p.x * r;
@@ -158,6 +186,7 @@ export class Model {
     // Downstream pod-pod wake interaction (applied as reduction of the hit pod)
     for (let i = 0; i < np; i++) for (let j = 0; j < np; j++) if (i !== j) {
       const p = s.pods[i], q = s.pods[j], ps = st.pods[i];
+      if (!isPod(p) || !isPod(q)) continue;
       if (Math.abs(ps.rpm) < 0.05) continue;
       const sg = ps.rpm >= 0 ? 1 : -1, pa = ps.alpha + p.alphaOffset;
       const wx = -Math.cos(pa) * sg, wy = -Math.sin(pa) * sg;
@@ -180,6 +209,13 @@ export class Model {
       const Fy = bt.Tmax * st.bt * Math.abs(st.bt) * eff;
       Y += Fy; N += bt.x * Fy;
       if (bd) { bd.bt.X = 0; bd.bt.Y = Fy; bd.bt.N = bt.x * Fy; bd.bt.eff = eff; }
+    }
+    if (s.sternThruster && st.sbt) {
+      const sb = s.sternThruster;
+      const eff = 1 / (1 + (ur / 1.6) ** 2);
+      const Fy = sb.Tmax * st.sbt * Math.abs(st.sbt) * eff;
+      Y += Fy; N += sb.x * Fy;
+      if (bd) bd.sbt = { X: 0, Y: Fy, N: sb.x * Fy, eff };
     }
 
     // Wind (Isherwood-type coefficients, apparent wind over ground velocity)
@@ -229,22 +265,35 @@ export class Model {
  * Propulsion control system: rate limits, reversal interlock, astern cap,
  * shared electrical power and the berthing-split power reduction.
  */
-export function updateActuators(spec: ShipSpec, st: ShipState, cmd: Command, dt: number, out?: ActStatus) {
+export function updateActuators(spec: ShipSpec, st: ShipState, cmd: Command, dt: number, out?: ActStatus, cur: [number, number] = [0, 0]) {
   const n = st.pods.length;
   // bow thruster first: it takes its share of the switchboard
   const maxB = dt / spec.btRpmTime, db = cmd.bt - st.bt;
   st.bt += Math.max(-maxB, Math.min(maxB, db));
-  const btP = spec.bowThruster.P * Math.abs(st.bt) ** 3;
-  const podPmax = spec.pods.reduce((a, p) => a + p.P, 0);
+  let btP = spec.bowThruster.P * Math.abs(st.bt) ** 3;
+  if (spec.sternThruster) {
+    const sb = st.sbt ?? 0, d = (cmd.sbt ?? 0) - sb;
+    st.sbt = sb + Math.max(-maxB, Math.min(maxB, d));
+    btP += spec.sternThruster.P * Math.abs(st.sbt) ** 3;
+  }
+  // units on the switchboard: pods and electrically driven shafts
+  const onBoard = (p: PodSpec) => isPod(p) || p.shaft?.engine.type === 'electric';
+  const podPmax = spec.pods.reduce((a, p) => a + (onBoard(p) ? p.P : 0), 0);
   const budget = Math.max(0, spec.powerAvail - btP);
-  const powerLim = Math.min(1, Math.cbrt(budget / podPmax));
+  const powerLim = podPmax > 0 ? Math.min(1, Math.cbrt(budget / podPmax)) : 1;
 
   // berthing split (independent levers): one pod fore-and-aft, the other athwartships
-  const lon = st.pods.map(p => Math.abs(Math.cos(p.alpha)) > 0.85);
-  const ath = st.pods.map(p => Math.abs(Math.cos(p.alpha)) < 0.4);
+  const lon = st.pods.map((p, i) => isPod(spec.pods[i]) && Math.abs(Math.cos(p.alpha)) > 0.85);
+  const ath = st.pods.map((p, i) => isPod(spec.pods[i]) && Math.abs(Math.cos(p.alpha)) < 0.4);
   let limited = powerLim < 0.999;
   for (let i = 0; i < n; i++) {
     const p = st.pods[i], c = cmd.pods[i], ps = spec.pods[i];
+    if (ps.kind === 'shaft') {
+      const lim = onBoard(ps) ? powerLim : 1;
+      stepShaft(spec, ps, p, c, st, dt, cur, lim, out, i);
+      if (lim < 0.999 && out) limited = true;
+      continue;
+    }
     const da = wrap(c.alpha - p.alpha), maxA = spec.podSlew * ps.slewMul * dt;
     p.alpha = wrap(p.alpha + Math.max(-maxA, Math.min(maxA, da)));
 
@@ -264,6 +313,35 @@ export function updateActuators(spec: ShipSpec, st: ShipState, cmd: Command, dt:
     }
   }
   if (out) { out.btPower = btP; out.avail = spec.powerAvail; out.limited = limited; }
+}
+
+/** Steering gear, CPP pitch servo, engine and shaft of one shaft unit. */
+function stepShaft(spec: ShipSpec, ps: PodSpec, p: PodState, c: PodCmd, st: ShipState, dt: number,
+                   cur: [number, number], lim: number, out: ActStatus | undefined, i: number) {
+  const sh = ps.shaft!, e = sh.engine, pr = sh.prop;
+  if (sh.rudder) {
+    const rd = sh.rudder, tgt = Math.max(-rd.max, Math.min(rd.max, c.alpha)), mx = rd.rate * dt;
+    p.alpha += Math.max(-mx, Math.min(mx, tgt - p.alpha));
+  }
+  let demand = c.rpm;
+  if (pr.cpp) {
+    const tgt = Math.max(-pr.cpp.asternPitch, Math.min(1, c.pitch ?? 0)), mx = dt / pr.cpp.pitchTime;
+    const pp = p.pitch ?? 0;
+    p.pitch = pp + Math.max(-mx, Math.min(mx, tgt - pp));
+    demand = Math.max(0, c.rpm);
+  }
+  p.eng ??= initEngine(e, p.rpm);
+  const cps = Math.cos(st.psi), sps = Math.sin(st.psi);
+  const up = st.u - (cps * cur[0] + sps * cur[1]) - ps.y * st.r;
+  const Va = up > 0 ? up * (1 - pr.wP0) : up;
+  const pitch = p.pitch ?? 1, nr = p.rpm * e.n, dn = 0.002 * e.n;
+  const Qh = propTorque(pr, nr, Va, pitch);
+  const dQ = (propTorque(pr, nr + dn, Va, pitch) - Qh) / dn;
+  p.rpm = stepEngine(e, p.eng, p.rpm, demand, Qh, dQ, dt, lim);
+  if (out) {
+    out.msg[i] = p.eng.msg; out.rpmLimit[i] = lim; out.revBlocked[i] = false; out.split[i] = false;
+    out.podPower[i] = Math.abs(2 * Math.PI * nr * Qh);
+  }
 }
 
 const tmp = (st: ShipState): ShipState => ({ ...st, pods: st.pods });
@@ -292,13 +370,14 @@ export function rk4(model: Model, st: ShipState, env: Env, wind: { V: number; fr
 }
 
 export function cloneState(s: ShipState): ShipState {
-  return { ...s, pods: s.pods.map(p => ({ ...p })) };
+  return { ...s, pods: s.pods.map(p => (p.eng ? { ...p, eng: { ...p.eng } } : { ...p })) };
 }
 
 export function makeState(spec: ShipSpec, n: number, e: number, psiDeg: number, uKn = 0): ShipState {
   return {
     t: 0, n, e, psi: wrap(psiDeg * DEG), u: uKn * 0.514444, v: 0, r: 0,
-    pods: spec.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0,
+    pods: spec.pods.map(p => (p.kind === 'shaft' && p.shaft!.prop.cpp ? { alpha: 0, rpm: 0, pitch: 0 } : { alpha: 0, rpm: 0 })), bt: 0,
+    ...(spec.sternThruster ? { sbt: 0 } : {}),
   };
 }
 

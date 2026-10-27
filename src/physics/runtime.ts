@@ -7,6 +7,7 @@ import { DepthField, bankEffect, squat, washReflection } from './harbour';
 import { MooringLine, Tug, LINE, makeLines, makeTugs, passLine, tugForces, updateTugs, updateWinches } from './mooring';
 import { DPState, JoyInput, allocate, dpForces, joyLimits } from './allocation';
 import { Sensors } from './sensors';
+import { isPod } from './units/kinds';
 
 export const DT = 0.05;
 
@@ -70,6 +71,8 @@ export class Runtime {
     this.alerts.length = Math.min(this.alerts.length, 12);
   }
 
+  /** The joystick allocator drives two azimuthing pods and the bow thruster. */
+  get canJoy() { return this.spec.pods.length === 2 && this.spec.pods.every(isPod); }
   setLever(m: LeverMode) {
     this.lever = m;
     if (m !== 'joy') { this.dp.hdgHold = this.dp.posHold = false; this.joy = { x: 0, y: 0, r: 0 }; }
@@ -91,7 +94,7 @@ export class Runtime {
     this.sensors.step(st, dt, cur, wind);
 
     // joystick / DP → lever orders (on sensor estimates, like the real system)
-    if (this.lever === 'joy') {
+    if (this.lever === 'joy' && this.canJoy) {
       const uc = Math.cos(st.psi) * cur[0] + Math.sin(st.psi) * cur[1];
       const btEff = 1 / (1 + ((st.u - uc) / 1.6) ** 2);
       const lim = joyLimits(spec, btEff);
@@ -103,9 +106,9 @@ export class Runtime {
       const c = (a: number) => Math.max(-1, Math.min(1, a));
       allocate(spec, st, { x: c(j.x + d.Y), y: c(j.y + d.X), r: c(j.r + d.N) }, btEff, this.cmd);
       this.cmd.mode = 'twin';
-    } else this.cmd.mode = this.lever;
+    } else this.cmd.mode = this.lever === 'joy' ? 'twin' : this.lever;
 
-    updateActuators(spec, st, this.cmd, dt, this.status);
+    updateActuators(spec, st, this.cmd, dt, this.status, cur);
     this.gust.step(dt, this.env.gusts && this.env.windSpeed > 0.1);
 
     // harbour effects held over the step

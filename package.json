@@ -11,7 +11,8 @@
     "test": "tsx scripts/test.ts",
     "trials": "tsx scripts/trials.ts",
     "validate": "tsx scripts/validate.ts",
-    "icons": "python3 scripts/icons.py"
+    "icons": "python3 scripts/icons.py",
+    "golden": "tsx scripts/golden.ts"
   },
   "author": "VOLARtech",
   "license": "UNLICENSED",
