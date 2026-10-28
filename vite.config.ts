@@ -45,7 +45,7 @@ export default defineConfig(({ mode }) => {
           id: './',
           name: 'Azipod Bridge — ship-handling simulator',
           short_name: 'Azipod Bridge',
-          description: 'Twin-Azipod ship-handling simulator: 3-DOF manoeuvring model, dynamic predictor, 3D bridge view, berthing, mooring, tugs.',
+          description: 'Learn to handle ships: 22 ships from tugs to giant container ships, real ports in 3D, wind, current, tugs and mooring. Works offline.',
           lang: 'en',
           start_url: './',
           scope: './',
