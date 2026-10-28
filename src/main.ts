@@ -64,7 +64,7 @@ function loadScenario(sc: Scenario) {
   Object.assign(S.env, { windKn: sc.windKn, windFrom: sc.windFrom, curKn: sc.currentKn, curSet: sc.currentSet, gusts: sc.gusts });
   S.rt = new Runtime(SHIP, st, S.cmd,
     { windSpeed: 0, windFrom: 0, gusts: false, current: () => [0, 0], depth: sc.depth },
-    { obstacles: sc.obstacles, fenders: sc.fenders, bollards: sc.bollards, depthAt: depthAt(sc), mooringSide: sc.mooringSide, tugSide: sc.tugSide, tugBP: sc.tugBP });
+    { obstacles: sc.obstacles, fenders: sc.fenders, bollards: sc.bollards, depthAt: depthAt(sc), mooringSide: sc.mooringSide, tugSide: SHIP.towPoints ? undefined : sc.tugSide, tugBP: sc.tugBP });
   S.rt.sensors.mode = S.sensMode;
   if (sc.escort) S.rt.attachEscort(sc.escort, SHIPS[sc.escort.ship]);
   if (sc.dpScript) S.rt.dpScript = sc.dpScript.map(x => ({ ...x }));
@@ -76,7 +76,7 @@ function loadScenario(sc: Scenario) {
   S.view.scale = (Math.min(innerWidth, Math.max(300, innerHeight - 380)) / 520) * sc.zoom;
   S.pred.tracks = [];
   S.quay.forEach(q => { q.d = Infinity; q.rate = 0; });
-  $('b-lines').hidden = !sc.mooringSide; $('b-tugs').hidden = !sc.tugSide;
+  $('b-lines').hidden = !sc.mooringSide; $('b-tugs').hidden = !S.rt.tugs.length;     // a tug as own ship does not call tugs
   $('p-lines').hidden = $('p-tugs').hidden = true;
   ($('bt') as HTMLInputElement).value = '0';
   setLever('twin');

@@ -18,7 +18,7 @@ import type { PodSpec } from '../physics/ship';
 import { SHIP } from '../physics/ship';
 import { HULL, setHull } from '../physics/contact';
 import { setShip } from '../physics/ship';
-import { LINE } from '../physics/mooring';
+import { LINE, tugEngaged } from '../physics/mooring';
 import { S } from '../ui/state';
 
 export type CamName = 'bridge' | 'port' | 'stbd' | 'chase' | 'pods';
@@ -968,7 +968,7 @@ export class View3D {
     // tugs: alongside when pushing, out on a line when pulling, hidden when not engaged
     rt.tugs.forEach((t, i) => {
       const g = this.tugs[i], ln = this.tugLines[i]; if (!g) return;
-      const on = t.order !== 0 || Math.abs(t.F) > 1e3 || t.repos > 0;
+      const on = tugEngaged(t);
       g.visible = on; ln.visible = false;
       if (!on) return;
       const pulling = t.F * t.side > 1e3 || (t.order < 0 && t.repos <= 0);
