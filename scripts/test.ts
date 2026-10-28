@@ -734,7 +734,7 @@ import { helm as helmTo, engines as eng, primeRunning as prime } from '../src/ph
     const st = makeState(IB, 0, 0, 0, 2); st.r = 0.02; const f = ice.force(IB, st);
     assert.ok(f.X < 0 && f.N < 0);
   });
-  for (const id of ['icebreaker', 'push-convoy', 'frigate', 'superyacht', 'panamax-rotor', 'psv', 'ahts']) {
+  for (const id of ['icebreaker', 'push-convoy', 'frigate', 'superyacht', 'panamax-rotor', 'psv', 'ahts', 'paspaley-pearl']) {
     test(`${SHIPS[id].name}: trials speed within 1.5 kn of the rated ${SHIPS[id].vmaxKn} kn, no NaN`, () => {
       const { rows, Vs } = trialsOf(SHIPS[id]);
       assert.ok(Math.abs(Vs / KN - SHIPS[id].vmaxKn) < 1.5, `${(Vs / KN).toFixed(1)} kn`);
