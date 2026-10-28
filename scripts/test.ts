@@ -2,9 +2,9 @@
 import assert from 'node:assert/strict';
 import { SHIP, DEG, KN } from '../src/physics/ship';
 import { buildHull, setHull } from '../src/physics/contact';
-import { Model, makeState, emptyBreakdown, Env } from '../src/physics/sim';
+import { Model, makeState, emptyBreakdown, Env, rk4 } from '../src/physics/sim';
 import { Runtime } from '../src/physics/runtime';
-import { SCENARIOS, currentField, depthAt } from '../src/scenarios';
+import { SCENARIOS, currentField, depthAt, berthFor, fits } from '../src/scenarios';
 import type { Scenario } from '../src/scenarios';
 const OPEN = { obstacles: [], fenders: [], bollards: [], depthAt: () => Infinity };
 const harbourOf = (sc: Scenario) => ({ obstacles: sc.obstacles, fenders: sc.fenders, bollards: sc.bollards, depthAt: depthAt(sc), mooringSide: sc.mooringSide, tugSide: sc.tugSide, tugBP: sc.tugBP });
@@ -288,9 +288,169 @@ test('PortMiami: steaming out of the channel onto the charted flats runs her agr
   assert.ok(aground, 'never touched bottom');
 });
 
+console.log('shaft + rudder ships (KVLCC2)');
+import { SHIPS } from '../src/physics/ship';
+import { runMmgValidation } from '../src/physics/validation-mmg';
+import { engines, helm, primeRunning } from '../src/physics/pilot';
+{
+  const VL = SHIPS.kvlcc2, vm = new Model(VL, Infinity);
+  const go = (u0: number, f0: number, set: (c: Cmd) => void, T: number, each?: (st: ReturnType<typeof makeState>, out: ReturnType<typeof emptyStatus>) => void) => {
+    const st = makeState(VL, 0, 0, 0, u0); if (f0) primeRunning(VL, st, f0);
+    const c: Cmd = { pods: [{ alpha: 0, rpm: 0 }], bt: 0 }; engines(VL, c, f0); set(c);
+    const out = emptyStatus(1);
+    for (let t = 0; t < T; t += 0.1) { updateActuators(VL, st, c, 0.1, out); rk4v(st); each?.(st, out); }
+    return { st, out };
+  };
+  const rk4v = (st: ReturnType<typeof makeState>) => rk4(vm, st, calm, still, null, 0.1);
+  test('rudder 35° to starboard turns her to starboard', () => {
+    const { st } = go(VL.vmaxKn, 1, c => helm(VL, c, 35 * DEG), 120);
+    assert.ok(st.r > 0 && st.psi > 0, `r=${st.r}`);
+  });
+  test('right-hand propeller, slow astern from rest: stern walks to port, bow swings to starboard', () => {
+    const { st } = go(0, 0, c => engines(VL, c, -0.42), 180);
+    assert.ok(st.u < 0, 'going astern');
+    assert.ok(st.r > 0 && st.psi > 0, `r=${st.r} psi=${st.psi}`);
+  });
+  test('stopped engine at 10 kn: the propeller windmills ahead', () => {
+    const { st } = go(10, 0, () => {}, 60);
+    assert.ok(st.pods[0].rpm > 0.05 && st.pods[0].rpm < 0.4, `rpm ${st.pods[0].rpm}`);
+  });
+  test('full astern from 11 kn: engine stops, reverses on air, and the ship stops in 6–9 L', () => {
+    let reversedAt = NaN, x = 0;
+    const { st } = go(11.3, 0.72, c => engines(VL, c, -0.8), 1500, (s) => { if (isNaN(reversedAt) && s.pods[0].rpm < -0.15) reversedAt = s.t; if (s.u > 0) x = s.n; });
+    assert.ok(reversedAt > 5 && reversedAt < 60, `reversed at ${reversedAt}s`);
+    assert.ok(x / VL.L > 5 && x / VL.L < 9, `head reach ${(x / VL.L).toFixed(2)} L`);
+    assert.ok(st.pods[0].eng!.starts >= 1);
+  });
+  test('engine never settles inside the barred speed range', () => {
+    const { st } = go(9, 0.42, c => engines(VL, c, 0.5), 300);
+    const n = st.pods[0].rpm, [lo, hi] = VL.pods[0].shaft!.engine.barred!;
+    assert.ok(n < lo || n > hi, `rpm ${n}`);
+  });
+  test('starting air below the minimum receiver pressure: no start, the engine room says so', () => {
+    const { out, st } = go(0, 0, c => engines(VL, c, 0.3), 0.2);
+    st.pods[0].eng!.air = 11; st.pods[0].eng!.mode = 'stop'; st.pods[0].rpm = 0;
+    const c: Cmd = { pods: [{ alpha: 0, rpm: 0.3 }], bt: 0 };
+    updateActuators(VL, st, c, 0.1, out);
+    assert.ok(out.msg[0] === 'NO STARTING AIR', out.msg[0]);
+  });
+  test('KVLCC2: simulator reproduces the published MMG model (turning, zig-zag) within 3 %', () => {
+    const { rows } = runMmgValidation(VL);
+    for (const r of rows) assert.ok(Math.abs(r.sim - r.ref) <= 0.03 * Math.abs(r.ref) + 0.3, `${r.label}: ${r.sim.toFixed(2)} vs ${r.ref.toFixed(2)}`);
+  });
+  test('KVLCC2 meets IMO MSC.137(76) in deep water (turning, initial turning, zig-zags, stopping)', () => {
+    const { rows } = trialsOf(VL);
+    for (const r of rows) if (r.pass === false) assert.fail(`${r.label}: ${r.value} (${r.limit})`);
+  });
+}
+
+console.log('cargo ships');
+for (const id of ['kcs', 'panamax', 'kvlcc2-ballast']) {
+  test(`${SHIPS[id].name}: trials run, turning and zig-zag criteria of MSC.137 met`, () => {
+    const { rows, Vs } = trialsOf(SHIPS[id]);
+    assert.ok(Math.abs(Vs / KN - SHIPS[id].vmaxKn) < 1.2, `service speed ${(Vs / KN).toFixed(1)} vs ${SHIPS[id].vmaxKn} kn`);
+    for (const r of rows) {
+      assert.ok(!/NaN|undefined/.test(r.value), `${r.label}: ${r.value}`);
+      if (r.pass === false && r.key !== 'crash') assert.fail(`${r.label}: ${r.value} (${r.limit})`);
+    }
+  });
+}
+test('the terminal berth lies off the fenders by half the beam, for any ship', () => {
+  const t = SCENARIOS.find(s => s.id === 'terminal')!;
+  for (const id of ['kvlcc2', 'kcs', 'becancour']) { const b = berthFor(t, SHIPS[id].B, 0)!; assert.ok(Math.abs(b.n - (-2 - SHIPS[id].B / 2 - 0.1)) < 1e-9 && b.psi === 90, `${id} ${b.n}`); }
+  assert.ok(fits(t, SHIPS.kvlcc2.T, berthFor(t, SHIPS.kvlcc2.B, 0)) && !fits(SCENARIOS.find(s => s.id === 'quai27')!, SHIPS.kvlcc2.T));
+});
+
+console.log('twin screw · CPP · electric shafts');
+{
+  const env0: Env = calm;
+  const sim = (id: string, set: (c: Cmd) => void, T: number, u0 = 0, f0 = 0) => {
+    const sp = SHIPS[id], mm = new Model(sp, Infinity), st = makeState(sp, 0, 0, 0, u0); if (f0) primeRunning(sp, st, f0);
+    const c: Cmd = { pods: sp.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0, sbt: 0 }; engines(sp, c, f0); set(c);
+    const out = emptyStatus(sp.pods.length);
+    for (let t = 0; t < T; t += 0.1) { updateActuators(sp, st, c, 0.1, out); rk4(mm, st, env0, still, null, 0.1); }
+    return { st, out };
+  };
+  test('twin CPP twisting (port astern, starboard ahead) turns her to port on the spot', () => {
+    const { st } = sim('ropax', c => { c.pods[0].pitch = -0.5; c.pods[0].rpm = 1; c.pods[1].pitch = 0.5; c.pods[1].rpm = 1; }, 120);
+    assert.ok(st.r < 0 && st.psi < -5 * DEG, `psi ${(st.psi / DEG).toFixed(1)}°`);
+    assert.ok(Math.hypot(st.u, st.v) < 1.0, `drift ${Math.hypot(st.u, st.v).toFixed(2)} m/s`);
+  });
+  test('twin screw with outward-turning propellers turns alike to port and starboard', () => {
+    const { rows } = trialsOf(SHIPS.ropax);
+    const adv = rows.find(r => r.key === 'adv')!, a = parseFloat(adv.value), b = parseFloat(adv.note!.replace('port ', ''));
+    assert.ok(Math.abs(a - b) < 0.05 * a, `${a} vs ${b}`);
+  });
+  test('CPP: speed rises steadily with pitch at constant shaft speed', () => {
+    let last = -1;
+    for (const f of [0.2, 0.5, 0.8, 1]) { const u = sim('ropax', () => {}, 900, SHIPS.ropax.vmaxKn * f, f).st.u; assert.ok(u > last + 0.5, `pitch ${f}: ${u}`); last = u; }
+  });
+  test('electric shafts reverse through zero in under a minute', () => {
+    const { st } = sim('cruise-shaft', c => { c.pods.forEach(p => (p.rpm = -0.6)); }, 60, 8, 0.4);
+    assert.ok(st.pods.every(p => p.rpm < -0.5), st.pods.map(p => p.rpm.toFixed(2)).join());
+  });
+  test('thrusters on a diesel ship are held to the generating power that is running', () => {
+    const { out } = sim('ropax', c => { c.bt = 1; c.sbt = 1; }, 30);
+    assert.ok(out.btPower <= SHIPS.ropax.powerAvail * 1.001, `${out.btPower}`);
+  });
+}
+
+console.log('tugs');
+import { stepRoll, rollInit } from '../src/physics/roll';
+{
+  const env0: Env = calm;
+  for (const [id, bpT] of [['asd-tug', 80], ['vsp-tug', 70], ['rotor-tug', 80]] as [string, number][]) {
+    test(`${SHIPS[id].name}: bollard pull within 12 % of ${bpT} t`, () => {
+      const sp = SHIPS[id], mm = new Model(sp, Infinity), st = makeState(sp, 0, 0, 0, 0);
+      const c: Cmd = { pods: sp.pods.map(() => ({ alpha: 0, rpm: 1 })), bt: 0 };
+      for (let t = 0; t < 30; t += 0.05) updateActuators(sp, st, c, 0.05);
+      const bd = emptyBreakdown(sp.pods.length); mm.accel(st, env0, still, null, bd);
+      const bp = bd.pods.reduce((a, b) => a + b.X, 0) / 9.81e3;
+      assert.ok(Math.abs(bp - bpT) < 0.12 * bpT, `${bp.toFixed(1)} t`);
+    });
+  }
+  test('Voith Schneider: thrust reverses ahead → astern in seconds, through zero, without slewing round', () => {
+    const sp = SHIPS['vsp-tug'], st = makeState(sp, 0, 0, 0, 0); st.pods.forEach(p => { p.rpm = 1; p.alpha = 0; });
+    const c: Cmd = { pods: sp.pods.map(() => ({ alpha: Math.PI, rpm: 1 })), bt: 0 };
+    let minE = 1, side = 0;
+    for (let t = 0; t < 8; t += 0.05) { updateActuators(sp, st, c, 0.05); minE = Math.min(minE, st.pods[0].rpm); side = Math.max(side, Math.abs(Math.sin(st.pods[0].alpha)) * st.pods[0].rpm); }
+    assert.ok(Math.cos(st.pods[0].alpha) < -0.99 && st.pods[0].rpm > 0.9, 'astern at full');
+    assert.ok(minE < 0.05 && side < 0.05, `passed through zero (min ${minE.toFixed(2)}, side ${side.toFixed(2)})`);
+  });
+  test('escort tug hull and skeg at 8 kn, 45° to the flow: side force 1.3–2 × bollard pull', () => {
+    const sp = SHIPS['asd-tug'], mm = new Model(sp, Infinity), st = makeState(sp, 0, 0, 0, 0);
+    st.u = -8 * KN * Math.cos(45 * DEG); st.v = -8 * KN * Math.sin(45 * DEG);
+    const bd = emptyBreakdown(2); mm.accel(st, env0, still, null, bd);
+    const bp = sp.pods.reduce((a, p) => a + p.Tb * (1 - sp.tded), 0), f = Math.hypot(bd.hull.X, bd.hull.Y) / bp;
+    assert.ok(f > 1.3 && f < 2, `${f.toFixed(2)} × BP`);
+  });
+  test('tug roll: natural period 5–9 s; full bollard pull abeam at the winch, held by the hull, heels her 8–20°', () => {
+    const sp = SHIPS['asd-tug'], rs = rollInit(), bd = emptyBreakdown(2);
+    rs.phi = 5 * DEG; let t = 0, cross = [] as number[], last = rs.phi;
+    for (; t < 30; t += 0.02) { stepRoll(sp, rs, bd, [], 0.02); if (last > 0 && rs.phi <= 0) cross.push(t); last = rs.phi; }
+    const Tn = cross[1] - cross[0];
+    assert.ok(Tn > 5 && Tn < 9, `T ${Tn.toFixed(1)} s`);
+    const r2 = rollInit(), Y = 80 * 9.81e3, bh = emptyBreakdown(2);
+    bh.hull.Y = -Y;                                           // girting: the hull resists the line's pull
+    for (t = 0; t < 60; t += 0.02) stepRoll(sp, r2, bh, [{ Y, h: 4 }], 0.02);
+    assert.ok(r2.phi > 8 * DEG && r2.phi < 20 * DEG, `${(r2.phi / DEG).toFixed(1)}°`);
+  });
+  test('escort: towed passively at 8 kn the line takes the tug\'s drag and stays well under its break load', () => {
+    const sp = SHIPS['asd-tug'], sc = SCENARIOS.find(x => x.id === 'escort')!;
+    const st = makeState(sp, 0, 0, 0, 8);
+    const rt = new Runtime(sp, st, { pods: sp.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0 }, calm, OPEN);
+    rt.attachEscort(sc.escort!, SHIPS.kvlcc2);
+    let peak = 0;
+    for (let i = 0; i < 20 * 120; i++) { rt.step(); peak = Math.max(peak, rt.escort!.line.T); }
+    assert.ok(peak > 2e4 && peak < rt.escort!.line.MBL * 0.6, `peak ${(peak / 9.81e3).toFixed(0)} t`);
+    assert.ok(!rt.escort!.line.parted && !rt.capsized);
+  });
+}
+
 console.log('every scenario sails the Spirit');
-test('all built-in scenarios use the Spirit-class ship (3D model, pods)', () => {
-  const other = SCENARIOS.filter(s => s.ship !== 'spirit').map(s => s.id);
+test('all built-in harbour scenarios use the Spirit-class ship (3D model, pods)', () => {
+  // the tanker terminal, tug escort, fast-ferry harbour, DP run, river, ice and rotor-sail passages are written for their own ship types
+  const other = SCENARIOS.filter(s => s.ship !== 'spirit' && !['terminal', 'escort', 'hsc', 'dp', 'river', 'ice', 'rotor'].includes(s.id)).map(s => s.id);
   assert.ok(!other.length, other.join(', '));
 });
 test('Quai 27, channel, swing basin, trials: start clear of structures with ≥ 2 m under the keel', () => {
@@ -335,5 +495,262 @@ test('Channel: width ≈ 8 beams and h/T ≈ 1.36 for the Spirit', () => {
   const ch = SCENARIOS.find(s => s.id === 'canal')!;
   assert.ok(Math.abs(260 / SPIRIT.B - 8) < 0.2 && Math.abs(ch.depth / SPIRIT.T - 1.36) < 0.02);
 });
+
+console.log('waterjet fast ferry');
+import { bucketFrac, jetJoystick, jetSpeed, staticJet, jetForce, leverToJet, jetToLever } from '../src/physics/units/jet';
+import { resistanceCt } from '../src/physics/ship';
+{
+  const HS = SHIPS['hsc-cat'], hm = new Model(HS, Infinity), J0 = HS.pods[0];
+  const blank = (): Cmd => ({ pods: HS.pods.map(() => ({ alpha: 0, rpm: 0, bucket: 1 })), bt: 0 });
+  const runJ = (st: ReturnType<typeof makeState>, c: Cmd, T: number, each?: () => void) => { for (let t = 0; t < T; t += 0.1) { each?.(); updateActuators(HS, st, c, 0.1); rk4(hm, st, calm, still, null, 0.1); } return st; };
+  test('jet momentum: static thrust ρA V_j² with V_j from the pump power balance', () => {
+    const P = 0.88 * J0.P, A = J0.jet!.Anoz, v = jetSpeed(J0.P, A, 0);
+    assert.ok(Math.abs(0.5 * 1025 * A * v * v * v * 1.03 - P) < 1e-6 * P);
+    assert.ok(Math.abs(staticJet(J0, 1) - 1025 * A * v * v) < 1);
+  });
+  test('bucket at zero-thrust position, nozzle midships: no surge force at rest', () => {
+    const f = { X: 0, Y: 0, N: 0, T: 0, Vj: 0, mdot: 0 };
+    jetForce(J0, { alpha: 0, rpm: 0.6, bucket: 0 }, 0, 0, 0, HS.wake, HS.tded, f);
+    assert.ok(Math.abs(f.X) < 1e-6 * staticJet(J0, 0.6), `${f.X}`);
+    assert.ok(bucketFrac(1) === 0 && bucketFrac(-1) === 1);
+  });
+  test('nozzles steer the stern the same way ahead, at bucket zero and astern', () => {
+    for (const b of [1, 0, -1]) {
+      const f = { X: 0, Y: 0, N: 0, T: 0, Vj: 0, mdot: 0 };
+      jetForce(J0, { alpha: 20 * DEG, rpm: 0.7, bucket: b }, 0, 0, 0, HS.wake, HS.tded, f);
+      assert.ok(f.N > 0, `bucket ${b}: N ${f.N.toFixed(0)}`);           // bow to starboard
+    }
+  });
+  test('service speed 36 ± 1.5 kn on 26 MW, and a resistance hump near Fn 0.5', () => {
+    const { Vs } = trialsOf(HS);
+    assert.ok(Math.abs(Vs / KN - 36) < 1.5, `${(Vs / KN).toFixed(1)} kn`);
+    let best = 0, at = 0;
+    for (let Fn = 0.2; Fn <= 0.8; Fn += 0.01) { const c = resistanceCt(HS, Fn * Math.sqrt(9.81 * HS.L), Infinity); if (c > best) { best = c; at = Fn; } }
+    assert.ok(at > 0.42 && at < 0.58, `peak Ct at Fn ${at.toFixed(2)}`);
+  });
+  test('HSC trials: turning 3–8 L tactical diameter, crash stop 1–4 L, turns alike both ways', () => {
+    const { rows } = trialsOf(HS), v = (k: string) => parseFloat(rows.find(r => r.key === k)!.value);
+    assert.ok(v('tact') > 3 && v('tact') < 8, `tact ${v('tact')}`);
+    assert.ok(v('crash') > 1 && v('crash') < 4, `crash ${v('crash')}`);
+    const t = rows.find(r => r.key === 'tact')!; assert.ok(Math.abs(v('tact') - parseFloat(t.note!.replace('port ', ''))) < 0.1);
+    for (const r of rows) assert.ok(!/NaN|undefined/.test(r.value + (r.note ?? '')), `${r.label}: ${r.value}`);
+  });
+  test('pumps held below their cavitation limit at low speed, full power once she is moving', () => {
+    const st = makeState(HS, 0, 0, 0, 0), c = blank(); c.pods.forEach(p => (p.rpm = 1));
+    const out = emptyStatus(4);
+    for (let t = 0; t < 20; t += 0.1) updateActuators(HS, st, c, 0.1, out);
+    assert.ok(st.pods[0].rpm < 0.86 && out.msg[0] === 'CAVITATION LIMIT', `${st.pods[0].rpm} ${out.msg[0]}`);
+    st.u = 22 * KN; for (let t = 0; t < 20; t += 0.1) updateActuators(HS, st, c, 0.1, out);
+    assert.ok(st.pods[0].rpm > 0.99 && (out.msg[0] as string) === 'AHEAD');
+  });
+  test('joystick: full sideways walks her across without running ahead or swinging far', () => {
+    const st = makeState(HS, 0, 0, 0, 0), c = blank();
+    runJ(st, c, 120, () => jetJoystick(HS, c, 0, 1, 0));
+    assert.ok(st.v > 1 * KN && Math.abs(st.u) < 0.5 * KN && Math.abs(st.psi) < 25 * DEG, `v ${(st.v / KN).toFixed(2)} u ${(st.u / KN).toFixed(2)} psi ${(st.psi / DEG).toFixed(0)}`);
+    const y = makeState(HS, 0, 0, 0, 0), cy = blank();
+    runJ(y, cy, 60, () => jetJoystick(HS, cy, 0, 0, -1));
+    assert.ok(y.r < 0 && Math.hypot(y.u, y.v) < 0.5 * KN, 'turns to port on the spot');
+  });
+  test('waterjet lever: bucket band at the centre, impeller beyond, both ways; round trip', () => {
+    const idle = J0.jet!.idle;
+    for (const v of [-1, -0.6, -0.3, -0.1, 0, 0.15, 0.3, 0.5, 1]) assert.ok(Math.abs(jetToLever(leverToJet(v, idle).bucket, leverToJet(v, idle).rpm, idle) - v) < 1e-9, `${v}`);
+    assert.ok(leverToJet(0, idle).bucket === 0 && leverToJet(1, idle).rpm === 1 && leverToJet(-1, idle).bucket === -1);
+  });
+  test('fast ferry harbour: start and berth have water for her, berth off the quay by half her beam', () => {
+    const sc = SCENARIOS.find(x => x.id === 'hsc')!, b = berthFor(sc, HS.B, 0)!;
+    assert.ok(fits(sc, HS.T, b) && Math.abs(b.n - (598.5 - HS.B / 2 - 0.1)) < 1e-9);
+  });
+}
+
+console.log('dynamic positioning');
+import { actuators, allocateDP, capability, DpSystem } from '../src/physics/dp';
+{
+  const PS = SHIPS.psv, acts = actuators(PS), all = acts.map(() => true);
+  const dpRun = (sp: typeof PS, env: Env, T: number, setup?: (rt: Runtime) => void, each?: (rt: Runtime) => void) => {
+    const st = makeState(sp, 0, 0, 0, 0);
+    const rt = new Runtime(sp, st, { pods: sp.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0 }, env, OPEN);
+    rt.dps!.setMode('auto', rt.sensors.out.est); setup?.(rt);
+    for (let i = 0; i < T / 0.05; i++) { rt.step(); each?.(rt); }
+    return rt;
+  };
+  const windy = (kn: number, from: number, cur = 0, set = 0): Env => ({ windSpeed: kn * KN, windFrom: from * DEG, gusts: false, current: () => [cur * KN * Math.cos(set * DEG), cur * KN * Math.sin(set * DEG)], depth: Infinity });
+  test('allocator meets a feasible demand exactly, any mix of azimuths and tunnels', () => {
+    for (const tau of [[2e5, 0, 0], [0, 1.5e5, 0], [0, 0, 5e6], [-1e5, 8e4, -3e6]] as [number, number, number][]) {
+      const al = allocateDP(acts, tau, all);
+      assert.ok(al.residual < 1e-3, `${tau}: residual ${al.residual}`);
+      assert.ok(al.util.every(u => u <= 1 + 1e-9));
+    }
+  });
+  test('allocator never points an azimuth into its forbidden sector', () => {
+    for (let a = 0; a < 360; a += 15) {
+      const al = allocateDP(acts, [3e5 * Math.cos(a * DEG), 3e5 * Math.sin(a * DEG), 0], all);
+      acts.forEach((u, k) => { if (u.kind !== 'azi') return; const [fx, fy] = al.f[k]; if (Math.hypot(fx, fy) < 1) return; const ang = Math.atan2(fy, fx);
+        for (const [a0, a1] of u.forbid) assert.ok(!(ang > a0 + 1e-6 && ang < a1 - 1e-6), `${u.label} at ${(ang / DEG).toFixed(0)}° for demand ${a}°`); });
+    }
+  });
+  test('beyond capability: every unit saturates and the shortfall is reported, not hidden', () => {
+    const al = allocateDP(acts, [0, 2e6, 0], all);
+    assert.ok(al.residual > 0.3 && Math.max(...al.util) > 0.99);
+  });
+  test('capability plot: beam wind holds less than head wind; worst failure below intact everywhere', () => {
+    const c = capability(PS);
+    assert.ok(c.intact[9] < c.intact[0] && c.intact[9] > 25, `beam ${c.intact[9].toFixed(0)} head ${c.intact[0].toFixed(0)} kn`);
+    assert.ok(c.worst.every((v, k) => v <= c.intact[k] + 1e-6) && c.worst[9] < c.intact[9]);
+  });
+  test('PSV on AUTO POS in 25 kn wind and 0.8 kn current: within 2 m and 2° of the setpoint', () => {
+    let e = 0, h = 0;
+    dpRun(PS, windy(25, 60, 0.8, 200), 600, undefined, rt => { if (rt.state.t > 200) { e = Math.max(e, Math.hypot(rt.state.n, rt.state.e)); h = Math.max(h, Math.abs(rt.state.psi)); } });
+    assert.ok(e < 2 && h < 2 * DEG, `${e.toFixed(2)} m ${(h / DEG).toFixed(2)}°`);
+  });
+  test('AHTS on DP (CPP mains, tunnels, retractable azimuth) holds station too', () => {
+    let e = 0;
+    dpRun(SHIPS.ahts, windy(20, 300, 0.5, 90), 600, undefined, rt => { if (rt.state.t > 200) e = Math.max(e, Math.hypot(rt.state.n, rt.state.e)); });
+    assert.ok(e < 3, `${e.toFixed(2)} m`);
+  });
+  test('one aft azimuth trips: the rest take the load and she stays within 5 m', () => {
+    let e = 0;
+    dpRun(PS, windy(20, 90), 600, rt => rt.dps!.fail(0), rt => { if (rt.state.t > 120) e = Math.max(e, Math.hypot(rt.state.n, rt.state.e)); });
+    assert.ok(e < 5, `${e.toFixed(2)} m`);
+  });
+  test('blackout: she drifts off, thrusters restart one by one, DP brings her back', () => {
+    let far = 0, back = Infinity;
+    dpRun(PS, windy(20, 90), 400, rt => rt.dps!.blackout(30), rt => { const d = Math.hypot(rt.state.n, rt.state.e); if (rt.state.t < 80) far = Math.max(far, d); if (rt.state.t > 380) back = Math.min(back, d); });
+    assert.ok(far > 3 && back < 2, `drifted ${far.toFixed(1)} m, back to ${back.toFixed(1)} m`);
+  });
+  test('one drifting DGNSS is outvoted and rejected; both drifting together drive her off', () => {
+    const r1 = dpRun(PS, windy(10, 0), 300, rt => rt.dps!.drift('DGNSS 1', 0.3, 0));
+    assert.ok(r1.dps!.refs[0].rejected && Math.hypot(r1.state.n, r1.state.e) < 2, 'single drift rejected');
+    const r2 = dpRun(PS, windy(10, 0), 200, rt => rt.dps!.drift('common', 0.3, 0));
+    assert.ok(r2.state.n < -20, `drive-off ${r2.state.n.toFixed(1)} m`);      // the references say north, she goes south
+  });
+  test('DP platform scenario: starts clear of the platform, scripted faults', () => {
+    const sc = SCENARIOS.find(x => x.id === 'dp')!;
+    assert.ok(sc.dpScript!.length === 2 && fits(sc, PS.T, sc.berth, false, true) && !fits(sc, PS.T, sc.berth, false, false));
+    setShip('psv'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+    const ci = { active: false, points: [], fenders: [] } as Parameters<typeof contactForces>[3] & object;
+    contactForces(makeState(ACTIVE, sc.start.n, sc.start.e, sc.start.psi, 0), sc.obstacles, sc.fenders, ci);
+    setShip('becancour'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+    assert.ok(!ci.active);
+  });
+  void DpSystem;
+}
+
+console.log('inland · naval · special ships · interaction · ice · rotor sails');
+import { interaction } from '../src/physics/traffic';
+import { lindqvist, IceState } from '../src/physics/ice';
+import { rotorForce } from '../src/physics/sim';
+import { Traffic } from '../src/physics/traffic';
+import { helm as helmTo, engines as eng, primeRunning as prime } from '../src/physics/pilot';
+{
+  const SP = SHIPS.spirit, KC = SHIPS.kcs;
+  const at = (n: number, e: number, psi: number, kn: number) => ({ n, e, psi: psi * DEG, u: kn * KN });
+  test('passing ship abeam on the starboard side: she is drawn toward it, little yaw', () => {
+    const f = interaction(SP, at(0, 0, 0, 8), KC, at(0, 60, 0, 10), 14);
+    assert.ok(f.Y > 0 && Math.abs(f.N) < 0.2 * Math.abs(f.Y) * SP.L, `Y ${f.Y.toFixed(0)} N ${f.N.toFixed(0)}`);
+  });
+  test('another ship coming up on the starboard bow pushes the bow away; at the quarter it draws the bow in', () => {
+    const fwd = interaction(SP, at(0, 0, 0, 8), KC, at(130, 60, 180, 10), 14), aft = interaction(SP, at(0, 0, 0, 8), KC, at(-130, 60, 180, 10), 14);
+    assert.ok(fwd.N < 0 && aft.N > 0, `fwd ${fwd.N.toFixed(0)} aft ${aft.N.toFixed(0)}`);
+  });
+  test('interaction: grows in shallow water and with speed, falls off with the gap, nothing when crossing', () => {
+    const deep = interaction(SP, at(0, 0, 0, 8), KC, at(0, 60, 0, 10), Infinity).Y, shallow = interaction(SP, at(0, 0, 0, 8), KC, at(0, 60, 0, 10), 10).Y;
+    const far = interaction(SP, at(0, 0, 0, 8), KC, at(0, 160, 0, 10), 10).Y, fast = interaction(SP, at(0, 0, 0, 8), KC, at(0, 60, 0, 15), 10).Y;
+    assert.ok(shallow > 1.2 * deep && far < 0.3 * shallow && fast > shallow);
+    assert.ok(interaction(SP, at(0, 0, 0, 8), KC, at(0, 60, 90, 10), 10).Y === 0);
+  });
+  test('channel meeting and overtaking: the traffic runs, forces stay finite, no collision on a held course', () => {
+    const sc = SCENARIOS.find(x => x.id === 'meet')!;
+    setShip('spirit'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+    const st = makeState(SP, sc.start.n, sc.start.e, sc.start.psi, sc.start.kn); st.pods.forEach(p => (p.rpm = 7 / SP.vmaxKn));
+    const rt = new Runtime(SP, st, { pods: SP.pods.map(() => ({ alpha: 0, rpm: 7 / SP.vmaxKn })), bt: 0 }, { ...calm, depth: sc.depth }, harbourOf(sc));
+    rt.traffic = sc.traffic!.map(t => new Traffic(SHIPS[t.ship], t));
+    let peak = 0;
+    for (let i = 0; i < 20 * 900; i++) {
+      // a helmsman holding 000° on the starboard side of the channel
+      const a = Math.max(-0.35, Math.min(0.35, -1.5 * (0 - st.psi) - 40 * st.r - 0.004 * (45 - st.e)));
+      rt.cmd.pods.forEach(p => (p.alpha = a));
+      rt.step(); peak = Math.max(peak, Math.abs(rt.inter.Y));
+    }
+    setShip('becancour'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+    assert.ok(isFinite(peak) && peak > 5e4, `peak ${(peak / 1e3).toFixed(0)} kN`);
+    assert.ok(!rt.alerts.some(a => /COLLISION/.test(a.text)), rt.alerts.map(a => a.text).join());
+  });
+  test('rotor sails: beam wind gives thrust ahead near spin ratio 3; head wind, they stop', () => {
+    const R = SHIPS['panamax-rotor'], V = 12;
+    const beam = rotorForce(R, 0, -V, V), head = rotorForce(R, -V, 0, V);   // air moving to port / aft relative to the ship
+    const q = 0.5 * 1.225 * V * V * 5 * 30;
+    assert.ok(beam.on && beam.X > 4 * 5 * q && beam.SR >= 2.5, `X ${(beam.X / 1e3).toFixed(0)} kN SR ${beam.SR}`);
+    assert.ok(!head.on && head.X < 0);
+  });
+  test('rotor sails add speed in a beam wind on the same engine order', () => {
+    const R = SHIPS['panamax-rotor'], m1 = new Model(R, Infinity), m0 = new Model(R, Infinity); m0.rotorsOn = false;
+    const run = (m: Model) => { const st = makeState(R, 0, 0, 0, 11); prime(R, st, 0.55); const c: Cmd = { pods: R.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0 }; eng(R, c, 0.55);
+      for (let t = 0; t < 1200; t += 0.2) { helmTo(R, c, Math.max(-0.2, Math.min(0.2, -1.5 * st.psi - 40 * st.r))); updateActuators(R, st, c, 0.2); rk4(m, st, calm, { V: 25 * KN, from: 90 * DEG }, null, 0.2); } return st.u; };
+    const on = run(m1), off = run(m0);
+    assert.ok(on > off + 0.3 * KN, `${(on / KN).toFixed(2)} vs ${(off / KN).toFixed(2)} kn`);
+  });
+  test('push convoy: flanking rudders steer her going astern; the main rudders alone barely do', () => {
+    const PC = SHIPS['push-convoy'];
+    const noFlank: typeof PC = { ...PC, pods: PC.pods.map(p => ({ ...p, shaft: { ...p.shaft!, rudder: { ...p.shaft!.rudder!, flank: undefined } } })) };
+    const yaw = (sp: typeof PC) => { const m = new Model(sp, 5), st = makeState(sp, 0, 0, 0, 0); const c: Cmd = { pods: sp.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0 }; eng(sp, c, -0.6); helmTo(sp, c, 40 * DEG);
+      for (let t = 0; t < 90; t += 0.1) { updateActuators(sp, st, c, 0.1); rk4(m, st, { ...calm, depth: 5 }, still, null, 0.1); } return st.psi; };
+    const a = yaw(PC), b = yaw(noFlank);
+    assert.ok(Math.abs(a) > 3 * Math.abs(b) && Math.abs(a) > 5 * DEG, `with ${(a / DEG).toFixed(1)}° without ${(b / DEG).toFixed(1)}°`);
+  });
+  test('push convoy stops on her reversing gearboxes in under 5 lengths', () => {
+    const { rows } = trialsOf(SHIPS['push-convoy']);
+    const c = parseFloat(rows.find(r => r.key === 'crash')!.value);
+    assert.ok(c < 5, `${c} L`);
+  });
+  test('river flow follows the bend; the convoy starts in mid-river with water under her', () => {
+    const sc = SCENARIOS.find(x => x.id === 'river')!, f = currentField(sc, 3, 0);
+    const [a, b] = f(-1000, 0), [c, d] = f(700, 1500), [g, h] = f(Math.cos(-Math.PI / 4) * 700, 700 + Math.sin(-Math.PI / 4) * 700);
+    assert.ok(a > 1.5 && Math.abs(b) < 1e-9 && d > 1.5 && Math.abs(c) < 1e-9 && g > 0.9 && h > 0.9, `${a} ${b} ${c} ${d} ${g} ${h}`);
+    assert.ok(fits(sc, SHIPS['push-convoy'].T));
+  });
+  test('Lindqvist ice resistance: grows with thickness and speed; an icebreaker makes headway in 0.8 m at full power', () => {
+    const IB = SHIPS.icebreaker;
+    assert.ok(lindqvist(IB, 1.2, 2).R > lindqvist(IB, 0.8, 2).R && lindqvist(IB, 0.8, 3).R > lindqvist(IB, 0.8, 1).R);
+    const sc = SCENARIOS.find(x => x.id === 'ice')!;
+    const st = makeState(IB, 300, 0, 0, 3), rt = new Runtime(IB, st, { pods: IB.pods.map(() => ({ alpha: 0, rpm: 1 })), bt: 0 }, calm, OPEN);
+    st.pods.forEach(p => (p.rpm = 1)); rt.ice = new IceState(sc.ice!.slice(1));
+    for (let i = 0; i < 20 * 240; i++) rt.step();
+    assert.ok(rt.ice.inIce && st.u > 4 * KN && st.u < 14 * KN, `${(st.u / KN).toFixed(1)} kn in 0.8 m`);
+    // back down her own channel: much less resistance
+    const R1 = rt.ice.R; st.psi = Math.PI; st.u = 3; st.n -= 200;
+    rt.ice.force(IB, st); const R2 = rt.ice.R;
+    assert.ok(rt.ice.brash && R2 < 0.3 * R1, `level ${(R1 / 1e3).toFixed(0)} kN, channel ${(R2 / 1e3).toFixed(0)} kN`);
+  });
+  test('icebreaker in 1.8 m level ice: 1.2–5 kn (the class is rated for 1.8 m at 3 kn)', () => {
+    const IB = SHIPS.icebreaker, st = makeState(IB, 300, 0, 0, 3);
+    const rt = new Runtime(IB, st, { pods: IB.pods.map(() => ({ alpha: 0, rpm: 1 })), bt: 0 }, calm, OPEN);
+    st.pods.forEach(p => (p.rpm = 1)); rt.ice = new IceState([{ poly: [[0, -3000], [0, 3000], [9000, 3000], [9000, -3000]], h: 1.8 }]);
+    for (let i = 0; i < 20 * 400; i++) rt.step();
+    assert.ok(st.u > 1.2 * KN && st.u < 5 * KN, `${(st.u / KN).toFixed(1)} kn`);
+  });
+  test('ice: no push at rest, and turning in level ice is resisted', () => {
+    const IB = SHIPS.icebreaker, ice = new IceState([{ poly: [[-1e4, -1e4], [-1e4, 1e4], [1e4, 1e4], [1e4, -1e4]], h: 0.8 }]);
+    const rest = ice.force(IB, makeState(IB, 0, 0, 0, 0)); assert.ok(rest.X === 0 && rest.Y === 0 && rest.N === 0);
+    const st = makeState(IB, 0, 0, 0, 2); st.r = 0.02; const f = ice.force(IB, st);
+    assert.ok(f.X < 0 && f.N < 0);
+  });
+  for (const id of ['icebreaker', 'push-convoy', 'frigate', 'superyacht', 'panamax-rotor', 'psv', 'ahts']) {
+    test(`${SHIPS[id].name}: trials speed within 1.5 kn of the rated ${SHIPS[id].vmaxKn} kn, no NaN`, () => {
+      const { rows, Vs } = trialsOf(SHIPS[id]);
+      assert.ok(Math.abs(Vs / KN - SHIPS[id].vmaxKn) < 1.5, `${(Vs / KN).toFixed(1)} kn`);
+      for (const r of rows) assert.ok(!/NaN|undefined/.test(r.value), `${r.label}: ${r.value}`);
+    });
+  }
+  test('new scenarios start their own ship clear of every structure with water under her', () => {
+    for (const id of ['meet', 'river', 'ice', 'rotor']) {
+      const sc = SCENARIOS.find(x => x.id === id)!, sp = SHIPS[sc.ship!];
+      setShip(sp.id); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+      const ci = { active: false, points: [], fenders: [] } as Parameters<typeof contactForces>[3] & object;
+      contactForces(makeState(ACTIVE, sc.start.n, sc.start.e, sc.start.psi, 0), sc.obstacles, sc.fenders, ci);
+      assert.ok(!ci.active && depthAt(sc)(sc.start.n, sc.start.e) > sp.T, id);
+    }
+    setShip('becancour'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+  });
+}
 
 console.log(`\n${pass} passed${process.exitCode ? ', some failed' : ''}`);

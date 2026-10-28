@@ -2,6 +2,7 @@
 import { DEG, KN, ShipSpec } from './ship';
 import { Command, Env, Model, ShipState, cloneState, holdCourse, makeState, rk4, updateActuators, wrap } from './sim';
 import { squat } from './harbour';
+import { engines, fullAstern, helm, isHelmShip, isJetShip, primeRunning } from './pilot';
 
 const DT = 0.2;
 const calm = (depth = Infinity): Env => ({ windSpeed: 0, windFrom: 0, gusts: false, current: () => [0, 0], depth });
@@ -69,6 +70,7 @@ function stopping(model: Model, spec: ShipSpec, start: ShipState, env: Env, labe
 }
 
 export function buildPoster(spec: ShipSpec): Poster {
+  if (isHelmShip(spec)) return buildShaftPoster(spec);
   const deep = new Model(spec, Infinity);
   const shallowDepth = 1.2 * spec.T;
   const shallow = new Model(spec, shallowDepth);
@@ -95,5 +97,77 @@ export function buildPoster(spec: ShipSpec): Poster {
   return {
     speedTable, turning: [t1.out, t2.out], stopping: [s1.out, s2.out, s3.out], thruster, squatTable, windDrift,
     paths: { turn: [t1.path, t2.path], stop: [s1.path, s2.path, s3.path] }, minSteerKn,
+  };
+}
+
+// ---------------------------------------------------------------- telegraph ships
+function steadyShaft(model: Model, spec: ShipSpec, f: number, env: Env): ShipState {
+  // start near equilibrium: a big ship takes most of an hour to lose surplus way
+  const st = makeState(spec, 0, 0, 0, spec.vmaxKn * f); primeRunning(spec, st, f);
+  const cmd: Command = { pods: spec.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0 }; engines(spec, cmd, f);
+  for (let t = 0; t < 1500; t += DT) {
+    helm(spec, cmd, Math.max(-0.17, Math.min(0.17, 1.5 * wrap(-st.psi) - 40 * st.r)));
+    updateActuators(spec, st, cmd, DT); rk4(model, st, env, { V: 0, from: 0 }, null, DT);
+  }
+  st.t = 0; st.n = 0; st.e = 0; st.psi = 0; st.r = 0; st.v = 0; st.pods.forEach(p => (p.alpha = 0));
+  return st;
+}
+function run(model: Model, spec: ShipSpec, st: ShipState, cmd: Command, env: Env, T: number, each: (s: ShipState) => boolean | void) {
+  for (let t = 0; t < T; t += DT) { updateActuators(spec, st, cmd, DT); rk4(model, st, env, { V: 0, from: 0 }, null, DT); if (each(st)) break; }
+}
+function buildShaftPoster(spec: ShipSpec): Poster {
+  const sh = spec.pods[0].shaft, jets = isJetShip(spec), cpp = !!sh?.prop.cpp;
+  const deep = new Model(spec, Infinity), shallowDepth = 1.2 * spec.T, shallow = new Model(spec, shallowDepth);
+  const steps = cpp ? [0.2, 0.4, 0.6, 0.8, 1] : jets ? [0.4, 0.55, 0.7, 0.85, 1] : sh!.telegraph.ahead;
+  const speedTable = steps.map(f => ({ rpm: f, kn: steadyShaft(deep, spec, f, calm()).u / KN }));
+  const full = steadyShaft(deep, spec, steps[steps.length - 1], calm());
+  const manFull = steadyShaft(deep, spec, steps[3], calm());
+  const halfShallow = steadyShaft(shallow, spec, steps[2], calm(shallowDepth));
+  const turn = (model: Model, start: ShipState, env: Env, label: string) => {
+    const st = cloneState(start), cmd: Command = { pods: spec.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0 };
+    engines(spec, cmd, cpp ? (st.pods[0].pitch ?? 1) : st.pods[0].rpm); helm(spec, cmd, 35 * DEG);
+    let dpsi = 0, last = st.psi, rec = 0;
+    const out = { label, adv: NaN, tr: NaN, td: NaN, t90: NaN, t180: NaN, t360: NaN, vEnd: 0 };
+    const path: Path = { label, pts: [[0, 0]], marks: [] };
+    run(model, spec, st, cmd, env, 2400, s => {
+      dpsi += wrap(s.psi - last); last = s.psi;
+      rec += DT; if (rec >= 2) { rec = 0; path.pts.push([s.e, s.n]); }
+      const deg = dpsi / DEG;
+      for (const [a, key] of [[90, 't90'], [180, 't180'], [360, 't360']] as const) if (isNaN(out[key]) && deg >= a) {
+        out[key] = s.t; path.marks.push({ x: s.e, y: s.n, t: s.t, label: `${a}°` });
+        if (a === 90) { out.adv = s.n; out.tr = s.e; }
+        if (a === 180) out.td = s.e;
+      }
+      if (deg >= 360) { out.vEnd = s.u / KN; return true; }
+    });
+    return { out, path };
+  };
+  const stop = (start: ShipState, label: string) => {
+    const st = cloneState(start), cmd: Command = { pods: spec.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0 };
+    engines(spec, cmd, fullAstern(spec));
+    let path = 0, pn = 0, pe = 0, rec = 0;
+    const pts: [number, number][] = [[0, 0]], marks: Path['marks'] = [];
+    run(deep, spec, st, cmd, calm(), 2400, s => {
+      path += Math.hypot(s.n - pn, s.e - pe); pn = s.n; pe = s.e;
+      rec += DT; if (rec >= 2) { rec = 0; pts.push([s.e, s.n]); }
+      return s.u <= 0.25;
+    });
+    marks.push({ x: st.e, y: st.n, t: st.t, label: `${Math.round(st.t)} s` });
+    return { out: { label, track: path, head: st.n, side: st.e, time: st.t }, path: { label, pts, marks } };
+  };
+  const t1 = turn(deep, full, calm(), 'Full sea speed, deep'), t2 = turn(shallow, halfShallow, calm(shallowDepth), 'Half ahead, h/T 1.2');
+  const s1 = stop(full, 'Full sea speed → full astern'), s2 = stop(manFull, 'Full ahead → full astern');
+  const s3 = stop(steadyShaft(deep, spec, steps[2], calm()), 'Half ahead → full astern');
+  const thruster = [0, 1, 2, 3, 4, 5, 6].map(kn => ({ kn, eff: 1 / (1 + (kn * KN / 1.6) ** 2) }));
+  const squatTable: Poster['squatTable'] = [];
+  for (const conf of [0, 1]) for (const kn of [4, 6, 8, 10, 12]) squatTable.push({ kn, hT: conf, sq: squat(spec, kn * KN, 1.2 * spec.T, conf) });
+  const windDrift = [10, 20, 30, 40].map(kn => {
+    const st = makeState(spec, 0, 0, 0, 0), cmd: Command = { pods: spec.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0 };
+    for (let t = 0; t < 600; t += 0.5) { updateActuators(spec, st, cmd, 0.5); rk4(deep, st, calm(), { V: kn * KN, from: 90 * DEG }, null, 0.5); }
+    return { kn, drift: Math.hypot(st.u, st.v) / KN };
+  });
+  return {
+    speedTable, turning: [t1.out, t2.out], stopping: [s1.out, s2.out, s3.out], thruster, squatTable, windDrift,
+    paths: { turn: [t1.path, t2.path], stop: [s1.path, s2.path, s3.path] }, minSteerKn: speedTable[0].kn,
   };
 }

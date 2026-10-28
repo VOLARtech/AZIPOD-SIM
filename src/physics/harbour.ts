@@ -1,12 +1,13 @@
 // Restricted-water effects: depth field, squat, grounding, bank suction, pod wash reflection.
 import { G, KN, RHO, ShipSpec } from './ship';
 import type { Obstacle, Pt } from './contact';
+import { unitAxis } from './units/kinds';
 import type { ShipState, Wrench } from './sim';
 
 export interface Shoal { poly: Pt[]; depth: number; label?: string }
 export type DepthField = (n: number, e: number) => number;
 
-function inPoly(n: number, e: number, poly: Pt[]) {
+export function inPoly(n: number, e: number, poly: Pt[]) {
   let ins = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const [ni, ei] = poly[i], [nj, ej] = poly[j];
@@ -171,7 +172,7 @@ export function washReflection(spec: ShipSpec, st: ShipState, thrusts: number[],
   spec.pods.forEach((p, i) => {
     const T = thrusts[i];
     if (Math.abs(T) < 20e3) return;
-    const a = st.pods[i].alpha + p.alphaOffset, sg = T > 0 ? -1 : 1;
+    const a = unitAxis(p, st.pods[i]), sg = T > 0 ? -1 : 1;
     const wx = Math.cos(a) * sg, wy = Math.sin(a) * sg;          // wash direction, body
     const dn = wx * c - wy * s, de = wx * s + wy * c;            // wash direction, world
     const pn = st.n + p.x * c - p.y * s, pe = st.e + p.x * s + p.y * c;

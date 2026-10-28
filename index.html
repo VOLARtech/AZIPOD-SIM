@@ -72,6 +72,7 @@
   </section>
 
   <footer class="tray">
+    <div class="st-az" id="st-az">
     <div class="pod port">
       <div class="podrow">
         <canvas class="dial" id="dial-0" aria-label="Port Azipod azimuth"></canvas>
@@ -99,6 +100,8 @@
       </div>
       <div class="podread"><span class="tag" id="pt-1">STBD</span><span id="pr-1">000° 0%</span></div>
     </div>
+    </div>
+    <div class="st-gen" id="st-gen" hidden aria-label="Bridge controls"></div>
   </footer>
 
   <div class="toast" id="toast" role="status" aria-live="polite" hidden><span id="toast-text"></span><button id="toast-act" class="cb" hidden></button><button id="toast-x" class="x" aria-label="Dismiss">×</button></div>
@@ -106,7 +109,7 @@
   <section class="gate" id="gate" hidden aria-labelledby="gate-h">
     <div class="gate-card">
       <h1 id="gate-h">Azipod Bridge</h1>
-      <p>A training simulator for twin-Azipod ship handling. The physics is a published-model approximation, checked against model tests, and it will differ from any real ship.</p>
+      <p>A training simulator for ship handling: Azipod cruise ships, and single-screw tankers, container ships and bulk carriers on engine telegraph and wheel. The physics is a published-model approximation, checked against model tests, and it will differ from any real ship.</p>
       <p><b>Not for navigation.</b> Do not use it to plan or conduct a real manoeuvre.</p>
       <button id="gate-ok" class="cb">I UNDERSTAND</button>
     </div>
@@ -120,6 +123,9 @@
       </div>
       <p class="ship" id="shipline"></p>
 
+      <details class="sec" open><summary><h2>Ship</h2></summary>
+      <div id="ships" class="scen ships"></div>
+      </details>
       <details class="sec" open><summary><h2>Scenario</h2></summary>
       <div id="scenarios" class="scen"></div>
       </details>

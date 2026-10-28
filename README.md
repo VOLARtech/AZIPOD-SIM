@@ -1,6 +1,6 @@
 # Azipod Bridge
 
-A twin-Azipod ship-handling simulator that runs in any modern browser, on phone or desktop, and keeps working offline once installed.
+A ship-handling simulator that runs in any modern browser, on phone or desktop, and keeps working offline once installed. It started as a twin-Azipod trainer and now covers 22 ships across every common propulsion type, from a 31 m Voith tug to a 24 000 TEU container ship.
 
 **Open it:** https://volartech.github.io/AZIPOD-SIM/
 
@@ -28,10 +28,31 @@ Installed copies update themselves; the app offers a **RELOAD** button when a ne
 - **3D view** (v3): out-of-the-window view from the wheelhouse, either bridge wing, or a chase camera, as a split screen with the chart or full screen. Drag to look around, pinch or scroll to zoom (binoculars), double-tap to reset. In the chase camera, drag down to take the camera below the surface (or pick the PODS camera): the Azipods turn to their actual azimuth, slewing at the real rate, the propellers spin with the actual rpm and reverse with it, and the wash streams bubbles in the jet direction; bow thruster tunnels show on both sides. Day, dusk and night follow the chart palette; navigation lights, quay lamps, compressing fenders, sagging mooring lines, tugs, and the predicted track on the water. Uses WebGPU where the browser has it and WebGL2 otherwise; loaded only when you open it. Physically based sky with clouds lights the scene (image-based lighting, ACES tone mapping); the sun casts shadows; the water reflects the sky (and, at High quality, the ship and quays through a planar mirror) with Fresnel and sun glitter; ambient occlusion at High quality; foam from each pod's actual wash, the bow thruster jet, the bow wave and the stern wake. *3D quality* (Auto / Low / High) under Sensors & display: Auto picks High on desktops, Low on phones. PortMiami scenery: land from the NOAA ENC, and about 13,000 buildings with their real footprints and heights, parks and beaches, roads and bridges (MacArthur Causeway, Port Boulevard), palms and the port's 14 container gantries from OpenStreetMap; facades get window grids that reflect the sky by day and light up at night. Building and road data © OpenStreetMap contributors, available under the Open Database License (ODbL 1.0); `tools/osm/` fetches (GitHub Actions, `osm data` workflow) and builds it.
 - **Conning display**: readouts from simulated DGNSS / gyro / ROT / log / anemometer (optional AIS-feed lag), dynamic predictor with ghost hulls and what-if tracks, forward/aft side speed, joystick with heading and position hold.
 - **IMO A.601 pilot card and wheelhouse poster** generated from the model, plus **validation** against the published 277 m twin-Azipod stopping tests (TransNav).
+- **Fleet and propulsion** (pick a ship in the menu; each brings its own bridge station). The plan behind it is in [`docs/expansion/PLAN.md`](docs/expansion/PLAN.md).
+
+  | Propulsion | Ships | Station |
+  | --- | --- | --- |
+  | Twin Azipods | Spirit-class and Lady-class cruise ships, 135 m training ship; three-pod icebreaker | Azipod levers and joystick; combi-levers on the icebreaker |
+  | Single screw, direct-reversing two-stroke | VLCC on the KVLCC2 hull (laden and ballast), 3600 TEU container ship on the KCS hull, Panamax bulker (also with four Flettner rotor sails), 24 000 TEU container ship, twin-skeg LNG carrier | Engine telegraph, helm, rpm gauge, starting air |
+  | Twin CPP, flap rudders | Ro-Pax ferry, frigate on the DTMB 5415 hull | Pitch levers (constant rpm or combinator) |
+  | Electric shafts | Twin-screw cruise ship, superyacht | Propulsion levers through zero |
+  | Reversing gearboxes, flanking rudders | Four-barge push convoy | Levers, helm for steering and flanking rudders |
+  | Z-drives, Voith Schneider, three azimuths | ASD escort tug, Voith tractor tug, rotor tug | Combi-levers or VSP pads, towline winch, heel |
+  | Waterjets | 70 m fast-ferry catamaran | Bucket/rpm levers, nozzle helm, joystick, comfort |
+  | DP thruster suites | Platform supply vessel, anchor-handling tug | DP console |
+
+- **Propulsion physics**: MMG-standard shaft, propeller and rudder (Yasukawa & Yoshimura 2015) with transverse thrust, four-quadrant propeller, flap and Schilling rudders; two-stroke engine with air starts, reversal, minimum and barred speeds, load programme and stalls; CPP with pitch servo; Z-drives and Azipods on the pod model; Voith Schneider as a lagged thrust vector; waterjets from momentum flux with a pump power balance, reversing bucket, cavitation limit; tunnel thrusters; power management on the switchboard. KVLCC2 matches an independent implementation of the published MMG model within 1 % in turning and zig-zags.
+- **Hulls**: Clarke's derivatives for most ships, the published MMG hull for KVLCC2, catamaran demi-hulls with the resistance hump of fast slender hulls, tug fallbacks where Clarke's regression runs out, and a lifting skeg.
+- **Trials**: IMO MSC.137(76) turning, initial turning, zig-zags and stopping for conventional ships; reported but not graded for pods, VSP and waterjets; HSC turning, crash stop and passenger accelerations against the HSC Code.
+- **Tugs and escort**: roll as a fourth degree of freedom from the lateral forces and their heights (deck edge, girting, capsize); an HMPE towline with brake, render, heave, pay out and quick release; the escorted VLCC runs her own model and autopilot, and her rudder jams on cue.
+- **Dynamic positioning**: thrust allocation over every unit with forbidden sectors and saturation; joystick, auto heading and auto position with wind feed-forward; three position references with median voting; consequence analysis; capability plot intact and after the worst single failure; instructor faults (unit trip, blackout and restart, single and common-mode DGNSS drift).
+- **Other ships, ice and wind**: ship–ship interaction when meeting and overtaking (shape after Varyani et al. 2004), traffic on scripted tracks; level ice from Lindqvist (1989) with the broken channel behind the ship; Flettner rotor sails on Magnus lift; river currents that follow the bend.
+- **More scenarios**: crude-oil jetty, tug escort of a laden VLCC, channel meeting and overtaking, river bend with a bridge span, fast ferry entering harbour at speed, DP supply run at a platform, breaking a channel in ice, ocean passage under rotor sails.
+- **Regression**: `npm run golden` re-runs the original Azipod ships through every scenario, the predictor, trials and validation and compares at full precision, so new ships and units never change the old ones.
 
 ## Keys
 
-Port pod `A` `D` azimuth, `W` `S` rpm · stbd pod `J` `L`, `I` `K` · bow thruster `Q` `E` · joystick arrows · `H` head-up · `V` chart / split / 3D · `C` 3D camera.
+Azipod ships: port pod `A` `D` azimuth, `W` `S` rpm · stbd pod `J` `L`, `I` `K` · bow thruster `Q` `E` · joystick arrows. Telegraph and lever ships: `W` `S` engine order, `A` `D` helm, `X` stop, `M` midships. Waterjets: `J` joystick mode. DP: `1` `2` `3` modes, `W` `A` `S` `D` `Q` `E` joystick, `I` `J` `K` `L` `U` `O` move the setpoint. Everywhere: `H` head-up · `V` chart / split / 3D · `C` 3D camera.
 
 ## Develop
 
@@ -39,6 +60,7 @@ Port pod `A` `D` azimuth, `W` `S` rpm · stbd pod `J` `L`, `I` `K` · bow thrust
 npm ci
 npm run dev          # local dev server
 npm test             # physics and control regression tests
+npm run golden       # Azipod ships bit-identical to the reference
 npm run trials       # IMO-style sea trials in the terminal
 npm run validate     # 277 m stopping-test comparison
 npm run build:all    # dist/ = PWA + azipod-bridge-offline.html

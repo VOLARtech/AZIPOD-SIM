@@ -1,0 +1,63 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+@font-face { font-family: "Barlow Condensed"; font-weight: 500; src: url(../../../../node_modules/@fontsource/barlow-condensed/files/barlow-condensed-latin-500-normal.woff2); }
+@font-face { font-family: "Barlow Condensed"; font-weight: 600; src: url(../../../../node_modules/@fontsource/barlow-condensed/files/barlow-condensed-latin-600-normal.woff2); }
+@font-face { font-family: "Barlow Condensed"; font-weight: 700; src: url(../../../../node_modules/@fontsource/barlow-condensed/files/barlow-condensed-latin-700-normal.woff2); }
+@font-face { font-family: "Barlow"; font-weight: 400; src: url(../../../../node_modules/@fontsource/barlow/files/barlow-latin-400-normal.woff2); }
+@font-face { font-family: "Barlow"; font-weight: 500; src: url(../../../../node_modules/@fontsource/barlow/files/barlow-latin-500-normal.woff2); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 400; src: url(../../../../node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 500; src: url(../../../../node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2); }
+:root {
+  --water: #06121a; --water2: #0a1c27; --grid: #10283a; --land: #2b2513; --landEdge: #5e512a; --shoal: #0d2a3a; --ink: #d4c49a; --muted: #7d7660; --panel: rgba(6,13,18,0.92); --panelSolid: #08121a; --rule: #1e3242; --own: #d27a2a; --hull: #13232e; --port: #d2475a; --stbd: #36ad66; --predict: #c4489a; --warn: #e0583a; --ok: #36ad66; --sound: #5f7380; --contour: #2c4757; --info: #4f9fbf;
+  --font-label: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --font-body: "Barlow", system-ui, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; overflow: hidden; }
+body { background: var(--water); color: var(--ink); font-family: var(--font-body); position: relative; }
+svg text { font-family: var(--font-label); }
+.lab, .tag { font-family: var(--font-label); font-weight: 600; letter-spacing: 0.08em; font-size: 12px; color: var(--muted); text-transform: uppercase; }
+.val { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-weight: 500; }
+.unit { font-family: var(--font-label); font-size: 12px; color: var(--muted); }
+.mono { font-family: var(--font-num); }
+.hud { position: absolute; left: 0; right: 0; top: 0; z-index: 3; background: var(--panel); border-bottom: 1px solid var(--rule); padding: 10px 16px 8px; }
+.hud-row { display: flex; align-items: baseline; gap: 6px 30px; flex-wrap: wrap; }
+.hud .cell { display: flex; align-items: baseline; gap: 6px; }
+.hud .primary .val { font-size: 26px; }
+.hud .secondary { margin-top: 2px; }
+.hud .secondary .val { font-size: 22px; }
+.hud .env { font-family: var(--font-num); font-size: 11.5px; color: var(--muted); margin-top: 6px; gap: 4px 28px; }
+.c-port { color: var(--port) !important; } .c-stbd { color: var(--stbd) !important; } .c-own { color: var(--own) !important; }
+.c-warn { color: var(--warn) !important; } .c-ok { color: var(--ok) !important; } .c-muted { color: var(--muted) !important; } .c-info { color: var(--info) !important; }
+.mb { font-family: var(--font-label); font-weight: 600; letter-spacing: 0.08em; font-size: 12px; min-width: 56px; height: 32px; padding: 0 10px;
+  border-radius: 3px; background: var(--panel); border: 1px solid var(--rule); color: var(--muted); display: inline-flex; align-items: center; justify-content: center; }
+.mb.on { color: var(--ink); border-color: var(--own); }
+.mapbtns { position: absolute; z-index: 3; left: 16px; display: flex; gap: 6px; }
+.shipchip { position: absolute; z-index: 3; right: 16px; display: flex; align-items: center; gap: 10px; padding: 6px 12px 6px 8px;
+  background: var(--panel); border: 1px solid var(--rule); border-radius: 3px; }
+.shipchip .nm { font-family: var(--font-label); font-weight: 700; font-size: 15px; letter-spacing: 0.02em; }
+.shipchip .sp { font-family: var(--font-num); font-size: 11px; color: var(--muted); }
+.flag { position: absolute; z-index: 3; font-family: var(--font-label); font-weight: 600; letter-spacing: 0.06em; font-size: 13px;
+  padding: 4px 10px; border-radius: 3px; background: var(--panelSolid); border: 1px solid var(--rule); }
+.flag.heavy { color: var(--warn); border-color: var(--warn); } .flag.good { color: var(--ok); border-color: var(--ok); } .flag.info { color: var(--info); border-color: var(--info); }
+.tray { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; background: var(--panel); border-top: 1px solid var(--rule); padding: 10px 16px 12px;
+  display: flex; gap: 10px; align-items: stretch; justify-content: center; }
+.pn { border: 1px solid var(--rule); border-radius: 4px; padding: 8px 10px 8px; display: flex; flex-direction: column; align-items: center; gap: 4px; background: color-mix(in srgb, var(--panelSolid) 70%, transparent); }
+.pn > .tag { align-self: stretch; display: flex; justify-content: space-between; gap: 10px; }
+.pn > .tag b { color: var(--ink); font-weight: 600; }
+.rd { font-family: var(--font-num); font-size: 12px; font-variant-numeric: tabular-nums; display: flex; gap: 8px; align-items: baseline; }
+.rd .k { font-family: var(--font-label); font-weight: 600; letter-spacing: 0.08em; font-size: 11px; color: var(--muted); }
+.cb { font-family: var(--font-label); font-weight: 600; letter-spacing: 0.08em; font-size: 12px; height: 30px; border-radius: 3px; border: 1px solid var(--rule);
+  color: var(--muted); display: flex; align-items: center; justify-content: center; padding: 0 10px; }
+.cb.on { color: var(--ink); border-color: var(--own); } .cb.warn { color: var(--warn); border-color: var(--warn); }
+.row { display: flex; gap: 6px; } .col { display: flex; flex-direction: column; gap: 6px; }
+.chip { font-family: var(--font-label); font-weight: 600; letter-spacing: 0.06em; font-size: 11px; padding: 2px 7px; border-radius: 2px; border: 1px solid var(--rule); color: var(--muted); white-space: nowrap; }
+.chip.on { color: var(--ink); border-color: var(--own); } .chip.ok { color: var(--ok); border-color: var(--ok); } .chip.info { color: var(--info); border-color: var(--info); } .chip.warn { color: var(--warn); border-color: var(--warn); }
+.meter { width: 100%; height: 6px; border-radius: 3px; background: var(--rule); position: relative; overflow: hidden; }
+.meter > i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink); border-radius: 3px; }
+.legend { position: absolute; z-index: 3; font-family: var(--font-num); font-size: 10.5px; color: var(--muted); }
+.ph { position:absolute; top:28px; width:390px; height:844px; border-radius:36px; overflow:hidden; box-shadow: 0 0 0 10px #000, 0 0 0 11px var(--rule); }
+    .cap { position:absolute; top:360px; width:380px; font-size:15px; line-height:1.5; } .cap h2 { font-family:var(--font-label); font-weight:700; font-size:26px; margin-bottom:8px; }</style></head>
+<body style="width:1440px;height:900px"><iframe class="ph" style="left:290px;border:0" src="08-mobile-a.html"></iframe><iframe class="ph" style="left:760px;border:0" src="08-mobile-b.html"></iframe>
+    <div class="cap" style="left:1190px;width:230px"><h2>Phone</h2>The station reflows rather than shrinks. Telegraph and helm stay full height for thumbs, gauges become readouts, and tug orders and coach notes move behind tabs. Touch targets are at least 44 px. The fleet becomes a bottom sheet filtered by propulsion.</div>
+    <div class="cap" style="left:30px;width:230px"><h2>Same physics</h2>Phone, desktop and the offline file share the one model. Only the station layout changes with the viewport.</div></body></html>

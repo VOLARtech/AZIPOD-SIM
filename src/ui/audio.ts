@@ -2,6 +2,8 @@
 // Continuous layers follow the simulation: pod motors and propeller churn per pod (panned port /
 // starboard), bow thruster, azimuth servo, water past the hull, wind. One-shot cues come from
 // simulation events: landings and collisions, grounding, parted lines, alerts, lever detents.
+import type { PodSpec } from '../physics/ship';
+import type { PodState } from '../physics/sim';
 import { SHIP } from '../physics/ship';
 import { LINE } from '../physics/mooring';
 import { S } from './state';
@@ -28,7 +30,7 @@ const filt = (c: Ctx, type: BiquadFilterType, f: number, q = 0.7) => { const b =
 const gain = (c: Ctx, v = 0) => { const g = c.createGain(); g.gain.value = v; return g; };
 const set = (p: AudioParam, v: number, tc = 0.12) => p.setTargetAtTime(v, ac!.currentTime, tc);
 
-interface PodVoice { motor: OscillatorNode; motor2: OscillatorNode; whine: OscillatorNode; mg: GainNode; wg: GainNode; churn: GainNode; churnF: BiquadFilterNode; thrum: GainNode; lfo: OscillatorNode; servo: GainNode; servoO: OscillatorNode }
+interface PodVoice { motor: OscillatorNode; motor2: OscillatorNode; whine: OscillatorNode; mg: GainNode; wg: GainNode; churn: GainNode; churnF: BiquadFilterNode; thrum: GainNode; lfo: OscillatorNode; servo: GainNode; servoO: OscillatorNode; pan: StereoPannerNode }
 let pods: PodVoice[] = [];
 let bt: { g: GainNode; f: BiquadFilterNode; o: OscillatorNode; og: GainNode };
 let water: { g: GainNode; f: BiquadFilterNode }, wind: { g: GainNode; f: BiquadFilterNode };
@@ -38,8 +40,27 @@ function build(c: Ctx) {
   noiseBuf = makeNoise(c, false); brownBuf = makeNoise(c, true);
   const comp = c.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4;
   master = gain(c, 0); master.connect(comp).connect(c.destination);
-  pods = SHIP.pods.map((_, i) => {
-    const pan = c.createStereoPanner(); pan.pan.value = i === 0 ? -0.55 : 0.55; pan.connect(master);
+  buildVoices(c);
+  { // bow thruster: tunnel roar + motor tone, forward = centre
+    const g = gain(c), f = filt(c, 'bandpass', 220, 1.1); noise(c, true).connect(f).connect(g).connect(master);
+    const o = c.createOscillator(); o.type = 'sawtooth'; const og = gain(c), lp = filt(c, 'lowpass', 300);
+    o.connect(lp).connect(og).connect(master); o.start();
+    bt = { g, f, o, og };
+  }
+  { const g = gain(c), f = filt(c, 'lowpass', 500); noise(c, true).connect(f).connect(g).connect(master); water = { g, f }; }
+  { const g = gain(c), f = filt(c, 'bandpass', 900, 0.5); noise(c).connect(f).connect(g).connect(master); wind = { g, f }; }
+  { const g = gain(c), f = filt(c, 'bandpass', 1400, 1.5); noise(c).connect(f).connect(g).connect(master); scrape = { g, f }; }
+  { const g = gain(c), f = filt(c, 'lowpass', 90); noise(c, true).connect(f).connect(g).connect(master); rumble = { g }; }
+}
+
+/** One voice per propulsion unit, panned by side; rebuilt when the ship changes. */
+let voiceShip = '', voicePans: StereoPannerNode[] = [];
+function buildVoices(c: Ctx) {
+  for (const p of voicePans) p.disconnect();
+  voicePans = []; voiceShip = SHIP.id; lastAlpha = []; lastMode = [];
+  pods = SHIP.pods.map((u, i) => {
+    const pan = c.createStereoPanner(); pan.pan.value = SHIP.pods.length === 1 ? 0 : u.y < 0 || (u.y === 0 && i === 0) ? -0.55 : 0.55; pan.connect(master);
+    voicePans.push(pan);
     // motor: low sawtooth pair through a low-pass, plus a faint converter whine
     const mg = gain(c), lp = filt(c, 'lowpass', 260, 1.2);
     const motor = c.createOscillator(); motor.type = 'sawtooth';
@@ -54,18 +75,8 @@ function build(c: Ctx) {
     const servoO = c.createOscillator(); servoO.type = 'square'; servoO.frequency.value = 140;
     const servo = gain(c), sf = filt(c, 'bandpass', 700, 2); servoO.connect(sf).connect(servo).connect(pan);
     [motor, motor2, whine, lfo, servoO].forEach(o => o.start());
-    return { motor, motor2, whine, mg, wg, churn, churnF, thrum, lfo, servo, servoO };
+    return { motor, motor2, whine, mg, wg, churn, churnF, thrum, lfo, servo, servoO, pan };
   });
-  { // bow thruster: tunnel roar + motor tone, forward = centre
-    const g = gain(c), f = filt(c, 'bandpass', 220, 1.1); noise(c, true).connect(f).connect(g).connect(master);
-    const o = c.createOscillator(); o.type = 'sawtooth'; const og = gain(c), lp = filt(c, 'lowpass', 300);
-    o.connect(lp).connect(og).connect(master); o.start();
-    bt = { g, f, o, og };
-  }
-  { const g = gain(c), f = filt(c, 'lowpass', 500); noise(c, true).connect(f).connect(g).connect(master); water = { g, f }; }
-  { const g = gain(c), f = filt(c, 'bandpass', 900, 0.5); noise(c).connect(f).connect(g).connect(master); wind = { g, f }; }
-  { const g = gain(c), f = filt(c, 'bandpass', 1400, 1.5); noise(c).connect(f).connect(g).connect(master); scrape = { g, f }; }
-  { const g = gain(c), f = filt(c, 'lowpass', 90); noise(c, true).connect(f).connect(g).connect(master); rumble = { g }; }
 }
 
 /** Create / resume the audio graph; must run inside a user gesture the first time. */
@@ -124,7 +135,7 @@ export function uiTick(kind: 'step' | 'detent' | 'cardinal') {
 }
 
 // ---------------------------------------------------------------- per frame
-let lastContact = -1, lastAlert: unknown = null, lastAlpha: number[] = [], wasAground = false, creakT = 0, chimeT = -99;
+let lastContact = -1, lastAlert: unknown = null, lastAlpha: number[] = [], lastMode: string[] = [], wasAground = false, creakT = 0, chimeT = -99;
 export function updateAudio(dtReal: number) {
   const rt = S.rt; if (!rt) return;
   const sheetOpen = !document.getElementById('sheet')!.hidden;
@@ -154,8 +165,12 @@ export function updateAudio(dtReal: number) {
   if (!on) return;
 
   const st = rt.state, spd = Math.hypot(st.u, st.v);
+  if (voiceShip !== SHIP.id) buildVoices(ac);
   st.pods.forEach((p, i) => {
     const v = pods[i]; if (!v) return;
+    const u = SHIP.pods[i];
+    if (u.kind === 'shaft') { shaftVoice(v, u, p, i, dtReal, spd); return; }
+    if (u.kind === 'waterjet') { jetVoice(v, u, p, i, dtReal); return; }
     const r = Math.abs(p.rpm), load = Math.min(1, rt.status.podPower[i] / SHIP.pods[i].P);
     const cmd = S.cmd.pods[i]?.rpm ?? 0, reversing = cmd * p.rpm < 0 && r > 0.03;
     set(v.motor.frequency, 22 + 48 * r); set(v.motor2.frequency, 33 + 72 * r);
@@ -187,4 +202,50 @@ export function updateAudio(dtReal: number) {
     creakT = 0.6 + Math.random() * 1.6 * (1 - maxT / LINE.MBL);
     tone([95 + Math.random() * 60], 0.18, 0.04 + 0.08 * maxT / LINE.MBL, 'sawtooth', 0, 1.4);
   }
+}
+
+/** A diesel on a shaft: firing pulses (shaft speed × cylinders), turbocharger with load,
+ *  a blast of starting air on every start, propeller churn, steering-gear hum. */
+function shaftVoice(v: PodVoice, u: PodSpec, p: PodState, i: number, dtReal: number, spd: number) {
+  const sh = u.shaft!, e = sh.engine, rt = S.rt, es = p.eng;
+  const n = Math.abs(p.rpm) * e.n, load = Math.min(1, rt.status.podPower[i] / e.P);
+  const firing = es ? es.mode === 'run' : n > 0.05;
+  const fireHz = e.type === 'direct2s' ? n * 7 : e.type === 'electric' ? 0 : n * 16;   // 7-cyl two-stroke; geared medium-speed
+  set(v.motor.frequency, Math.max(4, fireHz)); set(v.motor2.frequency, Math.max(8, fireHz * 2));
+  set(v.mg.gain, firing && fireHz > 0 ? 0.12 + 0.3 * Math.sqrt(load) : 0);
+  // turbocharger: rises with load (electric drive: converter whine instead)
+  set(v.whine.frequency, e.type === 'electric' ? 420 + 900 * Math.abs(p.rpm) : 900 + 2600 * load);
+  set(v.wg.gain, firing ? 0.004 + 0.012 * load : 0);
+  const drive = p.pitch ?? p.rpm, r = Math.abs(drive);
+  const fighting = (p.pitch === undefined ? p.rpm : drive) * (rt.state.u > 0 ? 1 : -1) < 0 && spd > 1;
+  set(v.churn.gain, r < 0.02 ? 0.02 * Math.min(1, spd / 4) : 0.08 + 0.3 * load + (fighting ? 0.3 : 0));
+  set(v.churnF.frequency, 90 + 200 * Math.min(1, n / e.n) + (fighting ? 220 : 0));
+  set(v.lfo.frequency, Math.max(0.5, n * 4));                       // blade rate
+  // starting air: a hiss and the first thump as she fires
+  const mode = es?.mode ?? '';
+  if (mode === 'start' && lastMode[i] !== 'start') { burst(1.4, 2600, 'highpass', 0.35, v.pan.pan.value); tone([38, 57], 0.6, 0.25, 'sine', v.pan.pan.value, 0.8, 0.9); }
+  lastMode[i] = mode;
+  // steering gear hum while the rudder moves
+  const a = p.alpha, da = lastAlpha[i] === undefined ? 0 : Math.abs(a - lastAlpha[i]) / Math.max(1e-3, dtReal);
+  lastAlpha[i] = a;
+  const moving = sh.rudder ? Math.min(1, da / (sh.rudder.rate * 0.6)) : 0;
+  set(v.servo.gain, 0.03 * moving, 0.06); set(v.servoO.frequency, 95 + 40 * moving);
+}
+
+/** A waterjet: high-speed diesel firing and turbo whine, the roar of the jet itself (broadband, rising with
+ *  jet speed), a harsher rattle when the pump runs at its cavitation limit or the bucket is down. */
+function jetVoice(v: PodVoice, u: PodSpec, p: PodState, i: number, dtReal: number) {
+  const rt = S.rt, r = Math.max(0, p.rpm), load = Math.min(1, rt.status.podPower[i] / u.P);
+  const fireHz = r * 1800 / 60 * 10;                                // 20-cylinder high-speed diesel through a gearbox
+  set(v.motor.frequency, Math.max(20, fireHz * 0.25)); set(v.motor2.frequency, Math.max(30, fireHz * 0.5));
+  set(v.mg.gain, 0.08 + 0.2 * Math.sqrt(load));
+  set(v.whine.frequency, 1400 + 3200 * load); set(v.wg.gain, 0.004 + 0.016 * load);
+  const reversed = (p.bucket ?? 1) < 0.9, cav = rt.status.msg[i] === 'CAVITATION LIMIT';
+  set(v.churn.gain, 0.05 + 0.4 * load + (reversed ? 0.15 : 0) + (cav ? 0.15 : 0));
+  set(v.churnF.frequency, 300 + 900 * r + (cav ? 600 : 0));
+  set(v.lfo.frequency, cav ? 23 : 0.7 + 2 * r);
+  const a = p.alpha, da = lastAlpha[i] === undefined ? 0 : Math.abs(a - lastAlpha[i]) / Math.max(1e-3, dtReal);
+  lastAlpha[i] = a;
+  const moving = Math.min(1, da / (u.jet!.nozzleMax / u.jet!.respT * 0.6));
+  set(v.servo.gain, 0.03 * moving, 0.05); set(v.servoO.frequency, 160 + 60 * moving);
 }

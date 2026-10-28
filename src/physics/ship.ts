@@ -3,12 +3,15 @@
 // Hull derivatives from Clarke, Gedling & Hine (1983) regression, split into
 // ideal-fluid (added-mass, handled by C_A incl. Munk moment) and viscous remainder (D).
 
-export const RHO = 1025;
-export const RHO_AIR = 1.225;
-export const NU_W = 1.19e-6;
-export const G = 9.81;
-export const KN = 0.514444;
-export const DEG = Math.PI / 180;
+import { RHO, NU_W, G, DEG } from './consts';
+import { KVLCC2 } from '../ships/kvlcc2';
+import { KCS, PANAMAX, KVLCC2_BALLAST } from '../ships/cargo';
+import { ROPAX, CRUISE_CONV, LNG, ULCV } from '../ships/twin';
+import { ASD_TUG, VSP_TUG, ROTOR_TUG } from '../ships/tugs';
+import { HSC_CAT } from '../ships/fast';
+import { AHTS, PSV } from '../ships/offshore';
+import { FRIGATE, ICEBREAKER, PANAMAX_ROTOR, PUSH_CONVOY, SUPERYACHT } from '../ships/special';
+export { RHO, RHO_AIR, NU_W, G, KN, DEG } from './consts';
 
 export interface PodSpec {
   label: string;
@@ -20,7 +23,87 @@ export interface PodSpec {
   P: number;                  // rated shaft power [W]
   // build tolerances: real units are never identical
   slewMul: number; thrustMul: number; alphaOffset: number;
+  /** What this unit is (default: a pulling Azipod). Meaning of the unit state by kind:
+   *  azipod / azimuth: alpha = azimuth, rpm = shaft speed (signed, fraction of max)
+   *  shaft:            alpha = rudder angle (+ = rudder to starboard, turns the ship to starboard),
+   *                    rpm = shaft speed (signed, fraction of MCR rpm), pitch = CPP pitch (signed)
+   *  vsp:              alpha = thrust direction, rpm = blade eccentricity 0..1
+   *  waterjet:         alpha = nozzle angle, rpm = impeller speed 0..1, bucket −1 (astern) .. 1 (up) */
+  kind?: UnitKind;
+  shaft?: ShaftSpec;          // kind 'shaft': propeller, engine and the rudder behind it
+  azimuth?: AzimuthSpec;      // kind 'azimuth': Z-drive / azimuth thruster particulars
+  vsp?: VspSpec;              // kind 'vsp'
+  jet?: JetSpec;              // kind 'waterjet'
+  dpForbid?: [number, number][]; // DP: thrust directions the allocator must not use (wash on another unit or the hull) [rad]
 }
+export type UnitKind = 'azipod' | 'azimuth' | 'shaft' | 'vsp' | 'waterjet';
+
+/** Propeller on a shaft. Thrust K_T(J) = k0 + k1 J + k2 J² ahead (MMG standard method form). */
+export interface PropellerSpec {
+  D: number;                  // diameter [m]
+  k0: number; k1: number; k2: number;
+  KQ0: number;                // torque coefficient at J = 0
+  asternFrac: number;         // astern K_T at J = 0, fraction of k0
+  tP: number;                 // thrust deduction
+  wP0: number;                // wake fraction, straight ahead
+  xP: number;                 // propeller x rel. CG [m]
+  hand: 1 | -1;               // 1 = right-handed (clockwise seen from astern, turning ahead)
+  kTTah: number;              // transverse thrust ahead, fraction of thrust (felt at low J only)
+  kTTas: number;              // transverse thrust astern, fraction of thrust
+  cpp?: { pitchTime: number; asternPitch: number };   // controllable pitch: s for 0 → full, astern pitch limit
+}
+export type RudderType = 'conventional' | 'flap' | 'schilling';
+/** Rudder behind a propeller, MMG standard method (Yasukawa & Yoshimura 2015) interaction model. */
+export interface RudderSpec {
+  type: RudderType;
+  A: number; H: number;       // movable area [m²], span [m]
+  xR: number;                 // x rel. CG [m]
+  fa: number;                 // normal-force gradient f_α (per rad)
+  max: number;                // hard over [rad]
+  rate: number;               // steering gear rate, one pump unit [rad/s]
+  tR: number; aH: number; xH: number;   // steering resistance deduction, hull force increase, its x rel. CG [m]
+  gammaP: number; gammaM: number;       // flow straightening for β_R > 0 / < 0
+  lR: number;                 // effective x of the rudder for flow straightening, ÷ Lpp
+  eps: number; kappa: number; // wake ratio rudder/propeller, slipstream constant
+  /** Flanking rudders ahead of the propeller (pushboats): area, x rel. CG, hard over. Work in the astern slipstream. */
+  flank?: { A: number; xF: number; max: number };
+}
+/** Engine driving a shaft. */
+export interface EngineSpec {
+  type: 'direct2s' | 'geared' | 'electric' | 'turbine';
+  P: number;                  // MCR power [W]
+  n: number;                  // MCR shaft speed [rps]
+  nMin: number;               // minimum stable running speed, fraction of n (dead slow)
+  barred?: [number, number];  // barred speed range, fractions of n
+  loadTime: number;           // s from dead slow to MCR (load programme)
+  I: number;                  // shaft line + engine rotating inertia incl. entrained water [kg m²]
+  air?: AirStart;             // direct-reversing engines start (and reverse) on compressed air
+  clutch?: boolean;           // geared: clutch in / out instead of reversing
+}
+export interface AirStart {
+  pMax: number; pMin: number; // receiver pressure full / below which a start fails [bar]
+  dpAhead: number;            // pressure used per start ahead [bar]
+  dpAstern: number;           // …astern (bigger: the propeller fights it while the ship has way)
+  refill: number;             // compressor [bar/min]
+  firing: number;             // shaft speed at which fuel is admitted, fraction of n
+  torque: number;             // air-motor torque, fraction of MCR torque
+  maxT: number;               // longest air kick before giving up [s]
+}
+export interface ShaftSpec {
+  prop: PropellerSpec;
+  engine: EngineSpec;
+  rudder?: RudderSpec;
+  /** Telegraph: shaft speed (fraction of MCR rpm) per order, from dead slow up. */
+  telegraph: { ahead: number[]; astern: number[] };
+}
+export interface AzimuthSpec { nozzle: boolean; pusher: boolean; rpmTime: number; slew: number }
+export interface VspSpec { R: number; rpmTime: number; respT: number }
+/** Waterjet: nozzle deflection limit, nozzle area, s from midships to hard over, s for the bucket's full travel,
+ *  impeller idle speed (fraction), s from idle to full rpm (load programme). */
+export interface JetSpec { nozzleMax: number; Anoz: number; respT: number; bucketTime: number; idle: number; rpmTime: number }
+
+/** Which control station the bridge shows for this ship. */
+export type StationKind = 'azipod' | 'telegraph' | 'cpp' | 'asd' | 'vsp' | 'waterjet' | 'dp';
 
 export interface ShipSpec {
   name: string;
@@ -46,6 +129,35 @@ export interface ShipSpec {
   LOA: number;                // length overall [m] (L is between perpendiculars)
   look: ShipLook;             // 3D appearance
   note?: string;              // provenance shown in the app
+  sternThruster?: { x: number; Tmax: number; P: number };
+  station?: StationKind;      // default 'azipod'
+  mmg?: MmgHull;              // published MMG hull derivatives (replace Clarke at manoeuvring speeds)
+  type?: string;              // ship type for the fleet picker (cruise, tanker, container…)
+  hullForm?: 'ship' | 'tug' | 'cat' | 'barge';
+  /** Catamaran demi-hulls: beam and block coefficient of one hull, centreline offset of each hull [m]. */
+  demi?: { B: number; Cb: number; y: number };
+  /** Roll for heel and girting: metacentric height, CG height above keel, roll radius of gyration,
+   *  height of the windage centroid above the waterline, angle of vanishing stability. */
+  roll?: { GM: number; KG: number; kxx: number; zWind: number; vanish: number };
+  skeg?: { x: number; A: number };            // lifting skeg: x rel. origin, lateral area [m²]
+  towPoints?: { name: string; x: number; h: number }[];   // tug towing points: x on the centreline, height above WL
+  load?: string;              // load case shown with the particulars
+  cwMul?: number;             // residuary resistance factor for hulls fuller and shorter than the simple wave term assumes (default 1)
+  /** Flettner rotor sails: position, diameter, height, height of their centre above the waterline, top surface speed ωR [m/s]. */
+  rotors?: { x: number; y: number; D: number; H: number; zc: number; vMax: number }[];
+  /** Icebreaking bow for Lindqvist's level-ice resistance: stem angle φ, waterline entrance half-angle α [rad]. */
+  iceBow?: { phi: number; alpha: number };
+}
+
+/** MMG standard-method hull: non-dimensional derivatives about midship, ÷ ½ρ L d U² (forces), ÷ ½ρ L² d U² (moment). */
+export interface MmgHull {
+  xG: number;                 // CG ahead of midship [m]
+  mx: number; my: number; Jz: number;   // added masses ÷ ½ρL²d, ½ρL²d, ½ρL⁴d
+  R0: number; Xvv: number; Xvr: number; Xrr: number; Xvvvv: number;
+  Yv: number; Yr: number; Yvvv: number; Yvvr: number; Yvrr: number; Yrrr: number;
+  Nv: number; Nr: number; Nvvv: number; Nvvr: number; Nvrr: number; Nrrr: number;
+  kzz?: number;               // yaw radius of gyration ÷ L (default 0.25)
+  source: string;
 }
 
 /** What the 3D view needs to draw the ship (heights above the waterline, x rel. CG). */
@@ -165,7 +277,7 @@ export const SPIRIT: ShipSpec = {
   },
 };
 
-export const SHIPS: Record<string, ShipSpec> = { becancour: BECANCOUR, lady: LADY, spirit: SPIRIT };
+export const SHIPS: Record<string, ShipSpec> = { becancour: BECANCOUR, lady: LADY, spirit: SPIRIT, kvlcc2: KVLCC2, 'kvlcc2-ballast': KVLCC2_BALLAST, kcs: KCS, panamax: PANAMAX, ulcv: ULCV, lng: LNG, ropax: ROPAX, 'cruise-shaft': CRUISE_CONV, 'asd-tug': ASD_TUG, 'vsp-tug': VSP_TUG, 'rotor-tug': ROTOR_TUG, 'hsc-cat': HSC_CAT, psv: PSV, ahts: AHTS, icebreaker: ICEBREAKER, 'push-convoy': PUSH_CONVOY, frigate: FRIGATE, superyacht: SUPERYACHT, 'panamax-rotor': PANAMAX_ROTOR };
 /** The ship in use. A live binding: importers see the new ship after setShip(). */
 export let SHIP: ShipSpec = BECANCOUR;
 export function setShip(id: string) { SHIP = SHIPS[id] ?? BECANCOUR; return SHIP; }
@@ -177,7 +289,8 @@ export interface Hydro {
   kYv: number; kYr: number; kNv: number; kNr: number;   // viscous lift, × speed
   Xlin: number; Ylin: number; Nlin: number;
   S: number; strips: { x: number; dx: number }[]; cfK: number;
-  fsh: number; fam: number; hT: number;
+  fsh: number; fam: number; hT: number; rShallow: number;
+  catY: number;                // catamaran: offset of each demi-hull (yaw damping from their resistance)
   prime: Record<string, number>;
 }
 
@@ -195,7 +308,6 @@ export function inv3(a: number[]): number[] {
 export function deriveHydro(s: ShipSpec, depth: number): Hydro {
   const { L, B, T, Cb } = s;
   const m = RHO * Cb * L * B * T;
-  const Iz = m * (0.25 * L) ** 2;
   const k = Math.PI * (T / L) ** 2;
   const BL = B / L, BT = B / T;
 
@@ -206,18 +318,53 @@ export function deriveHydro(s: ShipSpec, depth: number): Hydro {
   const fam = Math.pow(1 - rr, -0.35);
 
   // Clarke added mass (prime, normalised by ½ρL³, ½ρL⁴, ½ρL⁵)
-  const Yvd_p = -k * (1 + 0.16 * Cb * BT - 5.1 * BL ** 2);
-  const Yrd_p = -k * (0.67 * BL - 0.0033 * BT ** 2);
-  const Nvd_p = -k * (1.1 * BL - 0.041 * BT);
-  const Nrd_p = -k * (1 / 12 + 0.017 * Cb * BT - 0.33 * BL);
+  let Yvd_p = -k * (1 + 0.16 * Cb * BT - 5.1 * BL ** 2);
+  let Yrd_p = -k * (0.67 * BL - 0.0033 * BT ** 2);
+  let Nvd_p = -k * (1.1 * BL - 0.041 * BT);
+  let Nrd_p = -k * (1 / 12 + 0.017 * Cb * BT - 0.33 * BL);
   // Clarke total linear derivatives (prime, normalised by ½ρL²U, ½ρL³U, ½ρL³U, ½ρL⁴U)
-  const Yv_p = -k * (1 + 0.4 * Cb * BT);
-  const Yr_p = -k * (-0.5 + 2.2 * BL - 0.08 * BT);
-  const Nv_p = -k * (0.5 + 2.4 * T / L);
-  const Nr_p = -k * (0.25 + 0.039 * BT - 0.56 * BL);
+  let Yv_p = -k * (1 + 0.4 * Cb * BT);
+  let Yr_p = -k * (-0.5 + 2.2 * BL - 0.08 * BT);
+  let Nv_p = -k * (0.5 + 2.4 * T / L);
+  let Nr_p = -k * (0.25 + 0.039 * BT - 0.56 * BL);
+  // Clarke's regression was fitted to ship hulls (L/B ≳ 4); on short beamy hulls (tugs) it returns
+  // non-physical added masses. Fall back to strip theory there: sway ≈ −k, yaw ≈ −k/12.
+  if (Yvd_p > -0.8 * k) Yvd_p = -k;
+  if (Nrd_p > -0.03 * k) Nrd_p = -k / 12;
+  if (BL > 0.3) {
+    // tug-like hulls: no sway–yaw added-mass coupling for a hull this short and symmetric, and yaw
+    // damping from low-aspect-ratio lifting-surface theory (N'_r ≈ −k/4) where the regression runs out
+    Yrd_p = 0; Nvd_p = 0;
+    Nr_p = Math.min(Nr_p, -k / 4);
+  }
+  let Iz = m * (0.25 * L) ** 2, xgDyn = s.xg, XudM = -0.05 * m;
+  if (s.demi) {
+    // catamaran: Clarke for one slender demi-hull, twice over (hulls far enough apart that their
+    // sway interaction is small); half the mass sits out at each hull, which adds to the yaw inertia
+    const d = s.demi, bl = d.B / L, bt = d.B / T, cb = d.Cb;
+    Yvd_p = -2 * k * (1 + 0.16 * cb * bt - 5.1 * bl ** 2);
+    Yrd_p = -2 * k * (0.67 * bl - 0.0033 * bt ** 2);
+    Nvd_p = -2 * k * (1.1 * bl - 0.041 * bt);
+    Nrd_p = -2 * k * (1 / 12 + 0.017 * cb * bt - 0.33 * bl);
+    Yv_p = -2 * k * (1 + 0.4 * cb * bt);
+    Yr_p = -2 * k * (-0.5 + 2.2 * bl - 0.08 * bt);
+    Nv_p = -2 * k * (0.5 + 2.4 * T / L);
+    Nr_p = -2 * k * (0.25 + 0.039 * bt - 0.56 * bl);
+    Iz += 0.8 * m * d.y * d.y;
+  }
+  if (s.mmg) {
+    // published captive-test values: MMG non-dimensionals (÷ ½ρLd·U², ½ρL²d) → Clarke primes (× d/L).
+    // Body origin is midship; the CG sits xG ahead of it, as in the MMG equations of motion.
+    const c = s.mmg, dL = T / L;
+    Yvd_p = -c.my * dL; Yrd_p = 0; Nvd_p = 0; Nrd_p = -c.Jz * dL;
+    Yv_p = c.Yv * dL; Yr_p = c.Yr * dL; Nv_p = c.Nv * dL; Nr_p = c.Nr * dL;
+    xgDyn = c.xG;
+    Iz = m * ((c.kzz ?? 0.25) * L) ** 2 + m * c.xG ** 2;
+    XudM = -c.mx * 0.5 * RHO * L * L * T;
+  }
 
   const q3 = 0.5 * RHO * L ** 3, q4 = q3 * L, q5 = q4 * L;
-  const Xud = -0.05 * m;
+  const Xud = XudM;
   const Yvd = Yvd_p * q3 * fam;
   const Ycross = 0.5 * (Yrd_p + Nvd_p) * q4 * fam; // symmetric M
   const Nrd = Nrd_p * q5 * fam;
@@ -234,11 +381,11 @@ export function deriveHydro(s: ShipSpec, depth: number): Hydro {
   const q2 = 0.5 * RHO * L ** 2;
   const M = [
     m - Xud, 0, 0,
-    0, m - Yvd, m * s.xg - Ycross,
-    0, m * s.xg - Ycross, Iz - Nrd,
+    0, m - Yvd, m * xgDyn - Ycross,
+    0, m * xgDyn - Ycross, Iz - Nrd,
   ];
 
-  const S = L * (1.7 * T + Cb * B); // Mumford wetted surface
+  const S = s.demi ? 2 * L * (1.7 * T + s.demi.Cb * s.demi.B) : L * (1.7 * T + Cb * B); // Mumford wetted surface
   const NS = 26, strips: { x: number; dx: number }[] = [];
   for (let i = 0; i < NS; i++) {
     const x = -L / 2 + (i + 0.5) * (L / NS) - s.xg;
@@ -246,14 +393,14 @@ export function deriveHydro(s: ShipSpec, depth: number): Hydro {
   }
 
   return {
-    m, Iz, xg: s.xg, Xud, Yvd, Yrd: Ycross, Nvd: Ycross, Nrd,
+    m, Iz, xg: xgDyn, Xud, Yvd, Yrd: Ycross, Nvd: Ycross, Nrd,
     M, Minv: inv3(M),
     kYv: q2 * YvD * fsh, kYr: q3 * YrD, kNv: q3 * NvD, kNr: q4 * NrD * fsh,
     // Tiny residual linear damping (wave radiation / laminar creep). Kept an order of
     // magnitude below the quadratic terms at berthing speeds; surge term fades out above 1 m/s.
     Xlin: m / 4000, Ylin: (m - Yvd) / 3000, Nlin: (Iz - Nrd) / 3000,
     S, strips, cfK: 0.5 * RHO * T * s.Cd * fsh,
-    fsh, fam, hT,
+    fsh, fam, hT, rShallow: isFinite(hT) ? 1 + 0.6 / (hT * hT) : 1, catY: s.demi?.y ?? 0,
     prime: { Yvd_p, Yrd_p, Nvd_p, Nrd_p, Yv_p, Yr_p, Nv_p, Nr_p, YvD, YrD, NvD, NrD, munk: Yvd_p - Xud_p },
   };
 }
@@ -263,9 +410,38 @@ export function resistanceCt(s: ShipSpec, u: number, hT: number): number {
   const Re = Math.max(Math.abs(u) * s.L / NU_W, 2e6);
   const Cf = 0.075 / (Math.log10(Re) - 2) ** 2;
   const Fn = Math.abs(u) / Math.sqrt(G * s.L);
-  const Cw = 0.0007 * Math.min((Fn / 0.25) ** 4, 6);
+  // fast slender hulls (catamaran demi-hulls): residuary hump near Fn 0.5, easing off beyond it as
+  // the hull rises out of its own wave system: the shape of the Southampton catamaran series
+  // (Molland, Wellicome & Couser 1994), not a fit to it
+  const Cw = s.hullForm === 'cat'
+    ? 0.0046 * Math.exp(-(((Fn - 0.48) / 0.19) ** 2)) + 0.0026 * smooth(0.28, 0.62, Fn)
+    : 0.0007 * Math.min((Fn / 0.25) ** 4, 6) * (s.cwMul ?? 1);
   const shallow = isFinite(hT) ? 1 + 0.6 / (hT * hT) : 1;
   return (Cf * s.formFactor + Cw) * shallow;
 }
 
+const smooth = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
 export const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+
+/** One-line propulsion summary for lists and the pilot card. */
+export function propulsionSummary(s: ShipSpec) {
+  const parts: string[] = [];
+  const by = (k: string) => s.pods.filter(p => (p.kind ?? 'azipod') === k);
+  const mw = (w: number) => `${(w / 1e6).toFixed(w < 10e6 ? 1 : 0)} MW`;
+  const pods = by('azipod'), az = by('azimuth'), sh = by('shaft'), vsp = by('vsp'), jet = by('waterjet');
+  if (pods.length) parts.push(`${pods.length} × Azipod ${mw(pods[0].P)}`);
+  if (az.length) parts.push(`${az.length} × azimuth ${mw(az[0].P)}`);
+  if (sh.length) {
+    const p = sh[0].shaft!, e = p.engine;
+    const eng = e.type === 'direct2s' ? '2-stroke' : e.type === 'electric' ? 'electric' : e.type === 'turbine' ? 'gas turbine' : 'geared diesel';
+    parts.push(`${sh.length} × ${p.prop.cpp ? 'CPP' : 'FPP'} ${mw(e.P)} ${eng}`);
+    const r = sh.filter(u => u.shaft!.rudder);
+    if (r.length) parts.push(`${r.length} × ${r[0].shaft!.rudder!.type === 'conventional' ? '' : r[0].shaft!.rudder!.type + ' '}rudder`);
+  }
+  if (vsp.length) parts.push(`${vsp.length} × Voith Schneider ${mw(vsp[0].P)}`);
+  if (jet.length) parts.push(`${jet.length} × waterjet ${mw(jet[0].P)}`);
+  if (s.bowThruster.Tmax > 0) parts.push(`bow thrusters ${mw(s.bowThruster.P)}`);
+  if (s.sternThruster) parts.push(`stern thruster ${mw(s.sternThruster.P)}`);
+  return parts.join(' · ');
+}

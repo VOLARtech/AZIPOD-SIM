@@ -9,13 +9,16 @@ import '@fontsource/ibm-plex-mono/latin-500-italic.css';
 import './style.css';
 import { initApp, persist, toast } from './app';
 import type { View3D } from './view3d/view';
-import { DEG, KN, SHIP, setShip } from './physics/ship';
+import { DEG, KN, SHIP, SHIPS, propulsionSummary, setShip } from './physics/ship';
+import { Traffic } from './physics/traffic';
+import { IceState } from './physics/ice';
+import { buildDpStation, buildJetStation, buildStation, buildTugStation, initialOrders, Station } from './ui/stations';
 import { buildHull, setHull } from './physics/contact';
 import { makeState, wrap } from './physics/sim';
 import { DT, LeverMode, Runtime } from './physics/runtime';
 import { LINE, WinchMode } from './physics/mooring';
 import type { Alt, PredictJob, Track } from './physics/predict';
-import { SCENARIOS, Scenario, currentField, depthAt } from './scenarios';
+import { SCENARIOS, Scenario, berthFor, currentField, depthAt, fits } from './scenarios';
 import { ensureScenario } from './scenes/loaders';
 import { loadEnc } from './ui/enc';
 import { haptic, suspendAudio, uiTick, unlockAudio, updateAudio } from './ui/audio';
@@ -42,7 +45,8 @@ function applyEnv() {
 
 function loadScenario(sc: Scenario) {
   S.sc = sc;
-  const shipChanged = setShip(sc.ship ?? 'becancour') !== S.rt?.spec;
+  const shipChanged = setShip(S.shipId ?? sc.ship ?? 'becancour') !== S.rt?.spec;
+  if (sc.berthFace) sc.berth = berthFor(sc, SHIP.B, 0);
   if (shipChanged) {
     setHull(buildHull(SHIP.L, SHIP.B, SHIP.xg, SHIP.LOA));
     sheetStarted = false;                 // pilot card, trials: recompute for this ship
@@ -51,11 +55,21 @@ function loadScenario(sc: Scenario) {
   const rpm0 = Math.min(1, sc.start.kn / SHIP.vmaxKn);
   st.pods.forEach(p => (p.rpm = rpm0));
   S.cmd = { pods: SHIP.pods.map(() => ({ alpha: 0, rpm: rpm0 })), bt: 0, mode: 'twin' };
+  // shaft ships start on the nearest telegraph step (or pitch), engine running
+  initialOrders(SHIP, sc.start.kn).forEach((o, i) => {
+    if (!o) return;
+    Object.assign(S.cmd.pods[i], o); st.pods[i].rpm = o.rpm; if (o.pitch !== undefined) st.pods[i].pitch = o.pitch; if (o.bucket !== undefined) st.pods[i].bucket = o.bucket;
+  });
+  if (SHIP.sternThruster) S.cmd.sbt = 0;
   Object.assign(S.env, { windKn: sc.windKn, windFrom: sc.windFrom, curKn: sc.currentKn, curSet: sc.currentSet, gusts: sc.gusts });
   S.rt = new Runtime(SHIP, st, S.cmd,
     { windSpeed: 0, windFrom: 0, gusts: false, current: () => [0, 0], depth: sc.depth },
     { obstacles: sc.obstacles, fenders: sc.fenders, bollards: sc.bollards, depthAt: depthAt(sc), mooringSide: sc.mooringSide, tugSide: sc.tugSide, tugBP: sc.tugBP });
   S.rt.sensors.mode = S.sensMode;
+  if (sc.escort) S.rt.attachEscort(sc.escort, SHIPS[sc.escort.ship]);
+  if (sc.dpScript) S.rt.dpScript = sc.dpScript.map(x => ({ ...x }));
+  if (sc.traffic) S.rt.traffic = sc.traffic.map(t => new Traffic(SHIPS[t.ship], t));
+  if (sc.ice) S.rt.ice = new IceState(sc.ice);
   applyEnv();
   S.rt.sensors.reset();
   S.view.follow = true; S.view.cN = st.n; S.view.cE = st.e;
@@ -66,11 +80,13 @@ function loadScenario(sc: Scenario) {
   $('p-lines').hidden = $('p-tugs').hidden = true;
   ($('bt') as HTMLInputElement).value = '0';
   setLever('twin');
+  mountStation();
   buildLines(); buildTugs();
   D.initParticles();
   if (shipChanged) renderModel(S.rt.model.h);
   onScenarioLoaded();
   renderScenarioList();
+  renderShipList();
   syncButtons();
 }
 
@@ -78,6 +94,12 @@ let sheetStarted = false;
 const postedData = new Set<string>();
 /** Load a scenario, fetching its chart and depth data first if it has any. */
 async function openScenario(sc: Scenario) {
+  // a ship that draws too much for this water: take the scenario's own ship instead
+  const want = SHIPS[S.shipId ?? sc.ship ?? 'becancour'];
+  if (S.shipId && !sc.needsData && !fits(sc, want.T, sc.berthFace ? berthFor(sc, want.B, 0) : sc.berth, !!want.towPoints, want.station === 'dp')) {
+    toast(`${sc.name} ${sc.tugsOnly && !want.towPoints ? 'needs a tug' : `is too shallow for the ${want.name} (draught ${want.T} m)`}. Loaded with ${SHIPS[sc.ship ?? 'becancour'].name}.`);
+    S.shipId = null;
+  }
   if (sc.needsData || sc.chart) {
     try {
       const [data] = await Promise.all([ensureScenario(sc), sc.chart ? loadEnc(sc.chart) : null]);
@@ -235,11 +257,14 @@ function updateHud() {
   const d = rt.depthHere;
   $('r-depth').textContent = isFinite(d) ? `DEPTH ${d.toFixed(1)} m · SQUAT ${rt.sq.toFixed(2)} m` : 'DEPTH deep';
   const st = rt.status, used = st.podPower.reduce((a, b) => a + b, 0) + st.btPower;
-  $('r-pwr').textContent = `PWR ${(used / 1e6).toFixed(1)}/${(st.avail / 1e6).toFixed(1)} MW${st.limited ? ' LIM' : ''}`;
+  // independent diesels (tugs, two-strokes): show the installed power, not a switchboard
+  const avail = st.avail > 1e8 || !SHIP.pods.some(p => !p.kind || p.kind === 'azipod' || p.shaft?.engine.type === 'electric')
+    ? SHIP.pods.reduce((a, p) => a + p.P, 0) + SHIP.bowThruster.P + (SHIP.sternThruster?.P ?? 0) : st.avail;
+  $('r-pwr').textContent = `PWR ${(used / 1e6).toFixed(1)}/${(avail / 1e6).toFixed(1)} MW${st.limited ? ' LIM' : ''}`;
   const t = Math.floor(rt.state.t);
   $('r-time').textContent = `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')} ${SPEEDS[S.speedIdx]}×${S.paused ? ' PAUSED' : ''}`;
   updateFlag();
-  updateTray();
+  if (station) station.update(); else updateTray();
   updateLegend();
 }
 
@@ -512,7 +537,18 @@ function updateTray() {
   $('bt-val').textContent = joy ? sgn(rt.joy.r, 2) : `${Math.round(rt.state.bt * 100)}`;
 }
 
+// ---------------------------------------------------------------- station: Azipod levers or a built station
+let station: Station | null = null;
+function mountStation() {
+  const az = (SHIP.station ?? 'azipod') === 'azipod';
+  $('st-az').hidden = !az; $('st-gen').hidden = az;
+  const kind = SHIP.station ?? 'azipod';
+  station = az ? null : kind === 'asd' || kind === 'vsp' ? buildTugStation($('st-gen'), kind === 'vsp') : kind === 'waterjet' ? buildJetStation($('st-gen')) : kind === 'dp' ? buildDpStation($('st-gen')) : buildStation($('st-gen'));
+  requestAnimationFrame(() => { station?.resize(); D.refreshLayout(); layout3d(); placePanels(); });
+}
+
 function setLever(m: LeverMode) {
+  if (m === 'joy' && !S.rt.canJoy) m = 'twin';
   S.rt.setLever(m);
   const joy = m === 'joy';
   $('b-mode').textContent = { twin: 'LINKED', indep: 'INDEP', joy: 'JOY' }[m];
@@ -520,7 +556,7 @@ function setLever(m: LeverMode) {
   document.querySelectorAll<HTMLElement>('.joyonly').forEach(b => (b.hidden = !joy));
   $('bt-label').textContent = joy ? 'YAW' : 'BOW THRUSTER';
   btIn.value = '0';
-  if (m === 'twin') { S.cmd.pods[1].alpha = S.cmd.pods[0].alpha; S.cmd.pods[1].rpm = S.cmd.pods[0].rpm; }
+  if (m === 'twin' && S.rt.canJoy) { S.cmd.pods[1].alpha = S.cmd.pods[0].alpha; S.cmd.pods[1].rpm = S.cmd.pods[0].rpm; }
   if (!joy) S.cmd.bt = 0;
   syncButtons();
 }
@@ -636,6 +672,7 @@ $('b-hdg').onclick = () => { S.rt.setHdgHold(!S.rt.dp.hdgHold); syncButtons(); }
 $('b-pos').onclick = () => { S.rt.setPosHold(!S.rt.dp.posHold); syncButtons(); };
 $('b-zero').onclick = zeroAll;
 function zeroAll() {
+  if (station) { station.zero(); return; }
   S.cmd.pods.forEach(p => (p.rpm = 0)); S.cmd.bt = 0; btIn.value = '0';
   S.rt.joy = { x: 0, y: 0, r: 0 };
 }
@@ -654,8 +691,9 @@ addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if (k === ' ') { S.paused = !S.paused; syncButtons(); e.preventDefault(); return; }
   if (k.startsWith('arrow')) e.preventDefault();
+  if (station && !e.repeat && station.keydown(k)) { keys.add(k); return; }
   if (k === 'x') zeroAll();
-  if (k === 'm') $('b-mode').click();
+  if (k === 'm' && !station) $('b-mode').click();
   if (k === 'p') $('b-pred').click();
   if (k === 'h') $('b-view').click();
   if (k === 'v') $('b-3d').click();
@@ -669,6 +707,7 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
 function keyControl(dt: number) {
   const rt = S.rt;
+  if (station) { station.keys(keys, dt); return; }
   if (rt.lever === 'joy') {
     const ax = (a: string, b: string) => (keys.has(b) ? 1 : 0) - (keys.has(a) ? 1 : 0);
     const kx = ax('arrowleft', 'arrowright'), ky = ax('arrowdown', 'arrowup'), kr = ax('q', 'e');
@@ -694,12 +733,36 @@ function keyControl(dt: number) {
 }
 
 // ---------------------------------------------------------------- sheet
+function renderShipList() {
+  const box = $('ships'); box.innerHTML = '';
+  const def = SHIPS[S.sc.ship ?? 'becancour'];
+  const opts: [string | null, string, string][] = [[null, `Scenario's ship · ${def.name}`, 'The ship the scenario was written for.'],
+    ...Object.values(SHIPS).map(sp => [sp.id, sp.name, `LOA ${sp.LOA} m · B ${sp.B} m · T ${sp.T} m · ${propulsionSummary(sp)}`] as [string, string, string])];
+  for (const [id, name, line] of opts) {
+    const b = document.createElement('button');
+    b.className = (S.shipId ?? null) === id ? 'cur' : '';
+    b.innerHTML = `<b>${name}</b><span>${line}</span>`;
+    const sp = SHIPS[id ?? S.sc.ship ?? 'becancour'];
+    b.onclick = () => {
+      S.shipId = id;
+      // stay in this scenario if she fits, otherwise go to the first one that does
+      const target = fits(S.sc, sp.T, S.sc.berthFace ? berthFor(S.sc, sp.B, 0) : S.sc.berth, !!sp.towPoints, sp.station === 'dp') || S.sc.needsData ? S.sc
+        : SCENARIOS.find(sc => sc.ship === sp.id) ?? SCENARIOS.find(sc => sc.id === 'trials')!;
+      if (target !== S.sc) toast(`${S.sc.name} ${S.sc.tugsOnly && !sp.towPoints ? 'needs a tug' : `is too shallow for the ${sp.name}`}: switched to ${target.name}.`);
+      openScenario(target).then(() => { renderShipList(); $('b-close').click(); });
+    };
+    box.appendChild(b);
+  }
+}
 function renderScenarioList() {
   const box = $('scenarios'); box.innerHTML = '';
   for (const s of SCENARIOS) {
     const b = document.createElement('button');
     b.className = s === S.sc ? 'cur' : '';
-    b.innerHTML = `<b>${s.name}</b><span>${s.brief}</span>`;
+    const sp = S.shipId ? SHIPS[S.shipId] : null;
+    const shallow = sp && !s.needsData && !fits(s, sp.T, s.berthFace ? berthFor(s, sp.B, 0) : s.berth, !!sp.towPoints, sp.station === 'dp');
+    const own = SHIPS[s.ship ?? 'becancour'];
+    b.innerHTML = `<b>${s.name}</b><span>${s.brief}</span><span class="who">${shallow ? `${s.tugsOnly && !sp!.towPoints ? 'Needs a tug' : `Too shallow for the ${sp!.name}`} · opens with the ${own.name}` : sp ? `With the ${sp.name}` : own.name}</span>`;
     b.onclick = () => { openScenario(s).then(() => $('b-close').click()); };
     box.appendChild(b);
   }
@@ -779,7 +842,7 @@ function startSheetWork() {
     const d = e.data;
     if (d.kind === 'poster') renderPoster(d.poster);
     if (d.kind === 'trials') renderTrials(d.deep, d.shallow, d.depth);
-    if (d.kind === 'validation') renderValidation(d.v);
+    if (d.kind === 'validation') renderValidation(d.v, d.mmg);
     if (++got === 3) w.terminate();
   };
   w.postMessage({ shipId: SHIP.id });
@@ -817,6 +880,7 @@ function frame(now: number) {
   if (S.disp.view !== '3d') {
     D.setWorld();
     D.drawChart();
+    D.drawIce();
     D.drawParticles(dtReal);
     D.drawStructures();
     D.drawChartMarks();
@@ -826,18 +890,20 @@ function frame(now: number) {
     D.drawQuayLines();
     D.drawLines();
     D.drawTugs();
+    D.drawEscort();
+    D.drawTraffic();
     D.drawShip();
     D.drawOverlay();
   }
   if (v3 && S.disp.view !== '2d') { v3.setTime(timeOfDay()); v3.render(); }
-  for (const d of dials) d.draw();
-  for (const l of levers) l.draw();
+  if (station) station.draw();
+  else { for (const d of dials) d.draw(); for (const l of levers) l.draw(); }
   slowT -= dtReal;
   if (slowT <= 0) { slowT = 0.1; updateHud(); updateLinesPanel(); updateTugsPanel(); }
   // adaptive resolution: if frames run long for 2 s, render at a lower pixel density
   frameEma += (performance.now() - t0 - frameEma) * 0.05;
   slowFor = frameEma > 14 ? slowFor + dtReal : 0;
-  if (slowFor > 2) { slowFor = 0; if (D.lowerDpr()) for (const d of [...dials, ...levers]) d.resize(); }
+  if (slowFor > 2) { slowFor = 0; if (D.lowerDpr()) { for (const d of [...dials, ...levers]) d.resize(); station?.resize(); } }
 }
 
 // keep the screen on while the ship is moving
@@ -852,8 +918,8 @@ async function syncWakeLock() {
 }
 setInterval(syncWakeLock, 2000);
 
-function resize() { D.resizeCanvas(); for (const d of [...dials, ...levers]) d.resize(); D.refreshLayout(); layout3d(); placePanels(); }
-const ro = new ResizeObserver(() => { D.refreshLayout(); layout3d(); placePanels(); for (const d of [...dials, ...levers]) d.resize(); });
+function resize() { D.resizeCanvas(); for (const d of [...dials, ...levers]) d.resize(); station?.resize(); D.refreshLayout(); layout3d(); placePanels(); }
+const ro = new ResizeObserver(() => { D.refreshLayout(); layout3d(); placePanels(); for (const d of [...dials, ...levers]) d.resize(); station?.resize(); });
 for (const el of [$('hud'), document.querySelector('.tray')!, document.querySelector('.mapbtns')!, $('rpm-0'), $('rpm-1')]) ro.observe(el);
 // no long-press menus or text selection on the controls
 $('app').addEventListener('contextmenu', e => { if (!(e.target as HTMLElement).closest('.sheet')) e.preventDefault(); });
@@ -864,8 +930,9 @@ new MutationObserver(() => setTimeout(() => { D.readTheme(); drawPosterPlots(); 
 document.addEventListener('visibilitychange', () => { if (document.hidden) { last = performance.now(); suspendAudio(); } syncWakeLock(); });
 addEventListener('resize', resize);
 persist('azb-settings',
-  () => ({ disp: { ...S.disp }, sens: S.sensMode, pred: { mode: S.pred.mode, count: S.pred.count, intervalIdx: S.pred.intervalIdx, source: S.pred.source, staticArc: S.pred.staticArc, alts: [...S.pred.alts] }, speedIdx: S.speedIdx }),
+  () => ({ ship: S.shipId, disp: { ...S.disp }, sens: S.sensMode, pred: { mode: S.pred.mode, count: S.pred.count, intervalIdx: S.pred.intervalIdx, source: S.pred.source, staticArc: S.pred.staticArc, alts: [...S.pred.alts] }, speedIdx: S.speedIdx }),
   v => {
+    if (typeof v.ship === 'string' && SHIPS[v.ship]) S.shipId = v.ship;
     if (v.disp) Object.assign(S.disp, v.disp);
     if (v.sens) S.sensMode = v.sens;
     if (v.pred) { const { alts, ...rest } = v.pred; Object.assign(S.pred, rest); if (alts) S.pred.alts = new Set(alts); }

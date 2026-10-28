@@ -1,6 +1,7 @@
 // Chart rendering: ECDIS-style harbour, own ship at the sensed position, predictions,
 // docking aids (quay distance lines), mooring lines, tugs.
 import { DEG, KN, SHIP } from '../physics/ship';
+import type { PodSpec } from '../physics/ship';
 import { HULL } from '../physics/contact';
 import { nearestStructure } from '../physics/harbour';
 import { LINE } from '../physics/mooring';
@@ -270,6 +271,75 @@ export function drawLines() {
   }
 }
 
+/** The ship a tug is working, and the towline (ink when slack, own colour loaded, warn near the brake). */
+export function drawEscort() {
+  const esc = S.rt.escort; if (!esc) return;
+  const st = esc.st, me = S.rt.state;
+  ctx.save(); bodyTransform(st);
+  ctx.beginPath(); esc.hull.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath();
+  ctx.fillStyle = C.hull; ctx.fill(); ctx.strokeStyle = esc.failed ? C.warn : C.ink; ctx.lineWidth = px(1.6); ctx.stroke();
+  const rd = esc.spec.pods[0]?.shaft?.rudder;
+  if (rd) { ctx.save(); ctx.translate(rd.xR, 0); ctx.rotate(-st.pods[0].alpha); ctx.strokeStyle = esc.failed ? C.warn : C.ink; ctx.lineWidth = px(2.5); ctx.beginPath(); ctx.moveTo(4, 0); ctx.lineTo(-10, 0); ctx.stroke(); ctx.restore(); }
+  ctx.restore();
+  const l = esc.line;
+  if (l.parted || l.mode === 'released') return;
+  const [a, b] = bodyToWorld(me, l.fairTug[0], l.fairTug[1]), [c, d] = bodyToWorld(st, l.fairShip[0], l.fairShip[1]);
+  const load = l.T / l.brake;
+  ctx.strokeStyle = load > 0.85 ? C.warn : load > 0.05 ? C.own : C.ink; ctx.lineWidth = px(load > 0.05 ? 2 : 1.2);
+  if (load <= 0.05) ctx.setLineDash([px(4), px(3)]);
+  ctx.beginPath(); ctx.moveTo(b, a); ctx.lineTo(d, c); ctx.stroke(); ctx.setLineDash([]);
+  if (l.T > 5e3) {
+    ctx.save(); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    const [sx, sy] = toScr((a + c) / 2, (b + d) / 2);
+    ctx.font = `600 12px ${C.fontLabel}`; ctx.fillStyle = ctx.strokeStyle; ctx.textAlign = 'left';
+    ctx.fillText(`LINE ${(l.T / 9.81e3).toFixed(0)} t`, sx + 8, sy - 6);
+    ctx.restore();
+  }
+}
+
+/** Level ice: the sheet, thicker bands, and the channel the ship has broken. */
+export function drawIce() {
+  const ice = S.rt.ice; if (!ice) return;
+  ctx.save();
+  for (let k = ice.fields.length - 1; k >= 0; k--) {
+    const f = ice.fields[k];
+    ctx.beginPath(); f.poly.forEach(([n, e], i) => (i ? ctx.lineTo(e, n) : ctx.moveTo(e, n))); ctx.closePath();
+    ctx.fillStyle = C['panel-solid']; ctx.globalAlpha = 0.9; ctx.fill(); ctx.globalAlpha = 1;
+    // hatching: closer for the thicker ice
+    ctx.save(); ctx.clip();
+    let mn = Infinity, mx = -Infinity, en = Infinity, ex = -Infinity;
+    for (const [n, e] of f.poly) { mn = Math.min(mn, n); mx = Math.max(mx, n); en = Math.min(en, e); ex = Math.max(ex, e); }
+    const step = f.h > 1 ? 25 : 60;
+    ctx.strokeStyle = C.muted; ctx.globalAlpha = 0.35; ctx.lineWidth = px(1); ctx.beginPath();
+    for (let d = en - (mx - mn); d < ex; d += step) { ctx.moveTo(d, mn); ctx.lineTo(d + (mx - mn), mx); }
+    ctx.stroke(); ctx.restore(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = C.muted; ctx.lineWidth = px(1.2); ctx.stroke();
+  }
+  // broken channel: brash, the colour of open water flecked with ice
+  ctx.fillStyle = C.water;
+  const r = SHIP.B * 0.55;
+  ctx.beginPath();
+  for (const [n, e] of ice.channel) { ctx.moveTo(e + r, n); ctx.arc(e, n, r, 0, Math.PI * 2); }
+  ctx.globalAlpha = 0.75; ctx.fill(); ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+/** Other ships under way: hull, name, speed. */
+export function drawTraffic() {
+  for (const tr of S.rt.traffic) {
+    const st = tr.st;
+    ctx.save(); bodyTransform(st as Parameters<typeof bodyTransform>[0]);
+    ctx.beginPath(); tr.hull.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath();
+    ctx.fillStyle = C.hull; ctx.fill(); ctx.strokeStyle = C.ink; ctx.lineWidth = px(1.6); ctx.stroke();
+    ctx.restore();
+    ctx.save(); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    const [sx, sy] = toScr(st.n, st.e);
+    ctx.font = `600 11px ${C.fontLabel}`; ctx.fillStyle = C.ink; ctx.textAlign = 'left';
+    ctx.fillText(`${tr.setup.label} · ${(st.u / 0.514444).toFixed(0)} kn`, sx + 12, sy - 8);
+    ctx.restore();
+  }
+}
+
 export function drawTugs() {
   const rt = S.rt, est = shownPose();
   for (const t of rt.tugs) {
@@ -307,7 +377,12 @@ export function drawShip() {
   // fairleads
   if (full()) for (const l of rt.lines) { ctx.fillStyle = C.muted; ctx.fillRect(l.fair[0] - 0.8, l.fair[1] - 0.8, 1.6, 1.6); }
   const btx = SHIP.bowThruster.x;
-  ctx.strokeStyle = C.muted; ctx.strokeRect(btx - 1.5, -7, 3, 14);
+  if (SHIP.bowThruster.Tmax > 0) { ctx.strokeStyle = C.muted; ctx.strokeRect(btx - 1.5, -7, 3, 14); }
+  if (SHIP.sternThruster) {
+    const sx = SHIP.sternThruster.x; ctx.strokeStyle = C.muted; ctx.strokeRect(sx - 1.5, -5, 3, 10);
+    const sb = bd.sbt;
+    if (full() && sb && Math.abs(sb.Y) > 2e3) { ctx.strokeStyle = ctx.fillStyle = C.own; ctx.lineWidth = px(2.4); const y0 = Math.sign(sb.Y) * 8; arrow(sx, y0, sx, y0 + sb.Y * 32 / 400e3, Math.max(4, px(9))); }
+  }
   const Fs = 32 / 400e3;
   if (full() && Math.abs(bd.bt.Y) > 2e3) {
     ctx.strokeStyle = ctx.fillStyle = C.own; ctx.lineWidth = px(2.4);
@@ -315,6 +390,7 @@ export function drawShip() {
   }
   SHIP.pods.forEach((p, i) => {
     const ps = st.pods[i], b = bd.pods[i];
+    if (p.kind === 'shaft') { drawShaft(p, ps, b, i, Fs); return; }
     ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(ps.alpha + p.alphaOffset);
     const T = b.T, wl = Math.min(90, Math.abs(T) / 400e3 * 60);
     if (wl > 2) {
@@ -349,6 +425,27 @@ export function drawShip() {
     ctx.strokeStyle = ctx.fillStyle = C.ink; ctx.lineWidth = px(2);
     arrow(ce, cn, ce + Math.sin(r.cog) * r.sog * T, cn + Math.cos(r.cog) * r.sog * T, px(9));
   }
+}
+
+/** Propeller (with its wash) and the rudder behind it, in body coordinates. */
+function drawShaft(p: PodSpec, ps: { alpha: number; rpm: number }, b: { X: number; Y: number; T: number }, i: number, Fs: number) {
+  const sh = p.shaft!, col = SHIP.pods.length > 1 ? podColors[i] : C.own, D = sh.prop.D;
+  const T = b.T, wl = Math.min(90, Math.abs(T) / 400e3 * 50);
+  if (wl > 2) {
+    const sg = T >= 0 ? -1 : 1;
+    ctx.fillStyle = col; ctx.globalAlpha = 0.16;
+    ctx.beginPath(); ctx.moveTo(p.x + sg * 1, p.y - D / 2); ctx.lineTo(p.x + sg * (1 + wl), p.y - D / 2 - wl * 0.15); ctx.lineTo(p.x + sg * (1 + wl), p.y + D / 2 + wl * 0.15); ctx.lineTo(p.x + sg * 1, p.y + D / 2); ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  ctx.fillStyle = col; ctx.fillRect(p.x - 0.7, p.y - D / 2, 1.4, D);
+  if (sh.rudder) {
+    const rd = sh.rudder, chord = rd.A / rd.H;
+    ctx.save(); ctx.translate(rd.xR, p.y); ctx.rotate(-ps.alpha);
+    ctx.strokeStyle = C.ink; ctx.lineWidth = Math.max(px(2.5), 1.2); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(chord * 0.3, 0); ctx.lineTo(-chord * 0.7, 0); ctx.stroke();
+    ctx.restore();
+  }
+  if (full() && Math.hypot(b.X, b.Y) > 5e3) { ctx.strokeStyle = ctx.fillStyle = col; ctx.lineWidth = px(2.4); arrow(p.x, p.y, p.x + b.X * Fs, p.y + b.Y * Fs, Math.max(4, px(9))); }
 }
 
 /** Distance from bow and stern shoulders to the nearest structure, with closing speed. */

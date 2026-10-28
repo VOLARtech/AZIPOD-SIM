@@ -7,6 +7,14 @@ import { DepthField, bankEffect, squat, washReflection } from './harbour';
 import { MooringLine, Tug, LINE, makeLines, makeTugs, passLine, tugForces, updateTugs, updateWinches } from './mooring';
 import { DPState, JoyInput, allocate, dpForces, joyLimits } from './allocation';
 import { Sensors } from './sensors';
+import { isPod } from './units/kinds';
+import { Escort, EscortSetup } from './escort';
+import { RollState, deckEdge, rollInit, stepRoll } from './roll';
+import { makeTowline, pointWorld, towForce, updateTowWinch } from './towline';
+import { DpSystem } from './dp';
+import { Traffic, hullsTouch, interaction } from './traffic';
+import { IceState } from './ice';
+import { HULL } from './contact';
 
 export const DT = 0.05;
 
@@ -45,6 +53,16 @@ export class Runtime {
   contactLog: ContactEvent[] = [];
   alerts: Alert[] = [];
   trail: [number, number][] = [];
+  escort: Escort | null = null;            // the ship this tug is working, with the towline
+  roll: RollState | null = null;           // heel, for ships with roll data
+  capsized = false;
+  dps: DpSystem | null = null;             // DP system for ships with a DP console
+  traffic: Traffic[] = [];                 // other ships under way in the scenario
+  ice: IceState | null = null;             // level ice in the scenario
+  iceF = { X: 0, Y: 0, N: 0 };
+  inter = { X: 0, Y: 0, N: 0 };            // ship-ship interaction on own ship, this step
+  private touching = new Set<Traffic>();
+  dpScript: { t: number; kind: string; unit?: number; ref?: string; dir?: number; done?: boolean }[] = [];
   private trailT = 0; private hydroT = 0; private hydroDepth = NaN;
 
   constructor(public spec: ShipSpec, public state: ShipState, public cmd: Command,
@@ -60,6 +78,12 @@ export class Runtime {
       lineT: this.lines.map(() => 0), ext: { X: 0, Y: 0, N: 0 }, depthAt: harbour.depthAt, squat: 0, aground: 0,
     };
     this.sensors.step(state, 0, env.current(state.n, state.e), this.wind());
+    if (spec.roll) this.roll = rollInit();
+    if (spec.station === 'dp') {
+      const M = this.model.h.M;
+      this.dps = new DpSystem(spec, [M[0], M[4], M[8]]);
+      this.dps.hold(this.sensors.out.est);
+    }
   }
 
   wind() {
@@ -70,6 +94,19 @@ export class Runtime {
     this.alerts.length = Math.min(this.alerts.length, 12);
   }
 
+  /** Make the tug fast to a ship: she steams `setup.L0` + both half-lengths ahead on the tug's heading. */
+  attachEscort(setup: EscortSetup, ship: ShipSpec) {
+    const tp = this.spec.towPoints?.[setup.tugPoint];
+    if (!tp) return;
+    const st = this.state, c = Math.cos(st.psi), s = Math.sin(st.psi);
+    const fairShip: [number, number] = setup.fair === 'aft' ? [-ship.L / 2 + 3 - ship.xg, 0] : [ship.L / 2 - 4 - ship.xg, 0];
+    const d = tp.x + setup.L0 - fairShip[0];                       // tug origin → ship origin, along the heading
+    const bp = this.spec.pods.reduce((a, p) => a + p.Tb, 0);
+    const line = makeTowline([tp.x, 0], fairShip, tp.h, setup.L0, bp);
+    this.escort = new Escort(ship, setup, line, st.n + d * c, st.e + d * s, this.env);
+  }
+  /** The joystick allocator drives two azimuthing pods and the bow thruster. */
+  get canJoy() { return this.spec.pods.length === 2 && this.spec.pods.every(isPod); }
   setLever(m: LeverMode) {
     this.lever = m;
     if (m !== 'joy') { this.dp.hdgHold = this.dp.posHold = false; this.joy = { x: 0, y: 0, r: 0 }; }
@@ -91,7 +128,7 @@ export class Runtime {
     this.sensors.step(st, dt, cur, wind);
 
     // joystick / DP → lever orders (on sensor estimates, like the real system)
-    if (this.lever === 'joy') {
+    if (this.lever === 'joy' && this.canJoy) {
       const uc = Math.cos(st.psi) * cur[0] + Math.sin(st.psi) * cur[1];
       const btEff = 1 / (1 + ((st.u - uc) / 1.6) ** 2);
       const lim = joyLimits(spec, btEff);
@@ -103,9 +140,26 @@ export class Runtime {
       const c = (a: number) => Math.max(-1, Math.min(1, a));
       allocate(spec, st, { x: c(j.x + d.Y), y: c(j.y + d.X), r: c(j.r + d.N) }, btEff, this.cmd);
       this.cmd.mode = 'twin';
-    } else this.cmd.mode = this.lever;
+    } else this.cmd.mode = this.lever === 'joy' ? 'twin' : this.lever;
+    if (this.dps) {
+      const uc = Math.cos(st.psi) * cur[0] + Math.sin(st.psi) * cur[1];
+      const btEff = 1 / (1 + ((st.u - uc) / 1.6) ** 2);
+      const d = this.dps;
+      for (const x of this.dpScript) if (!x.done && st.t >= x.t) {
+        x.done = true;
+        if (x.kind === 'unit') d.fail(x.unit ?? 0);
+        else if (x.kind === 'blackout') d.blackout();
+        else d.drift(x.kind === 'common' ? 'common' : (x.ref ?? 'DGNSS 1') as 'DGNSS 1', 0.25, (x.dir ?? 60) * Math.PI / 180);
+      }
+      d.update(st, this.sensors.out.est, { V: this.env.windSpeed, from: this.env.windFrom }, this.cmd, btEff, dt);
+      for (const m of d.msgs) this.alert(m, 'heavy');
+      d.msgs.length = 0;
+      // a tripped unit, or every unit in a blackout, spins down at once rather than at its ramp rate
+      const av = d.avail(), k = Math.exp(-dt / 1.2);
+      d.acts.forEach((a, j) => { if (av[j]) return; if (a.unit >= 0) { st.pods[a.unit].rpm *= k; if (st.pods[a.unit].pitch !== undefined) st.pods[a.unit].pitch! *= k; } else if (a.unit === -1) st.bt *= k; else if (st.sbt) st.sbt *= k; });
+    }
 
-    updateActuators(spec, st, this.cmd, dt, this.status);
+    updateActuators(spec, st, this.cmd, dt, this.status, cur);
     this.gust.step(dt, this.env.gusts && this.env.windSpeed > 0.1);
 
     // harbour effects held over the step
@@ -119,9 +173,20 @@ export class Runtime {
     this.ukc = this.depthHere - spec.T - this.sq;
     this.wash = washReflection(spec, st, this.bd.pods.map(p => p.T), this.harbour.obstacles);
     const ext = this.world.ext!;
-    ext.X = tug.X + this.bank.X + this.wash.X;
-    ext.Y = tug.Y + this.bank.Y + this.wash.Y;
-    ext.N = tug.N + this.bank.N + this.wash.N;
+    // passing ships
+    const it = this.inter; it.X = it.Y = it.N = 0;
+    for (const tr of this.traffic) {
+      const f = interaction(spec, st, tr.spec, tr.st, this.depthHere);
+      it.X += f.X; it.Y += f.Y; it.N += f.N;
+      const touch = Math.abs(f.gap) < spec.B && hullsTouch(HULL, st, tr.spec, tr.st);
+      if (touch && !this.touching.has(tr)) this.alert(`COLLISION · ${tr.setup.label}`, 'heavy');
+      if (touch) this.touching.add(tr); else this.touching.delete(tr);
+    }
+    const ice = this.ice ? this.ice.force(spec, st) : this.iceF;
+    this.iceF = ice;
+    ext.X = tug.X + this.bank.X + this.wash.X + it.X + ice.X;
+    ext.Y = tug.Y + this.bank.Y + this.wash.Y + it.Y + ice.Y;
+    ext.N = tug.N + this.bank.N + this.wash.N + it.N + ice.N;
     this.world.squat = this.sq;
     // hydrodynamics follow the water under the keel (1 Hz)
     this.hydroT -= dt;
@@ -131,9 +196,25 @@ export class Runtime {
       if (!(Math.abs(hEff - this.hydroDepth) < 0.02 * (hEff || 1))) { this.model.setDepth(hEff); this.hydroDepth = hEff; }
     }
 
+    for (const tr of this.traffic) tr.step(dt);
+    const esc = this.escort;
+    if (esc) this.world.tow = { line: esc.line, anchor: esc.anchor() };
     rk4(this.model, st, this.env, wind, this.world, dt);
     // diagnostics at end-of-step state
     this.model.accel(st, this.env, wind, this.world, this.bd, this.ci);
+    if (esc) {
+      const tp = pointWorld(st, esc.line.fairTug);
+      esc.step(dt, this.env, [tp[0], tp[1]]);
+      const ev = updateTowWinch(esc.line, dt);
+      if (ev) this.alert(ev, 'heavy');
+    }
+    if (this.roll && !this.capsized) {
+      const tow = esc && this.world.tow ? towForce(st, esc.line, this.world.tow.anchor) : null;
+      stepRoll(spec, this.roll, this.bd, tow ? [{ Y: tow.Y, h: esc!.line.hTug }] : [], dt);
+      const phi = Math.abs(this.roll.phi), r = spec.roll!;
+      if (phi > r.vanish) { this.capsized = true; this.alert('CAPSIZED', 'heavy'); }
+      else if (phi > deckEdge(spec) && st.t % 2 < dt) this.alert(`DECK EDGE UNDER · HEEL ${(phi * 180 / Math.PI).toFixed(0)}°${tow && tow.T > 0 ? ' · GIRTING' : ''}`, 'heavy');
+    }
     this.lines.forEach((l, i) => (l.T = this.world.lineT![i]));
     for (const name of updateWinches(this.lines, dt)) this.alert(`${name} PARTED`, 'heavy');
     for (const l of this.lines) if (l.state === 'fast' && l.T > 0.8 * LINE.MBL && st.t % 2 < dt) this.alert(`${l.name} ${(l.T / 9.81e3).toFixed(0)} t — near breaking`, 'heavy');
