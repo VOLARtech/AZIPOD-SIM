@@ -46,7 +46,7 @@ Installed copies update themselves; the app offers a **RELOAD** button when a ne
   - ropax: “[PRIDE OF KENT (P&O Ferries)](https://sketchfab.com/3d-models/none-f7c269fbb81e4072b72e28b085e52c7e)” by ipierre
   - frigate: “[1:1 Low poly US NAVY DDG-51 USS Arleigh Burke.](https://sketchfab.com/3d-models/none-17be09c31c6047e4a5969b68c29eba03)” by WTigerTw
 
-  `tools/ship/` rebuilds them: `fetch_sketchfab.py` (needs `SKETCHFAB_TOKEN`), then `build_models.py`, which runs `prepare_ship.py` (fit, clean) and `optimise.sh` (gltf-transform: simplify, WebP, meshopt) and writes `src/view3d/models/`.
+  `tools/ship/` rebuilds them: `fetch_sketchfab.py` (needs `SKETCHFAB_TOKEN`), then `build_models.py`, which runs `prepare_ship.py` (fit, clean) and `optimise.sh` (gltf-transform: simplify, WebP, meshopt) and writes `src/view3d/models/`. The bridge camera stands just ahead of each model's wheelhouse, found from its height profile; `eye` in `tools/ship/models.json` overrides it where that guess is wrong, and `build_models.py WORKDIR --registry` rewrites only the registry.
 - **Fleet and propulsion** (pick a ship in the menu; each brings its own bridge station). The plan behind it is in [`docs/expansion/PLAN.md`](docs/expansion/PLAN.md).
 
   | Propulsion | Ships | Station |

@@ -764,7 +764,7 @@ export class View3D {
       for (const o of procedural) { g.remove(o); o.traverse(c => { const me = c as THREE.Mesh; if (me.geometry) me.geometry.dispose(); }); }
       g.add(obj);
       if (own && m.eye) {
-        this.ship.userData.eyeH = m.eye.h * kx;
+        this.ship.userData.eyeH = (m.eye.h + f.draught) * kx - spec.T;   // eye.h is above the model's waterline
         this.ship.userData.eyeX = stem - (f.stem - m.eye.x) * kx;
       }
     }).catch(err => console.warn('ship model', name, err));
@@ -1105,7 +1105,8 @@ export class View3D {
     }
     const eye = this.ship.userData.eyeH as number;
     const half = SHIP.B / 2 + SHIP.look.wingOut + 0.4;   // leaning over the wing bulwark
-    const bx = SHIP.bridgeX, front = (this.ship.userData.eyeX as number | undefined) ?? bx + SHIP.look.bridgeLen / 2 - 0.8;
+    const eyeX = this.ship.userData.eyeX as number | undefined;   // set when a 3D model replaces the drawn bridge
+    const front = eyeX ?? SHIP.bridgeX + SHIP.look.bridgeLen / 2 - 0.8, bx = eyeX === undefined ? SHIP.bridgeX : eyeX - 3;
     const pos = this.cam === 'bridge' ? w2(front, 0, eye) : w2(bx, this.cam === 'port' ? -half : half, eye);
     cam.position.copy(pos);
     // look direction in the body frame → world

@@ -1,5 +1,5 @@
 {
-  "_note": "Ship 3D models from Sketchfab (all CC Attribution; credited in the app and README). fetch_sketchfab.py downloads them, gltf_to_ship.py converts each to src/view3d/models/<file>.bin. Set SKETCHFAB_TOKEN to download.",
+  "_note": "Ship 3D models from Sketchfab (all CC Attribution; credited in the app and README). fetch_sketchfab.py downloads them (set SKETCHFAB_TOKEN), build_models.py converts each to src/view3d/models/<name>.glb.",
   "models": {
     "viking": {
       "uid": "c82a7e2bbf4c44e3ac1d1e7bac42e2b7",
@@ -29,7 +29,11 @@
       "name": "MS Vesteraalen",
       "author": "gmanisdabossatbeastmode",
       "license": "CC Attribution",
-      "url": "https://sketchfab.com/3d-models/none-58cc913aad14466c8b83ca44f3a8043c"
+      "url": "https://sketchfab.com/3d-models/none-58cc913aad14466c8b83ca44f3a8043c",
+      "eye": {
+        "x": 49.5,
+        "h": 21.8
+      }
     },
     "catferry": {
       "uid": "1325955eece245fb91bc20ed6d666194",
@@ -39,7 +43,11 @@
       "name": "A fast passenger catamaran ferry",
       "author": "kekgaminglive986",
       "license": "CC Attribution",
-      "url": "https://sketchfab.com/3d-models/none-1325955eece245fb91bc20ed6d666194"
+      "url": "https://sketchfab.com/3d-models/none-1325955eece245fb91bc20ed6d666194",
+      "eye": {
+        "x": 6.6,
+        "h": 18.5
+      }
     },
     "rastar": {
       "uid": "1bbadbe4ab0a4b2599cd3f450942e6fe",
@@ -49,7 +57,11 @@
       "name": "Rastar 3200 tugboat",
       "author": "davidbroutian",
       "license": "CC Attribution",
-      "url": "https://sketchfab.com/3d-models/none-1bbadbe4ab0a4b2599cd3f450942e6fe"
+      "url": "https://sketchfab.com/3d-models/none-1bbadbe4ab0a4b2599cd3f450942e6fe",
+      "eye": {
+        "x": 8.0,
+        "h": 11.0
+      }
     },
     "tugboat": {
       "uid": "2260a148c83c41c0b9ffc491f8ee7863",
@@ -86,7 +98,11 @@
       "url": "https://sketchfab.com/3d-models/none-c604045da67a4a0b93d8ce4dc8db3e56",
       "ratio": 0.2,
       "tex": 512,
-      "err": 0.01
+      "err": 0.01,
+      "eye": {
+        "x": 29.6,
+        "h": 26.5
+      }
     },
     "icebreaker": {
       "uid": "1ed361672e6e42298fa5b92dd61127bd",
@@ -109,7 +125,11 @@
       "name": "Clio",
       "author": "gmanisdabossatbeastmode",
       "license": "CC Attribution",
-      "url": "https://sketchfab.com/3d-models/none-306ef5879ba44031851be0555b80484d"
+      "url": "https://sketchfab.com/3d-models/none-306ef5879ba44031851be0555b80484d",
+      "eye": {
+        "x": 18.5,
+        "h": 15
+      }
     },
     "tanker": {
       "uid": "63339c2e2f274672a9bdcf924864ae62",
@@ -123,7 +143,11 @@
       "url": "https://sketchfab.com/3d-models/none-63339c2e2f274672a9bdcf924864ae62",
       "ratio": 0.15,
       "tex": 1024,
-      "err": 0.004
+      "err": 0.004,
+      "prepare": [
+        "--bow",
+        "aft"
+      ]
     },
     "lngcarrier": {
       "uid": "0fe1b96ac2754fb59e0745443294eb50",
@@ -136,7 +160,11 @@
       "url": "https://sketchfab.com/3d-models/none-0fe1b96ac2754fb59e0745443294eb50",
       "ratio": 0.12,
       "tex": 512,
-      "err": 0.012
+      "err": 0.012,
+      "eye": {
+        "x": -67,
+        "h": 56
+      }
     },
     "bulker": {
       "uid": "93c076900f004102b78dfac989efae1d",
@@ -184,7 +212,11 @@
       "name": "1:1 Low poly US NAVY DDG-51 USS Arleigh Burke.",
       "author": "WTigerTw",
       "license": "CC Attribution",
-      "url": "https://sketchfab.com/3d-models/none-17be09c31c6047e4a5969b68c29eba03"
+      "url": "https://sketchfab.com/3d-models/none-17be09c31c6047e4a5969b68c29eba03",
+      "eye": {
+        "x": 34.5,
+        "h": 21
+      }
     }
   }
 }
