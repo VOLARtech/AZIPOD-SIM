@@ -115,7 +115,15 @@
       "url": "https://sketchfab.com/3d-models/none-1ed361672e6e42298fa5b92dd61127bd",
       "ratio": 0.15,
       "tex": 512,
-      "err": 0.01
+      "err": 0.01,
+      "prepare": [
+        "--bow",
+        "aft"
+      ],
+      "eye": {
+        "x": 42.8,
+        "h": 29.8
+      }
     },
     "clio": {
       "uid": "306ef5879ba44031851be0555b80484d",
