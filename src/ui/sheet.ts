@@ -1,4 +1,5 @@
 // Settings sheet: pilot card / wheelhouse poster, validation, sea trials, model notes.
+import MODELS from '../view3d/models/models.json';
 import { SHIP, propulsionSummary } from '../physics/ship';
 import type { Manoeuvre } from '../physics/validation-mmg';
 import type { Poster, Path } from '../physics/poster';
@@ -105,6 +106,7 @@ export function renderModel(h: { m: number; Xud: number; Yvd: number; Nrd: numbe
   $('model').innerHTML = `
     <p>Three degrees of freedom in body axes: (M<sub>RB</sub> + M<sub>A</sub>) ν̇ = τ − C<sub>RB</sub>(ν)ν − C<sub>A</sub>(ν<sub>r</sub>)ν<sub>r</sub> − D(ν<sub>r</sub>) + M<sub>A</sub>ν̇<sub>c</sub>, ν<sub>r</sub> through the water. Added mass and linear derivatives from Clarke, Gedling and Hine (1983); C<sub>A</sub> carries the Munk moment, so only the viscous remainder of Clarke's derivatives goes into D. Cross-flow drag along 26 strips uses the local current. ITTC-57 resistance. RK4 at 20 Hz.</p>
     ${SHIP.note ? `<p><b>This ship.</b> ${SHIP.note}</p>` : ''}
+    ${modelCredit(SHIP.id)}
     ${SHIP.mmg ? `<p><b>Hull (MMG).</b> At manoeuvring speed the hull forces are the MMG standard method's third-order polynomials in v′ and r′ with this ship's published captive-test derivatives (${SHIP.mmg.source}); body origin at midship, CG ${SHIP.mmg.xG} m ahead. Below about 1.5 m/s, beyond about 35° drift and in very tight turns the simulator blends into the low-speed model (MMG linear derivatives with the ideal-fluid part removed, plus strip cross-flow drag).</p>` : ''}
     ${shaft ? `<p><b>Propeller and rudder.</b> Four-quadrant propeller from the MMG thrust curve K<sub>T</sub>(J) = k₀ + k₁J + k₂J², written so a stopped propeller in flow is a drag, a reversed one meeting headway brakes harder, and going astern on astern turns loses thrust; the same form for torque, so a stopped engine's propeller windmills. Transverse thrust (paddle-wheel effect) ${f(shaft.prop.kTTas * 100)} % of thrust astern, a right-hand fixed propeller walking the stern to port. MMG rudder: inflow from the propeller slipstream on D/H of the span, flow straightening γ<sub>R</sub>, hull interaction t<sub>R</sub>, a<sub>H</sub>, x<sub>H</sub>; normal force capped where a ${shaft.rudder?.type ?? 'conventional'} rudder stalls. With sternway the rudder works backwards and weaker; with the propeller astern it sits in blanketed flow.</p>
     ${shaft.engine.type === 'direct2s' ? `<p><b>Engine.</b> Direct-reversing two-stroke. The telegraph sets a governor speed; it never settles in the barred range and does not run below its minimum speed. Stop and reverse means fuel off, wait until the shaft is slow enough, then starting air in the new direction until firing speed. Each start takes air from the receivers (${shaft.engine.air!.pMax} bar, no start below ${shaft.engine.air!.pMin} bar, refilling at ${shaft.engine.air!.refill} bar/min); three failed starts block the sequence. Against heavy headway an astern start can stall. Shaft speed comes from engine torque against the propeller's, through the shaft-line inertia.</p>` : ''}` : ''}
@@ -118,4 +120,12 @@ export function renderModel(h: { m: number; Xud: number; Yvd: number; Nrd: numbe
       <tr><td>Munk part (Y′<sub>v̇</sub> − X′<sub>u̇</sub>)</td><td>${e(p.munk)}</td></tr>
       <tr><td>Viscous N′<sub>v</sub>, N′<sub>r</sub></td><td>${e(p.NvD)}, ${e(p.NrD)}</td></tr>
     </table></div>`;
+}
+
+/** Credit line for the 3D model a ship is drawn with (CC Attribution: title, author, source, licence). */
+export function modelCredit(id: string) {
+  const m = Object.values(MODELS as Record<string, { ships: string[]; credit: { title: string; author: string; license: string; url: string } }>).find(x => x.ships.includes(id));
+  if (!m) return '';
+  const c = m.credit;
+  return `<p><b>3D model.</b> “<a href="${c.url}" target="_blank" rel="noopener">${c.title}</a>” by ${c.author} on Sketchfab, ${c.license === 'CC Attribution' ? '<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>' : c.license}; fitted to this ship's length, beam and draught, simplified, its own propellers and rudders replaced by the simulator's. It shows the type, not this exact ship. Offline single-file copy: drawn procedurally.</p>`;
 }

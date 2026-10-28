@@ -19,7 +19,17 @@ export default defineConfig(({ mode }) => {
       __PWA__: JSON.stringify(!single),
       __REPO_URL__: JSON.stringify(process.env.REPO_URL ?? 'https://github.com/VOLARtech/AZIPOD-SIM'),
     },
-    resolve: single ? { alias: { 'virtual:pwa-register': fileURLToPath(new URL('./src/pwa-stub.ts', import.meta.url)) } } : {},
+    resolve: {
+      alias: [
+        // three.js addons (glTF loader) import 'three'; the app runs on 'three/webgpu', which contains it
+        { find: /^three$/, replacement: 'three/webgpu' },
+        ...(single ? [
+          { find: 'virtual:pwa-register', replacement: fileURLToPath(new URL('./src/pwa-stub.ts', import.meta.url)) },
+          // the offline single file stays small: ships keep their procedural 3D look
+          { find: /^\.\/models\/urls$/, replacement: fileURLToPath(new URL('./src/view3d/models/urls.stub.ts', import.meta.url)) },
+        ] : []),
+      ],
+    },
     build: {
       target: 'es2020',
       outDir: single ? 'dist-single' : 'dist',
@@ -52,6 +62,8 @@ export default defineConfig(({ mode }) => {
         },
         workbox: {
           globPatterns: ['**/*.{js,css,html,woff2,png,svg,webmanifest,bin}'],
+          // ship models load when a ship is first shown, and are kept for offline use from then on
+          runtimeCaching: [{ urlPattern: /\.glb$/, handler: 'CacheFirst', options: { cacheName: 'ship-models', expiration: { maxEntries: 40 } } }],
           globIgnores: ['**/azipod-bridge-offline.html'],
           navigateFallback: 'index.html',
           cleanupOutdatedCaches: true,
