@@ -3,6 +3,8 @@ import type { Fender, Obstacle, Pt } from './physics/contact';
 import { fenderReaction } from './physics/contact';
 import type { CurrentField } from './physics/sim';
 import type { EscortSetup } from './physics/escort';
+import type { TrafficSetup } from './physics/traffic';
+import type { IceField } from './physics/ice';
 import { Shoal, depthField, DepthField, DepthGrid, gridField } from './physics/harbour';
 import { bboxOf } from './physics/contact';
 import { AMSTERDAM, Building } from './scenes/amsterdam';
@@ -36,6 +38,9 @@ export interface Scenario {
   /** Scripted DP faults: a unit trips, the switchboard blacks out, a position reference drifts. */
   dpScript?: DpScriptItem[];
   dpOnly?: boolean;                               // only ships with a DP system can play it
+  traffic?: TrafficSetup[];                       // other ships under way, holding their tracks
+  flow?: (n: number, e: number) => [number, number]; // direction the current runs at a point (rivers); scaled by the current speed
+  ice?: IceField[];                               // level ice (first field containing a point wins)
   tugBP?: number;                                 // tug bollard pull [N]
   buildings?: Building[];                         // 3D-only scenery
   landHeight?: number;                            // quay / bank height above water for 3D
@@ -65,6 +70,7 @@ const rect = (n0: number, e0: number, n1: number, e1: number): Pt[] => [[n0, e0]
 
 export function currentField(sc: Scenario, kn: number, setDeg: number): CurrentField {
   const V = kn * KN, cN = V * Math.cos(setDeg * DEG), cE = V * Math.sin(setDeg * DEG);
+  if (sc.flow) { const fl = sc.flow, sh = sc.shelter; return (n, e) => { const [a, b] = fl(n, e), k = sh ? sh(n, e) : 1; return [V * a * k, V * b * k]; }; }
   if (!sc.shelter) return () => [cN, cE];
   const f = sc.shelter;
   return (n, e) => { const k = f(n, e); return [cN * k, cE * k]; };
@@ -165,6 +171,62 @@ export const SCENARIOS: Scenario[] = [
     shoals: [], obstacles: [], fenders: [], bollards: [], zoom: 1.6,
     ship: 'asd-tug', tugsOnly: true,
     escort: { ship: 'kvlcc2', kn: 8, course: 0, fair: 'aft', tugPoint: 0, L0: 60, failure: { t: 180, kind: 'rudder', rudder: 20, text: 'Escorted ship: RUDDER JAMMED 20° STARBOARD' } },
+  },
+  {
+    id: 'meet', name: 'Channel · meeting and overtaking',
+    brief: 'A 300 m dredged channel, 12 m deep (h/T 1.5 for the Spirit), northbound at 7 kn on the starboard side of the fairway. A 3600 TEU container ship comes down the other side at 10 kn: as the bows meet they push each other away, then each stern is drawn toward the other. About five minutes later a Ro-Pax overtakes you at 15 kn, close on your port side: she draws you in and sheers your bow toward her as she comes abeam. Keep your side of the channel and do not touch the banks.',
+    ship: 'spirit',
+    start: { n: -2200, e: 45, psi: 0, kn: 7 },
+    windKn: 6, windFrom: 200, gusts: false, currentKn: 0, currentSet: 0, depth: 12,
+    shoals: [{ poly: rect(-6500, -150, 6500, -125), depth: 7 }, { poly: rect(-6500, 125, 6500, 150), depth: 7 }],
+    obstacles: [
+      { poly: rect(-6500, -600, 6500, -150), ...BANK, kind: 'bank' },
+      { poly: rect(-6500, 150, 6500, 600), ...BANK, kind: 'bank' },
+    ],
+    fenders: [], bollards: [], zoom: 0.5,
+    traffic: [
+      { ship: 'kcs', label: 'CONTAINER SHIP', start: { n: 1500, e: -55, psi: 180, kn: 10 } },
+      { ship: 'ropax', label: 'RO-PAX', start: { n: -5200, e: -10, psi: 0, kn: 15 } },
+    ],
+  },
+  {
+    id: 'river', name: 'River bend · push convoy downstream',
+    brief: 'A laden four-barge push convoy, 193 m, going downstream on a 200 m wide river with 3 kn of current, 5 m of water under a 3.5 m draught. A right-hand bend of 700 m radius, then a bridge 1.7 km below it with a 120 m span between the piers. The current carries you round the bend and sets you toward the outer bank: start the turn early, keep the stern up into the current, and remember she stops on her propellers going astern, steering with the flanking rudders.',
+    ship: 'push-convoy',
+    start: { n: -2400, e: 0, psi: 0, kn: 4 },
+    windKn: 8, windFrom: 270, gusts: true, currentKn: 3, currentSet: 0, depth: 5,
+    shoals: [],
+    obstacles: [
+      { poly: [[-3400, 100], [0, 100], ...Array.from({ length: 13 }, (_, k) => { const a = -Math.PI / 2 + k * Math.PI / 24; return [600 * Math.cos(a), 700 + 600 * Math.sin(a)] as Pt; }).slice(1), [600, 4000], [-3400, 4000]] as Pt[], ...BANK, kind: 'bank' },
+      { poly: [[-3400, -100], [0, -100], ...Array.from({ length: 13 }, (_, k) => { const a = -Math.PI / 2 + k * Math.PI / 24; return [800 * Math.cos(a), 700 + 800 * Math.sin(a)] as Pt; }).slice(1), [800, 4000], [1700, 4000], [1700, -700], [-3400, -700]] as Pt[], ...BANK, kind: 'bank' },
+      { poly: rect(600, 2395, 640, 2405), ...CONCRETE, kind: 'pier' },
+      { poly: rect(760, 2395, 800, 2405), ...CONCRETE, kind: 'pier' },
+    ],
+    fenders: [], bollards: [], zoom: 0.55,
+    // the current follows the river: north in the upper reach, round the bend, east below it
+    flow: (n, e) => {
+      if (n < 0) return [1, 0];
+      if (e > 700) return [0, 1];
+      const dn = n, de = e - 700, r = Math.hypot(dn, de) || 1;
+      return [-de / r, dn / r];
+    },
+  },
+  {
+    id: 'ice', name: 'Ice · breaking a channel',
+    brief: 'Level ice 0.8 m thick from the edge 400 m ahead, with a 1.4 m band of older ice further in. Break a straight channel 3 km north, turn, and come back through it: the brash in your own channel offers a fraction of the resistance, the edges grab your shoulders if you swing, and turning in unbroken ice takes a lot more than turning in open water. Three Azipods: point one aft to wash the ice off the hull if she sticks.',
+    ship: 'icebreaker',
+    start: { n: -400, e: 0, psi: 0, kn: 6 },
+    windKn: 12, windFrom: 30, gusts: true, currentKn: 0, currentSet: 0, depth: 40,
+    shoals: [], obstacles: [], fenders: [], bollards: [], zoom: 0.6,
+    ice: [{ poly: rect(1500, -3000, 1900, 3000), h: 1.4 }, { poly: rect(0, -3000, 6000, 3000), h: 0.8 }],
+  },
+  {
+    id: 'rotor', name: 'Ocean passage · rotor sails',
+    brief: 'A laden bulk carrier with four Flettner rotor sails, on passage at economical speed, wind 25 kn on the beam. The rotors spin to the spin ratio that gives the most thrust and add knots for the same fuel; they also push her sideways and turn her, so she carries leeway and some weather helm. Switch the rotors off and on from the engine room panel and watch speed, leeway and the rudder she needs.',
+    ship: 'panamax-rotor',
+    start: { n: 0, e: 0, psi: 0, kn: 11 },
+    windKn: 25, windFrom: 90, gusts: true, currentKn: 0, currentSet: 0, depth: Infinity,
+    shoals: [], obstacles: [], fenders: [], bollards: [], zoom: 0.3,
   },
   {
     id: 'hsc', name: 'Fast ferry · harbour entrance at speed',

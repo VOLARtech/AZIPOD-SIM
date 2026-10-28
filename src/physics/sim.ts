@@ -64,6 +64,7 @@ export interface UnitBreakdown extends Wrench { T: number; eff: number; FN?: num
 export interface Breakdown {
   hull: Wrench; pods: UnitBreakdown[]; bt: Wrench & { eff: number }; sbt?: Wrench & { eff: number };
   wind: Wrench & { relSpeed: number; relAngle: number }; contact: Wrench; current: [number, number];
+  rotor?: Wrench & { SR: number; on: boolean };
 }
 const W = (): Wrench => ({ X: 0, Y: 0, N: 0 });
 export function emptyBreakdown(nPods: number): Breakdown {
@@ -86,6 +87,7 @@ export class Model {
   private sf: ShaftForce = { X: 0, Y: 0, N: 0, T: 0, FN: 0, uR: 0, TT: 0, Q: 0 };
   private mm = { X: 0, Y: 0, N: 0, w: 0 };
   private jf: JetForce = { X: 0, Y: 0, N: 0, T: 0, Vj: 0, mdot: 0 };
+  rotorsOn = true;                            // rotor sails spinning (engine-room switch)
   constructor(public spec: ShipSpec, depth: number) { this.h = deriveHydro(spec, depth); }
   setDepth(d: number) { this.h = deriveHydro(this.spec, d); }
 
@@ -257,6 +259,12 @@ export class Model {
       const Yw = -w.cy * Math.sin(gam) * q * w.AL;
       const Nw = -w.cn * Math.sin(2 * gam) * q * w.AL * s.L + w.xw * Yw;
       X += Xw; Y += Yw; N += Nw;
+      if (s.rotors && this.rotorsOn) {
+        // Flettner rotors: Magnus lift across the apparent wind, spun to the best spin ratio the motor allows
+        const r = rotorForce(s, awx, awy, Vrw);
+        X += r.X; Y += r.Y; N += r.N;
+        if (bd) bd.rotor = r;
+      }
       if (bd) { bd.wind.X = Xw; bd.wind.Y = Yw; bd.wind.N = Nw; bd.wind.relSpeed = Vrw; bd.wind.relAngle = gam; }
     } else if (bd) { bd.wind.X = bd.wind.Y = bd.wind.N = 0; bd.wind.relSpeed = 0; }
 
@@ -460,4 +468,30 @@ export class Gust {
 export function holdCourse(cmd: Command, st: ShipState, psiRef: number) {
   const a = Math.max(-0.17, Math.min(0.17, -1.2 * wrap(psiRef - st.psi) + 25 * st.r));
   cmd.pods.forEach(p => (p.alpha = a));
+}
+
+/** Rotor sails in apparent wind (awx, awy: velocity of the air relative to the ship, body axes).
+ *  C_L(SR) and C_D(SR) of a rotor with end plates (shape after Bordogna et al. 2019; Seifert 2012):
+ *  lift rises to about 9 near spin ratio 3, drag grows with spin. Each rotor spins the way that
+ *  gives forward thrust, at the spin ratio that maximises it, or stops when the wind is too far ahead. */
+export function rotorForce(s: ShipSpec, awx: number, awy: number, V: number) {
+  let X = 0, Y = 0, N = 0, SR = 0, on = false;
+  if (V < 2) return { X, Y, N, SR, on };
+  const wx = awx / V, wy = awy / V;                        // unit vector the air moves along
+  for (const r of s.rotors!) {
+    const q = 0.5 * RHO_AIR * V * V * r.D * r.H;
+    let best = 0, bx = 0, by = 0, bsr = 0;
+    for (const sr of [1, 1.5, 2, 2.5, 3, 3.5]) {
+      if (sr * V > r.vMax) break;
+      const CL = 9 * Math.tanh(sr / 2.6), CD = 0.6 + 0.15 * sr * sr;
+      for (const sg of [1, -1]) {
+        const fx = q * (CD * wx + CL * sg * -wy), fy = q * (CD * wy + CL * sg * wx);
+        if (fx > best) { best = fx; bx = fx; by = fy; bsr = sr; }
+      }
+    }
+    if (best <= 0) { bx = q * 0.6 * wx; by = q * 0.6 * wy; }      // stopped: plain cylinder drag
+    else on = true;
+    X += bx; Y += by; N += r.x * by - r.y * bx; SR = Math.max(SR, bsr);
+  }
+  return { X, Y, N, SR, on };
 }

@@ -10,6 +10,7 @@ import { ROPAX, CRUISE_CONV, LNG, ULCV } from '../ships/twin';
 import { ASD_TUG, VSP_TUG, ROTOR_TUG } from '../ships/tugs';
 import { HSC_CAT } from '../ships/fast';
 import { AHTS, PSV } from '../ships/offshore';
+import { FRIGATE, ICEBREAKER, PANAMAX_ROTOR, PUSH_CONVOY, SUPERYACHT } from '../ships/special';
 export { RHO, RHO_AIR, NU_W, G, KN, DEG } from './consts';
 
 export interface PodSpec {
@@ -64,6 +65,8 @@ export interface RudderSpec {
   gammaP: number; gammaM: number;       // flow straightening for β_R > 0 / < 0
   lR: number;                 // effective x of the rudder for flow straightening, ÷ Lpp
   eps: number; kappa: number; // wake ratio rudder/propeller, slipstream constant
+  /** Flanking rudders ahead of the propeller (pushboats): area, x rel. CG, hard over. Work in the astern slipstream. */
+  flank?: { A: number; xF: number; max: number };
 }
 /** Engine driving a shaft. */
 export interface EngineSpec {
@@ -140,6 +143,10 @@ export interface ShipSpec {
   towPoints?: { name: string; x: number; h: number }[];   // tug towing points: x on the centreline, height above WL
   load?: string;              // load case shown with the particulars
   cwMul?: number;             // residuary resistance factor for hulls fuller and shorter than the simple wave term assumes (default 1)
+  /** Flettner rotor sails: position, diameter, height, height of their centre above the waterline, top surface speed ωR [m/s]. */
+  rotors?: { x: number; y: number; D: number; H: number; zc: number; vMax: number }[];
+  /** Icebreaking bow for Lindqvist's level-ice resistance: stem angle φ, waterline entrance half-angle α [rad]. */
+  iceBow?: { phi: number; alpha: number };
 }
 
 /** MMG standard-method hull: non-dimensional derivatives about midship, ÷ ½ρ L d U² (forces), ÷ ½ρ L² d U² (moment). */
@@ -270,7 +277,7 @@ export const SPIRIT: ShipSpec = {
   },
 };
 
-export const SHIPS: Record<string, ShipSpec> = { becancour: BECANCOUR, lady: LADY, spirit: SPIRIT, kvlcc2: KVLCC2, 'kvlcc2-ballast': KVLCC2_BALLAST, kcs: KCS, panamax: PANAMAX, ulcv: ULCV, lng: LNG, ropax: ROPAX, 'cruise-shaft': CRUISE_CONV, 'asd-tug': ASD_TUG, 'vsp-tug': VSP_TUG, 'rotor-tug': ROTOR_TUG, 'hsc-cat': HSC_CAT, psv: PSV, ahts: AHTS };
+export const SHIPS: Record<string, ShipSpec> = { becancour: BECANCOUR, lady: LADY, spirit: SPIRIT, kvlcc2: KVLCC2, 'kvlcc2-ballast': KVLCC2_BALLAST, kcs: KCS, panamax: PANAMAX, ulcv: ULCV, lng: LNG, ropax: ROPAX, 'cruise-shaft': CRUISE_CONV, 'asd-tug': ASD_TUG, 'vsp-tug': VSP_TUG, 'rotor-tug': ROTOR_TUG, 'hsc-cat': HSC_CAT, psv: PSV, ahts: AHTS, icebreaker: ICEBREAKER, 'push-convoy': PUSH_CONVOY, frigate: FRIGATE, superyacht: SUPERYACHT, 'panamax-rotor': PANAMAX_ROTOR };
 /** The ship in use. A live binding: importers see the new ship after setShip(). */
 export let SHIP: ShipSpec = BECANCOUR;
 export function setShip(id: string) { SHIP = SHIPS[id] ?? BECANCOUR; return SHIP; }

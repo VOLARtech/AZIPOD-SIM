@@ -449,8 +449,8 @@ import { stepRoll, rollInit } from '../src/physics/roll';
 
 console.log('every scenario sails the Spirit');
 test('all built-in harbour scenarios use the Spirit-class ship (3D model, pods)', () => {
-  // the tanker terminal, the tug escort, the fast-ferry harbour and the DP run are written for their own ship types
-  const other = SCENARIOS.filter(s => s.ship !== 'spirit' && !['terminal', 'escort', 'hsc', 'dp'].includes(s.id)).map(s => s.id);
+  // the tanker terminal, tug escort, fast-ferry harbour, DP run, river, ice and rotor-sail passages are written for their own ship types
+  const other = SCENARIOS.filter(s => s.ship !== 'spirit' && !['terminal', 'escort', 'hsc', 'dp', 'river', 'ice', 'rotor'].includes(s.id)).map(s => s.id);
   assert.ok(!other.length, other.join(', '));
 });
 test('Quai 27, channel, swing basin, trials: start clear of structures with ≥ 2 m under the keel', () => {
@@ -633,6 +633,124 @@ import { actuators, allocateDP, capability, DpSystem } from '../src/physics/dp';
     assert.ok(!ci.active);
   });
   void DpSystem;
+}
+
+console.log('inland · naval · special ships · interaction · ice · rotor sails');
+import { interaction } from '../src/physics/traffic';
+import { lindqvist, IceState } from '../src/physics/ice';
+import { rotorForce } from '../src/physics/sim';
+import { Traffic } from '../src/physics/traffic';
+import { helm as helmTo, engines as eng, primeRunning as prime } from '../src/physics/pilot';
+{
+  const SP = SHIPS.spirit, KC = SHIPS.kcs;
+  const at = (n: number, e: number, psi: number, kn: number) => ({ n, e, psi: psi * DEG, u: kn * KN });
+  test('passing ship abeam on the starboard side: she is drawn toward it, little yaw', () => {
+    const f = interaction(SP, at(0, 0, 0, 8), KC, at(0, 60, 0, 10), 14);
+    assert.ok(f.Y > 0 && Math.abs(f.N) < 0.2 * Math.abs(f.Y) * SP.L, `Y ${f.Y.toFixed(0)} N ${f.N.toFixed(0)}`);
+  });
+  test('another ship coming up on the starboard bow pushes the bow away; at the quarter it draws the bow in', () => {
+    const fwd = interaction(SP, at(0, 0, 0, 8), KC, at(130, 60, 180, 10), 14), aft = interaction(SP, at(0, 0, 0, 8), KC, at(-130, 60, 180, 10), 14);
+    assert.ok(fwd.N < 0 && aft.N > 0, `fwd ${fwd.N.toFixed(0)} aft ${aft.N.toFixed(0)}`);
+  });
+  test('interaction: grows in shallow water and with speed, falls off with the gap, nothing when crossing', () => {
+    const deep = interaction(SP, at(0, 0, 0, 8), KC, at(0, 60, 0, 10), Infinity).Y, shallow = interaction(SP, at(0, 0, 0, 8), KC, at(0, 60, 0, 10), 10).Y;
+    const far = interaction(SP, at(0, 0, 0, 8), KC, at(0, 160, 0, 10), 10).Y, fast = interaction(SP, at(0, 0, 0, 8), KC, at(0, 60, 0, 15), 10).Y;
+    assert.ok(shallow > 1.2 * deep && far < 0.3 * shallow && fast > shallow);
+    assert.ok(interaction(SP, at(0, 0, 0, 8), KC, at(0, 60, 90, 10), 10).Y === 0);
+  });
+  test('channel meeting and overtaking: the traffic runs, forces stay finite, no collision on a held course', () => {
+    const sc = SCENARIOS.find(x => x.id === 'meet')!;
+    setShip('spirit'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+    const st = makeState(SP, sc.start.n, sc.start.e, sc.start.psi, sc.start.kn); st.pods.forEach(p => (p.rpm = 7 / SP.vmaxKn));
+    const rt = new Runtime(SP, st, { pods: SP.pods.map(() => ({ alpha: 0, rpm: 7 / SP.vmaxKn })), bt: 0 }, { ...calm, depth: sc.depth }, harbourOf(sc));
+    rt.traffic = sc.traffic!.map(t => new Traffic(SHIPS[t.ship], t));
+    let peak = 0;
+    for (let i = 0; i < 20 * 900; i++) {
+      // a helmsman holding 000° on the starboard side of the channel
+      const a = Math.max(-0.35, Math.min(0.35, -1.5 * (0 - st.psi) - 40 * st.r - 0.004 * (45 - st.e)));
+      rt.cmd.pods.forEach(p => (p.alpha = a));
+      rt.step(); peak = Math.max(peak, Math.abs(rt.inter.Y));
+    }
+    setShip('becancour'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+    assert.ok(isFinite(peak) && peak > 5e4, `peak ${(peak / 1e3).toFixed(0)} kN`);
+    assert.ok(!rt.alerts.some(a => /COLLISION/.test(a.text)), rt.alerts.map(a => a.text).join());
+  });
+  test('rotor sails: beam wind gives thrust ahead near spin ratio 3; head wind, they stop', () => {
+    const R = SHIPS['panamax-rotor'], V = 12;
+    const beam = rotorForce(R, 0, -V, V), head = rotorForce(R, -V, 0, V);   // air moving to port / aft relative to the ship
+    const q = 0.5 * 1.225 * V * V * 5 * 30;
+    assert.ok(beam.on && beam.X > 4 * 5 * q && beam.SR >= 2.5, `X ${(beam.X / 1e3).toFixed(0)} kN SR ${beam.SR}`);
+    assert.ok(!head.on && head.X < 0);
+  });
+  test('rotor sails add speed in a beam wind on the same engine order', () => {
+    const R = SHIPS['panamax-rotor'], m1 = new Model(R, Infinity), m0 = new Model(R, Infinity); m0.rotorsOn = false;
+    const run = (m: Model) => { const st = makeState(R, 0, 0, 0, 11); prime(R, st, 0.55); const c: Cmd = { pods: R.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0 }; eng(R, c, 0.55);
+      for (let t = 0; t < 1200; t += 0.2) { helmTo(R, c, Math.max(-0.2, Math.min(0.2, -1.5 * st.psi - 40 * st.r))); updateActuators(R, st, c, 0.2); rk4(m, st, calm, { V: 25 * KN, from: 90 * DEG }, null, 0.2); } return st.u; };
+    const on = run(m1), off = run(m0);
+    assert.ok(on > off + 0.3 * KN, `${(on / KN).toFixed(2)} vs ${(off / KN).toFixed(2)} kn`);
+  });
+  test('push convoy: flanking rudders steer her going astern; the main rudders alone barely do', () => {
+    const PC = SHIPS['push-convoy'];
+    const noFlank: typeof PC = { ...PC, pods: PC.pods.map(p => ({ ...p, shaft: { ...p.shaft!, rudder: { ...p.shaft!.rudder!, flank: undefined } } })) };
+    const yaw = (sp: typeof PC) => { const m = new Model(sp, 5), st = makeState(sp, 0, 0, 0, 0); const c: Cmd = { pods: sp.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0 }; eng(sp, c, -0.6); helmTo(sp, c, 40 * DEG);
+      for (let t = 0; t < 90; t += 0.1) { updateActuators(sp, st, c, 0.1); rk4(m, st, { ...calm, depth: 5 }, still, null, 0.1); } return st.psi; };
+    const a = yaw(PC), b = yaw(noFlank);
+    assert.ok(Math.abs(a) > 3 * Math.abs(b) && Math.abs(a) > 5 * DEG, `with ${(a / DEG).toFixed(1)}° without ${(b / DEG).toFixed(1)}°`);
+  });
+  test('push convoy stops on her reversing gearboxes in under 5 lengths', () => {
+    const { rows } = trialsOf(SHIPS['push-convoy']);
+    const c = parseFloat(rows.find(r => r.key === 'crash')!.value);
+    assert.ok(c < 5, `${c} L`);
+  });
+  test('river flow follows the bend; the convoy starts in mid-river with water under her', () => {
+    const sc = SCENARIOS.find(x => x.id === 'river')!, f = currentField(sc, 3, 0);
+    const [a, b] = f(-1000, 0), [c, d] = f(700, 1500), [g, h] = f(Math.cos(-Math.PI / 4) * 700, 700 + Math.sin(-Math.PI / 4) * 700);
+    assert.ok(a > 1.5 && Math.abs(b) < 1e-9 && d > 1.5 && Math.abs(c) < 1e-9 && g > 0.9 && h > 0.9, `${a} ${b} ${c} ${d} ${g} ${h}`);
+    assert.ok(fits(sc, SHIPS['push-convoy'].T));
+  });
+  test('Lindqvist ice resistance: grows with thickness and speed; an icebreaker makes headway in 0.8 m at full power', () => {
+    const IB = SHIPS.icebreaker;
+    assert.ok(lindqvist(IB, 1.2, 2).R > lindqvist(IB, 0.8, 2).R && lindqvist(IB, 0.8, 3).R > lindqvist(IB, 0.8, 1).R);
+    const sc = SCENARIOS.find(x => x.id === 'ice')!;
+    const st = makeState(IB, 300, 0, 0, 3), rt = new Runtime(IB, st, { pods: IB.pods.map(() => ({ alpha: 0, rpm: 1 })), bt: 0 }, calm, OPEN);
+    st.pods.forEach(p => (p.rpm = 1)); rt.ice = new IceState(sc.ice!.slice(1));
+    for (let i = 0; i < 20 * 240; i++) rt.step();
+    assert.ok(rt.ice.inIce && st.u > 4 * KN && st.u < 14 * KN, `${(st.u / KN).toFixed(1)} kn in 0.8 m`);
+    // back down her own channel: much less resistance
+    const R1 = rt.ice.R; st.psi = Math.PI; st.u = 3; st.n -= 200;
+    rt.ice.force(IB, st); const R2 = rt.ice.R;
+    assert.ok(rt.ice.brash && R2 < 0.3 * R1, `level ${(R1 / 1e3).toFixed(0)} kN, channel ${(R2 / 1e3).toFixed(0)} kN`);
+  });
+  test('icebreaker in 1.8 m level ice: 1.2–5 kn (the class is rated for 1.8 m at 3 kn)', () => {
+    const IB = SHIPS.icebreaker, st = makeState(IB, 300, 0, 0, 3);
+    const rt = new Runtime(IB, st, { pods: IB.pods.map(() => ({ alpha: 0, rpm: 1 })), bt: 0 }, calm, OPEN);
+    st.pods.forEach(p => (p.rpm = 1)); rt.ice = new IceState([{ poly: [[0, -3000], [0, 3000], [9000, 3000], [9000, -3000]], h: 1.8 }]);
+    for (let i = 0; i < 20 * 400; i++) rt.step();
+    assert.ok(st.u > 1.2 * KN && st.u < 5 * KN, `${(st.u / KN).toFixed(1)} kn`);
+  });
+  test('ice: no push at rest, and turning in level ice is resisted', () => {
+    const IB = SHIPS.icebreaker, ice = new IceState([{ poly: [[-1e4, -1e4], [-1e4, 1e4], [1e4, 1e4], [1e4, -1e4]], h: 0.8 }]);
+    const rest = ice.force(IB, makeState(IB, 0, 0, 0, 0)); assert.ok(rest.X === 0 && rest.Y === 0 && rest.N === 0);
+    const st = makeState(IB, 0, 0, 0, 2); st.r = 0.02; const f = ice.force(IB, st);
+    assert.ok(f.X < 0 && f.N < 0);
+  });
+  for (const id of ['icebreaker', 'push-convoy', 'frigate', 'superyacht', 'panamax-rotor', 'psv', 'ahts']) {
+    test(`${SHIPS[id].name}: trials speed within 1.5 kn of the rated ${SHIPS[id].vmaxKn} kn, no NaN`, () => {
+      const { rows, Vs } = trialsOf(SHIPS[id]);
+      assert.ok(Math.abs(Vs / KN - SHIPS[id].vmaxKn) < 1.5, `${(Vs / KN).toFixed(1)} kn`);
+      for (const r of rows) assert.ok(!/NaN|undefined/.test(r.value), `${r.label}: ${r.value}`);
+    });
+  }
+  test('new scenarios start their own ship clear of every structure with water under her', () => {
+    for (const id of ['meet', 'river', 'ice', 'rotor']) {
+      const sc = SCENARIOS.find(x => x.id === id)!, sp = SHIPS[sc.ship!];
+      setShip(sp.id); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+      const ci = { active: false, points: [], fenders: [] } as Parameters<typeof contactForces>[3] & object;
+      contactForces(makeState(ACTIVE, sc.start.n, sc.start.e, sc.start.psi, 0), sc.obstacles, sc.fenders, ci);
+      assert.ok(!ci.active && depthAt(sc)(sc.start.n, sc.start.e) > sp.T, id);
+    }
+    setShip('becancour'); setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+  });
 }
 
 console.log(`\n${pass} passed${process.exitCode ? ', some failed' : ''}`);

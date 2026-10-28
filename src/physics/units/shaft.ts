@@ -113,6 +113,14 @@ export function shaftForces(s: ShipSpec, u: PodSpec, rpm: number, delta: number,
     Y += -(1 + aH) * FN * cd;
     N += -(rd.xR + aH * rd.xH) * FN * cd;
   }
+  if (rd?.flank && T < 0) {
+    // flanking rudders: with the propeller astern its slipstream runs forward over them, so they
+    // steer the stern while she backs, where the main rudders behind the propeller are blanketed
+    const f = rd.flank, Ad = RHO * Math.PI * p.D * p.D / 8, us2 = -T / Ad + Math.min(0, Va) ** 2;
+    const df = Math.max(-f.max, Math.min(f.max, delta));
+    const FF = 0.5 * RHO * f.A * us2 * rudderCN(rd, Math.abs(df)) * Math.sign(df);
+    Y += FF; N += f.xF * FF; X += 0.08 * Math.abs(FF);
+  }
   N += -u.y * X;                                               // off-centre shafts: surge moment
   out.X = X; out.Y = Y; out.N = N; out.T = T; out.FN = FN; out.uR = uR;
   out.Q = propTorque(p, n, Va, pitch);
@@ -168,7 +176,8 @@ export function stepEngine(e: EngineSpec, es: EngineState, rpm: number, demand: 
     es.target += Math.max(-rate, Math.min(rate, goal - es.target));
     const err = es.target - n;
     qEng = Math.max(-torqueCap(e, Math.abs(n)), Math.min(torqueCap(e, Math.abs(n)), (Qh / Qm) + 8 * err));
-    if (e.type !== 'electric' && n * qEng < 0 && Math.abs(n) > 0.02) qEng = 0;   // a diesel cannot brake
+    // a diesel cannot brake; with a reversing gearbox (clutch) the astern clutch takes the windmilling shaft
+    if (e.type !== 'electric' && n * qEng < 0 && Math.abs(n) > 0.02) qEng = e.clutch && es.target * n < 0 ? Math.sign(qEng) * 0.6 * torqueCap(e, Math.abs(n)) : 0;
     es.msg = limit < 0.999 && Math.abs(demand) > limit ? 'POWER LIMITED' : '';
   } else {
     const air = e.air!;

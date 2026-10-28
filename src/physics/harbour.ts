@@ -7,7 +7,7 @@ import type { ShipState, Wrench } from './sim';
 export interface Shoal { poly: Pt[]; depth: number; label?: string }
 export type DepthField = (n: number, e: number) => number;
 
-function inPoly(n: number, e: number, poly: Pt[]) {
+export function inPoly(n: number, e: number, poly: Pt[]) {
   let ins = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const [ni, ei] = poly[i], [nj, ej] = poly[j];

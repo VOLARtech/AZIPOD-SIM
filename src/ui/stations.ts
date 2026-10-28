@@ -269,7 +269,8 @@ export function buildStation(host: HTMLElement): Station {
   relink();
   if (units.length > 1) { linkB.style.cursor = 'pointer'; linkB.onclick = () => { linked = !linked; relink(); }; }
   // shaft gauges
-  const gCell = cell('Shaft', cpp ? 'GEARED DIESEL' : telegraph ? '2-STROKE · DIRECT' : 'ELECTRIC DRIVE', 'gauges');
+  const eType = units[0][0].shaft!.engine.type;
+  const gCell = cell('Shaft', cpp ? (eType === 'turbine' ? 'GAS TURBINE · CPP' : 'GEARED DIESEL') : telegraph ? '2-STROKE · DIRECT' : eType === 'electric' ? 'ELECTRIC DRIVE' : 'DIESEL · REVERSING GEAR', 'gauges');
   const gRow = document.createElement('div'); gRow.className = 'row'; gCell.appendChild(gRow);
   const gauges = units.map(([, i]) => new ShaftGauge(i));
   gauges.forEach(g => { gRow.appendChild(g.c); canvases.push(g); });
@@ -298,7 +299,9 @@ export function buildStation(host: HTMLElement): Station {
   if (SHIP.sternThruster) addThr('sbt', 'STERN');
   // buttons
   const bc = cell('', '', 'btns');
-  bc.innerHTML = `<button class="cb warn" data-a="stop">${cpp ? 'ZERO PITCH' : 'STOP'}</button><button class="cb" data-a="mid">MIDSHIPS</button>${cpp ? '<button class="cb" data-a="comb">CONST RPM</button>' : ''}`;
+  bc.innerHTML = `<button class="cb warn" data-a="stop">${cpp ? 'ZERO PITCH' : 'STOP'}</button><button class="cb" data-a="mid">MIDSHIPS</button>${cpp ? '<button class="cb" data-a="comb">CONST RPM</button>' : ''}${SHIP.rotors ? '<button class="cb on" data-a="rotor">ROTORS ON</button>' : ''}`;
+  const rotB = bc.querySelector('[data-a=rotor]') as HTMLButtonElement | null;
+  if (rotB) rotB.onclick = () => { const m = S.rt.model; m.rotorsOn = !m.rotorsOn; rotB.textContent = m.rotorsOn ? 'ROTORS ON' : 'ROTORS OFF'; rotB.classList.toggle('on', m.rotorsOn); uiTick('detent'); };
   const combB = bc.querySelector('[data-a=comb]') as HTMLButtonElement | null;
   if (combB) {
     combinator = false;
@@ -330,6 +333,10 @@ export function buildStation(host: HTMLElement): Station {
         }
         const P = S.rt.status.podPower[i];
         rows.push(`<div class="k">LOAD</div><div class="v">${(P / 1e6).toFixed(1)} MW · ${(100 * P / e.P).toFixed(0)} %${cpp ? ` · pitch ${((S.rt.state.pods[i].pitch ?? 0) * 100).toFixed(0)} %` : ''}</div>`);
+      }
+      if (SHIP.rotors) {
+        const ro = S.rt.bd.rotor, on = S.rt.model.rotorsOn;
+        rows.push(`<div class="k">ROTOR SAILS</div><div class="v">${!on ? 'STOPPED' : ro?.on ? `${(ro.X / 1e3).toFixed(0)} kN ahead · ${(Math.abs(ro.Y) / 1e3).toFixed(0)} kN ${ro.Y >= 0 ? 'to stbd' : 'to port'} · SR ${ro.SR.toFixed(1)}` : 'WIND TOO FAR AHEAD'}</div>`);
       }
       const html = rows.join('');
       if (html !== statHtml) { statHtml = html; stat.innerHTML = html; }
@@ -513,7 +520,7 @@ export function buildTugStation(host: HTMLElement, vsp: boolean): Station {
   };
   const units = SHIP.pods.map((p, i) => [p, i] as [PodSpec, number]);
   const ctl: (CombiLever | VspPad)[] = [];
-  const uc = cell(vsp ? 'Voith Schneider' : 'Azimuth drives', units.length > 1 ? 'INDEPENDENT' : '', 'units');
+  const uc = cell(vsp ? 'Voith Schneider' : units.every(([p]) => !p.kind || p.kind === 'azipod') ? 'Azipods' : 'Azimuth drives', units.length > 1 ? 'INDEPENDENT' : '', 'units');
   const row = document.createElement('div'); row.className = 'row'; uc.appendChild(row);
   for (const [p, i] of units) {
     const w = vsp ? new VspPad([i], p.label) : new CombiLever([i], p.label);
@@ -544,6 +551,9 @@ export function buildTugStation(host: HTMLElement, vsp: boolean): Station {
   tb.innerHTML = modes.map(([m, t]) => `<button class="cb${m === 'released' ? ' warn' : ''}" data-m="${m}">${t}</button>`).join('');
   tb.querySelectorAll<HTMLButtonElement>('button').forEach(b => (b.onclick = () => { const l = S.rt.escort?.line; if (l && !l.parted && l.mode !== 'released') { l.mode = b.dataset.m as typeof l.mode; uiTick('detent'); } }));
   tc.hidden = !S.rt.escort;
+  // ice
+  const iceStat = document.createElement('div'); iceStat.className = 'stat';
+  if (S.rt.ice) { const ic = cell('Ice', 'LEVEL ICE', 'status'); ic.appendChild(iceStat); }
   // buttons
   const bc = cell('', '', 'btns');
   bc.innerHTML = `<button class="cb warn" data-a="stop">ALL STOP</button>`;
@@ -555,6 +565,13 @@ export function buildTugStation(host: HTMLElement, vsp: boolean): Station {
     root: host,
     draw() { for (const c of canvases) c.draw(); },
     update() {
+      const ice = S.rt.ice;
+      if (ice) {
+        const html = `<div class="k">UNDER THE BOW</div><div class="v">${!ice.inIce ? 'OPEN WATER' : ice.brash ? `BROKEN CHANNEL (${ice.h.toFixed(1)} m sheet)` : `LEVEL ICE ${ice.h.toFixed(1)} m`}</div>
+          <div class="k">ICE RESISTANCE</div><div class="v">${(ice.R / 1e3).toFixed(0)} kN</div>
+          <div class="k">SPEED</div><div class="v">${(S.rt.state.u / 0.514444).toFixed(1)} kn</div>`;
+        if (html !== iceStat.dataset.h) { iceStat.dataset.h = html; iceStat.innerHTML = html; }
+      }
       const esc = S.rt.escort;
       if (esc) {
         const l = esc.line, st = esc.st, me = S.rt.state;

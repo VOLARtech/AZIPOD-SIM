@@ -297,6 +297,49 @@ export function drawEscort() {
   }
 }
 
+/** Level ice: the sheet, thicker bands, and the channel the ship has broken. */
+export function drawIce() {
+  const ice = S.rt.ice; if (!ice) return;
+  ctx.save();
+  for (let k = ice.fields.length - 1; k >= 0; k--) {
+    const f = ice.fields[k];
+    ctx.beginPath(); f.poly.forEach(([n, e], i) => (i ? ctx.lineTo(e, n) : ctx.moveTo(e, n))); ctx.closePath();
+    ctx.fillStyle = C['panel-solid']; ctx.globalAlpha = 0.9; ctx.fill(); ctx.globalAlpha = 1;
+    // hatching: closer for the thicker ice
+    ctx.save(); ctx.clip();
+    let mn = Infinity, mx = -Infinity, en = Infinity, ex = -Infinity;
+    for (const [n, e] of f.poly) { mn = Math.min(mn, n); mx = Math.max(mx, n); en = Math.min(en, e); ex = Math.max(ex, e); }
+    const step = f.h > 1 ? 25 : 60;
+    ctx.strokeStyle = C.muted; ctx.globalAlpha = 0.35; ctx.lineWidth = px(1); ctx.beginPath();
+    for (let d = en - (mx - mn); d < ex; d += step) { ctx.moveTo(d, mn); ctx.lineTo(d + (mx - mn), mx); }
+    ctx.stroke(); ctx.restore(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = C.muted; ctx.lineWidth = px(1.2); ctx.stroke();
+  }
+  // broken channel: brash, the colour of open water flecked with ice
+  ctx.fillStyle = C.water;
+  const r = SHIP.B * 0.55;
+  ctx.beginPath();
+  for (const [n, e] of ice.channel) { ctx.moveTo(e + r, n); ctx.arc(e, n, r, 0, Math.PI * 2); }
+  ctx.globalAlpha = 0.75; ctx.fill(); ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+/** Other ships under way: hull, name, speed. */
+export function drawTraffic() {
+  for (const tr of S.rt.traffic) {
+    const st = tr.st;
+    ctx.save(); bodyTransform(st as Parameters<typeof bodyTransform>[0]);
+    ctx.beginPath(); tr.hull.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath();
+    ctx.fillStyle = C.hull; ctx.fill(); ctx.strokeStyle = C.ink; ctx.lineWidth = px(1.6); ctx.stroke();
+    ctx.restore();
+    ctx.save(); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    const [sx, sy] = toScr(st.n, st.e);
+    ctx.font = `600 11px ${C.fontLabel}`; ctx.fillStyle = C.ink; ctx.textAlign = 'left';
+    ctx.fillText(`${tr.setup.label} · ${(st.u / 0.514444).toFixed(0)} kn`, sx + 12, sy - 8);
+    ctx.restore();
+  }
+}
+
 export function drawTugs() {
   const rt = S.rt, est = shownPose();
   for (const t of rt.tugs) {

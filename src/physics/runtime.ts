@@ -12,6 +12,9 @@ import { Escort, EscortSetup } from './escort';
 import { RollState, deckEdge, rollInit, stepRoll } from './roll';
 import { makeTowline, pointWorld, towForce, updateTowWinch } from './towline';
 import { DpSystem } from './dp';
+import { Traffic, hullsTouch, interaction } from './traffic';
+import { IceState } from './ice';
+import { HULL } from './contact';
 
 export const DT = 0.05;
 
@@ -54,6 +57,11 @@ export class Runtime {
   roll: RollState | null = null;           // heel, for ships with roll data
   capsized = false;
   dps: DpSystem | null = null;             // DP system for ships with a DP console
+  traffic: Traffic[] = [];                 // other ships under way in the scenario
+  ice: IceState | null = null;             // level ice in the scenario
+  iceF = { X: 0, Y: 0, N: 0 };
+  inter = { X: 0, Y: 0, N: 0 };            // ship-ship interaction on own ship, this step
+  private touching = new Set<Traffic>();
   dpScript: { t: number; kind: string; unit?: number; ref?: string; dir?: number; done?: boolean }[] = [];
   private trailT = 0; private hydroT = 0; private hydroDepth = NaN;
 
@@ -165,9 +173,20 @@ export class Runtime {
     this.ukc = this.depthHere - spec.T - this.sq;
     this.wash = washReflection(spec, st, this.bd.pods.map(p => p.T), this.harbour.obstacles);
     const ext = this.world.ext!;
-    ext.X = tug.X + this.bank.X + this.wash.X;
-    ext.Y = tug.Y + this.bank.Y + this.wash.Y;
-    ext.N = tug.N + this.bank.N + this.wash.N;
+    // passing ships
+    const it = this.inter; it.X = it.Y = it.N = 0;
+    for (const tr of this.traffic) {
+      const f = interaction(spec, st, tr.spec, tr.st, this.depthHere);
+      it.X += f.X; it.Y += f.Y; it.N += f.N;
+      const touch = Math.abs(f.gap) < spec.B && hullsTouch(HULL, st, tr.spec, tr.st);
+      if (touch && !this.touching.has(tr)) this.alert(`COLLISION · ${tr.setup.label}`, 'heavy');
+      if (touch) this.touching.add(tr); else this.touching.delete(tr);
+    }
+    const ice = this.ice ? this.ice.force(spec, st) : this.iceF;
+    this.iceF = ice;
+    ext.X = tug.X + this.bank.X + this.wash.X + it.X + ice.X;
+    ext.Y = tug.Y + this.bank.Y + this.wash.Y + it.Y + ice.Y;
+    ext.N = tug.N + this.bank.N + this.wash.N + it.N + ice.N;
     this.world.squat = this.sq;
     // hydrodynamics follow the water under the keel (1 Hz)
     this.hydroT -= dt;
@@ -177,6 +196,7 @@ export class Runtime {
       if (!(Math.abs(hEff - this.hydroDepth) < 0.02 * (hEff || 1))) { this.model.setDepth(hEff); this.hydroDepth = hEff; }
     }
 
+    for (const tr of this.traffic) tr.step(dt);
     const esc = this.escort;
     if (esc) this.world.tow = { line: esc.line, anchor: esc.anchor() };
     rk4(this.model, st, this.env, wind, this.world, dt);

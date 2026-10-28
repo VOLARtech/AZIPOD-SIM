@@ -10,6 +10,8 @@ import './style.css';
 import { initApp, persist, toast } from './app';
 import type { View3D } from './view3d/view';
 import { DEG, KN, SHIP, SHIPS, propulsionSummary, setShip } from './physics/ship';
+import { Traffic } from './physics/traffic';
+import { IceState } from './physics/ice';
 import { buildDpStation, buildJetStation, buildStation, buildTugStation, initialOrders, Station } from './ui/stations';
 import { buildHull, setHull } from './physics/contact';
 import { makeState, wrap } from './physics/sim';
@@ -66,6 +68,8 @@ function loadScenario(sc: Scenario) {
   S.rt.sensors.mode = S.sensMode;
   if (sc.escort) S.rt.attachEscort(sc.escort, SHIPS[sc.escort.ship]);
   if (sc.dpScript) S.rt.dpScript = sc.dpScript.map(x => ({ ...x }));
+  if (sc.traffic) S.rt.traffic = sc.traffic.map(t => new Traffic(SHIPS[t.ship], t));
+  if (sc.ice) S.rt.ice = new IceState(sc.ice);
   applyEnv();
   S.rt.sensors.reset();
   S.view.follow = true; S.view.cN = st.n; S.view.cE = st.e;
@@ -876,6 +880,7 @@ function frame(now: number) {
   if (S.disp.view !== '3d') {
     D.setWorld();
     D.drawChart();
+    D.drawIce();
     D.drawParticles(dtReal);
     D.drawStructures();
     D.drawChartMarks();
@@ -886,6 +891,7 @@ function frame(now: number) {
     D.drawLines();
     D.drawTugs();
     D.drawEscort();
+    D.drawTraffic();
     D.drawShip();
     D.drawOverlay();
   }

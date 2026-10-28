@@ -120,6 +120,7 @@ export class View3D {
   private harbour = new THREE.Group();
   private ship = new THREE.Group();
   private other = new THREE.Group();          // the ship a tug is working (escort)
+  private trafficG: THREE.Group[] = [];       // other ships under way
   private towLine: THREE.Line | null = null;
   private navLights: THREE.Object3D[] = [];
   private lamps: THREE.Object3D[] = [];
@@ -286,7 +287,7 @@ export class View3D {
 
   /** Rebuild for the current scenario and ship (cheap; called on scenario load). */
   build() {
-    const key = S.sc.id + '|' + SHIP.id + '|' + (S.rt.escort?.spec.id ?? '');
+    const key = S.sc.id + '|' + SHIP.id + '|' + (S.rt.escort?.spec.id ?? '') + '|' + S.rt.traffic.map(t => t.spec.id).join(',');
     if (key === this.builtFor) return;
     this.builtFor = key;
     this.lit = []; this.lamps = []; this.navLights = [];
@@ -294,6 +295,7 @@ export class View3D {
     this.buildHarbour();
     this.buildShip();
     this.buildOther();
+    this.buildTraffic();
     this.buildTugs();
     for (const l of this.lines) this.scene.remove(l);
     this.lines = S.rt.lines.map(() => {
@@ -316,6 +318,13 @@ export class View3D {
     const sc = S.sc, LH = sc.landHeight ?? 2;
     const quayM = this.mat(0x858176, { rough: 0.95 }), pierM = this.mat(0x7a756b, { rough: 0.95 });
     const edgeM = this.mat(0x3b3a37, { rough: 0.9 });
+    // level ice: a white sheet at the waterline (the broken channel shows on the chart)
+    for (const f of sc.ice ?? []) {
+      const geo = new THREE.ShapeGeometry(new THREE.Shape(f.poly.map(([n, e]) => new THREE.Vector2(e, n))));
+      geo.rotateX(-Math.PI / 2); geo.translate(0, f.h > 1 ? 0.14 : 0.08, 0);
+      const m = new THREE.Mesh(geo, this.mat(f.h > 1 ? 0xdde6ec : 0xf1f5f8, { rough: 0.85 }));
+      m.receiveShadow = true; g.add(m);
+    }
     if (SCENERY[sc.id]) this.loadScenery(sc.id, LH);
     else if (sc.obstacles.length <= 40) {
       for (const ob of sc.obstacles) {
@@ -617,6 +626,20 @@ export class View3D {
     this.towLine = new THREE.Line(g, new THREE.LineBasicNodeMaterial({ color: 0xe8d9a0 }));
     this.towLine.frustumCulled = false; this.scene.add(this.towLine);
   }
+  /** Traffic: each ship built by the same procedure as the escorted ship. */
+  private buildTraffic() {
+    for (const g of this.trafficG) { this.clear(g); this.scene.remove(g); }
+    this.trafficG = [];
+    const own = SHIP.id, ownHull = HULL, pods = this.pods, depth = this.podDepth;
+    try {
+      for (const tr of S.rt.traffic) {
+        const g = new THREE.Group();
+        setShip(tr.spec.id); setHull(tr.hull); this.buildShip(g, false);
+        g.traverse(o => { if ((o as THREE.Mesh).isMesh) o.castShadow = o.receiveShadow = true; });
+        this.scene.add(g); this.trafficG.push(g);
+      }
+    } finally { setShip(own); setHull(ownHull); this.pods = pods; this.podDepth = depth; }
+  }
   private buildShip(g = this.ship, own = true) {
     this.clear(g);
     const gen = own ? ++this.shipGen : this.shipGen;   // a model still loading for the previous ship must not land
@@ -656,6 +679,13 @@ export class View3D {
       topH = Math.max(topH, d.h);
     }
     if (cargo) this.buildCargo(g, fb);
+    // rotor sails: tall cylinders with an end plate on top
+    for (const r of SHIP.rotors ?? []) {
+      const cyl = new THREE.Mesh(new THREE.CylinderGeometry(r.D / 2, r.D / 2, r.H, 24), this.mat('#e9ebec', { rough: 0.45 }));
+      cyl.position.set(r.y, fb + r.H / 2, -r.x); g.add(cyl);
+      const plate = new THREE.Mesh(new THREE.CylinderGeometry(r.D, r.D, 0.3, 28), this.mat(L.accent, { rough: 0.5 }));
+      plate.position.set(r.y, fb + r.H, -r.x); g.add(plate);
+    }
     // wheelhouse with wings, glass all round
     const glass = this.mat(L.glass, { rough: 0.15, metal: 0.5 });
     const wingW = 2 * (SHIP.B / 2 + L.wingOut), bx = SHIP.bridgeX;
@@ -892,6 +922,7 @@ export class View3D {
     this.ship.position.set(st.e, -(rt.world.squat ?? 0), -st.n);
     this.ship.rotation.y = -psi;
     this.ship.rotation.z = -(rt.roll?.phi ?? 0);
+    rt.traffic.forEach((tr, k) => { const g = this.trafficG[k]; if (!g) return; g.position.set(tr.st.e, 0, -tr.st.n); g.rotation.y = -tr.st.psi; });
     const esc = rt.escort;
     this.other.visible = !!esc;
     if (esc && this.towLine) {
