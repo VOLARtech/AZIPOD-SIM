@@ -92,8 +92,10 @@ function loadScenario(sc: Scenario) {
 
 let sheetStarted = false;
 const postedData = new Set<string>();
+let openSeq = 0;
 /** Load a scenario, fetching its chart and depth data first if it has any. */
 async function openScenario(sc: Scenario) {
+  const seq = ++openSeq;                                  // a later pick wins over a download still in flight
   // a ship that draws too much for this water: take the scenario's own ship instead
   const want = SHIPS[S.shipId ?? sc.ship ?? 'becancour'];
   if (S.shipId && !sc.needsData && !fits(sc, want.T, sc.berthFace ? berthFor(sc, want.B, 0) : sc.berth, !!want.towPoints, want.station === 'dp')) {
@@ -104,7 +106,11 @@ async function openScenario(sc: Scenario) {
     try {
       const [data] = await Promise.all([ensureScenario(sc), sc.chart ? loadEnc(sc.chart) : null]);
       if (data && !postedData.has(sc.id)) { pw.postMessage({ kind: 'data', id: sc.id, data }); postedData.add(sc.id); }
-    } catch (err) { console.error(err); toast(`Could not load the chart for ${sc.name}.`); if (S.rt) return; sc = SCENARIOS.find(s => !s.needsData)!; }
+    } catch (err) {
+      if (seq !== openSeq) return;
+      console.error(err); toast(`Could not load the chart for ${sc.name}.`); if (S.rt) return; sc = SCENARIOS.find(s => !s.needsData)!;
+    }
+    if (seq !== openSeq) return;
   }
   loadScenario(sc);
 }
