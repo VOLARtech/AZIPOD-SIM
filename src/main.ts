@@ -9,7 +9,7 @@ import '@fontsource/ibm-plex-mono/latin-500-italic.css';
 import './style.css';
 import { initApp, persist, toast } from './app';
 import type { View3D } from './view3d/view';
-import { DEG, KN, SHIP, SHIPS, propulsionSummary, setShip } from './physics/ship';
+import { DEG, KN, SHIP, SHIPS, propulsionSummary, setShip, type ShipSpec } from './physics/ship';
 import { Traffic } from './physics/traffic';
 import { IceState } from './physics/ice';
 import { buildDpStation, buildJetStation, buildStation, buildTugStation, initialOrders, Station } from './ui/stations';
@@ -742,8 +742,10 @@ function keyControl(dt: number) {
 function renderShipList() {
   const box = $('ships'); box.innerHTML = '';
   const def = SHIPS[S.sc.ship ?? 'becancour'];
-  const opts: [string | null, string, string][] = [[null, `Scenario's ship · ${def.name}`, 'The ship the scenario was written for.'],
-    ...Object.values(SHIPS).map(sp => [sp.id, sp.name, `LOA ${sp.LOA} m · B ${sp.B} m · T ${sp.T} m · ${propulsionSummary(sp)}`] as [string, string, string])];
+  const row = (sp: ShipSpec): [string, string, string] => [sp.id, sp.name, `LOA ${sp.LOA} m · B ${sp.B} m · T ${sp.T} m · ${propulsionSummary(sp)}`];
+  // Paspaley Pearl leads the list; the rest follow in fleet order
+  const opts: [string | null, string, string][] = [row(SHIPS['paspaley-pearl']), [null, `Scenario's ship · ${def.name}`, 'The ship the scenario was written for.'],
+    ...Object.values(SHIPS).filter(sp => sp.id !== 'paspaley-pearl').map(row)];
   for (const [id, name, line] of opts) {
     const b = document.createElement('button');
     b.className = (S.shipId ?? null) === id ? 'cur' : '';
