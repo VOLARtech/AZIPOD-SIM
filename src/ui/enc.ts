@@ -94,22 +94,35 @@ export function drawEncMarks(id: string, v: EncView) {
   const { ctx, scale, C, bounds: [n0, e0, n1, e1], toScr } = v;
   // spot soundings once there is room for them (≈ 1:6 000 and closer)
   if (scale > 0.22) {
-    ctx.font = `500 ${scale > 0.6 ? 11 : 10}px ${C.fontNum}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    const step = scale > 0.6 ? 0 : 18;                 // thin out when zoomed further out
-    const placed: [number, number][] = [];
+    const big = scale > 0.6, step = big ? 0 : 18;      // thin out when zoomed further out
+    // thinning on a screen grid of step × 0.7 step cells: a sounding is dropped when one already
+    // placed lies within the box around it, which only the 3 × 3 neighbouring cells can hold
+    const sx = step, sy = step * 0.7, taken = new Map<number, [number, number][]>();
+    const cell = (cx: number, cy: number) => cx * 65536 + cy;
+    const whole: [number, number, string, boolean][] = [], decs: [number, number, string, boolean][] = [];
     for (let i = Math.floor(n0 / 200); i <= Math.floor(n1 / 200); i++) for (let j = Math.floor(e0 / 200); j <= Math.floor(e1 / 200); j++) {
       for (const [n, e, d] of b.soundGrid.get(`${i},${j}`) ?? []) {
         const [x, y] = toScr(n, e);
-        if (step && placed.some(([px2, py2]) => Math.abs(px2 - x) < step && Math.abs(py2 - y) < step * 0.7)) continue;
-        placed.push([x, y]);
+        if (step) {
+          const cx = Math.floor(x / sx), cy = Math.floor(y / sy);
+          let near = false;
+          for (let a = -1; a <= 1 && !near; a++) for (let c = -1; c <= 1 && !near; c++)
+            near = (taken.get(cell(cx + a, cy + c)) ?? []).some(([px2, py2]) => Math.abs(px2 - x) < sx && Math.abs(py2 - y) < sy);
+          if (near) continue;
+          const k = cell(cx, cy); (taken.get(k) ?? taken.set(k, []).get(k)!).push([x, y]);
+        }
         const shallow = d < b.safetyDepth;
-        ctx.fillStyle = shallow ? C['sound-sh'] : C.sound;
-        const whole = Math.floor(d), dec = Math.round((d - whole) * 10);
+        const w = Math.floor(d), dec = Math.round((d - w) * 10);
         // chart style: whole metres with the decimetres as a lowered digit
-        ctx.fillText(String(whole), x - (dec ? 3 : 0), y);
-        if (dec && whole < 21) { ctx.font = `500 ${scale > 0.6 ? 8 : 7}px ${C.fontNum}`; ctx.fillText(String(dec), x + (whole >= 10 ? 9 : 5), y + 4); ctx.font = `500 ${scale > 0.6 ? 11 : 10}px ${C.fontNum}`; }
+        whole.push([x - (dec ? 3 : 0), y, String(w), shallow]);
+        if (dec && w < 21) decs.push([x + (w >= 10 ? 9 : 5), y + 4, String(dec), shallow]);
       }
     }
+    // two passes, one font each: switching fonts per sounding is what made this slow
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const text = (list: typeof whole) => { for (const [x, y, t, sh] of list) { ctx.fillStyle = sh ? C['sound-sh'] : C.sound; ctx.fillText(t, x, y); } };
+    ctx.font = `500 ${big ? 11 : 10}px ${C.fontNum}`; text(whole);
+    ctx.font = `500 ${big ? 8 : 7}px ${C.fontNum}`; text(decs);
   }
   // aids to navigation
   for (const a of b.data.aids) {

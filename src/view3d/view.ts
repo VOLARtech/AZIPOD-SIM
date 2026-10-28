@@ -29,6 +29,30 @@ export type CamName = 'bridge' | 'port' | 'stbd' | 'chase' | 'pods';
 export type TimeOfDay = 'day' | 'dusk' | 'night';
 
 // ---------------------------------------------------------------- helpers
+/** Fetch a binary asset once per page: a failed request (offline, 404) rejects, and is retried next time. */
+const binCache = new Map<string, Promise<ArrayBuffer>>();
+function fetchBin(url: string | undefined) {
+  if (!url) return Promise.reject(new Error('no URL'));
+  let job = binCache.get(url);
+  if (!job) {
+    job = fetch(url).then(r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText} ${url}`); return r.arrayBuffer(); });
+    binCache.set(url, job);
+    job.catch(() => binCache.delete(url));
+  }
+  return job;
+}
+/** Points into a line's position buffer, growing it when needed; extra capacity is left undrawn. */
+function setLine(geo: THREE.BufferGeometry, pts: THREE.Vector3[]) {
+  let pos = geo.getAttribute('position') as THREE.BufferAttribute | undefined;
+  if (!pos || pos.count < pts.length) {
+    pos = new THREE.BufferAttribute(new Float32Array(Math.max(pts.length, 2 * (pos?.count ?? 0)) * 3), 3);
+    geo.setAttribute('position', pos);
+  }
+  pts.forEach((p, i) => pos!.setXYZ(i, p.x, p.y, p.z));
+  pos.needsUpdate = true;
+  geo.setDrawRange(0, pts.length);
+}
+
 /** Concatenate non-indexed geometries (position, normal, uv); disposes the inputs. */
 function mergeGeometries(geos: THREE.BufferGeometry[]) {
   const keys = ['position', 'normal', 'uv'] as const, out = new THREE.BufferGeometry();
@@ -285,8 +309,9 @@ export class View3D {
     return m;
   }
   private clear(g: THREE.Group) {
-    g.traverse(o => { const m = o as THREE.Mesh; if (m.geometry) m.geometry.dispose(); });
+    g.traverse(o => { const m = o as THREE.Mesh; if (m.geometry && !m.userData.shared) m.geometry.dispose(); });   // cached models are shared
     g.clear();
+    g.userData.gen = -1;                                   // a ship model still loading for this group must not land
   }
 
   /** Rebuild for the current scenario and ship (cheap; called on scenario load). */
@@ -296,7 +321,12 @@ export class View3D {
     this.builtFor = key;
     this.lit = []; this.lamps = []; this.navLights = [];
     this.tod = null;
-    this.buildHarbour();
+    // the harbour (and its scenery download) depends on the scenario only: keep it when just the ships change
+    if (S.sc.id !== this.harbourFor) {
+      this.harbourFor = S.sc.id;
+      this.buildHarbour();
+      this.harbourLights = { lit: [...this.lit], lamps: [...this.lamps] };
+    } else { this.lit.push(...this.harbourLights.lit); this.lamps.push(...this.harbourLights.lamps); }
     this.buildShip();
     this.buildOther();
     this.buildTraffic();
@@ -317,8 +347,12 @@ export class View3D {
     this.wake?.reset();
   }
 
+  private harbourFor = '';
+  private harbourGen = 0;
+  private harbourLights: { lit: THREE.MeshStandardNodeMaterial[]; lamps: THREE.Object3D[] } = { lit: [], lamps: [] };
   private buildHarbour() {
-    const g = this.harbour; this.clear(g); this.fenders = [];
+    const g = this.harbour; this.clear(g); this.fenders = []; this.harbourGen++;
+    this.sceneryLit = null;
     const sc = S.sc, LH = sc.landHeight ?? 2;
     const quayM = this.mat(0x858176, { rough: 0.95 }), pierM = this.mat(0x7a756b, { rough: 0.95 });
     const edgeM = this.mat(0x3b3a37, { rough: 0.9 });
@@ -397,13 +431,12 @@ export class View3D {
 
   /** Real-world scenery (chart land + OpenStreetMap), fetched and built on demand. */
   private async loadScenery(id: string, LH: number) {
-    const key = this.builtFor;
+    const gen = this.harbourGen;
     try {
-      const buf = await (await fetch(SCENERY[id])).arrayBuffer();
-      if (key !== this.builtFor) return;
+      const buf = await fetchBin(SCENERY[id]);
+      if (gen !== this.harbourGen) return;                 // scenario changed while loading
       const g = new THREE.Group();
       this.sceneryLit = buildScenery(parseScenery(buf), g, LH, this.quality === 'low');
-      if (key !== this.builtFor) return;
       this.harbour.add(g);
       if (this.tod) this.sceneryLit.value = TOD[this.tod].lit;
     } catch (e) { console.error('scenery', e); }
@@ -646,9 +679,9 @@ export class View3D {
   }
   private buildShip(g = this.ship, own = true) {
     this.clear(g);
-    const gen = own ? ++this.shipGen : this.shipGen;   // a model still loading for the previous ship must not land
+    const gen = g.userData.gen = ++this.shipGen;       // a model still loading for the previous ship must not land
     this.buildPods(g);
-    if (own && SHIP.look.model) { this.buildModelShip(SHIP.look.model, gen); return; }
+    if (own && SHIP.look.model && !this.modelFailed.has(SHIP.look.model.id)) { this.buildModelShip(SHIP.look.model, gen); return; }
     const L = SHIP.look, T = SHIP.T, fb = L.freeboard;
     const outline = HULL as [number, number][];
     const boot = Math.min(fb - 1, 3);
@@ -730,6 +763,7 @@ export class View3D {
     if (own) { this.ship.userData.eyeH = L.bridgeH - 1.4; this.ship.userData.eyeX = undefined; }
     this.loadShipModel(g, own, gen);
   }
+  private modelFailed = new Set<string>();
 
   /** Detailed ship model (tools/ship → models/*.glb): replaces the procedural blocks once loaded. */
   private gltf: GLTFLoader | null = null;
@@ -746,14 +780,14 @@ export class View3D {
     let job = this.modelCache.get(name);
     if (!job) {
       job = this.gltf.loadAsync(url).then(gl => {
-        gl.scene.traverse(o => { const me = o as THREE.Mesh; if (me.isMesh) { me.castShadow = me.receiveShadow = true; } });
+        gl.scene.traverse(o => { const me = o as THREE.Mesh; if (me.isMesh) { me.castShadow = me.receiveShadow = true; me.userData.shared = true; } });
         return gl.scene;
       });
       this.modelCache.set(name, job);
       job.catch(() => this.modelCache.delete(name));
     }
     job.then(scene => {
-      if (own && gen !== this.shipGen) return;                    // ship changed while loading
+      if (g.userData.gen !== gen) return;                         // ship changed while loading
       const obj = scene.clone();
       // the model is fitted to its reference ship: stretch it to this one (length, beam, draught)
       const f = m.fit, over = Math.max(5, spec.LOA - spec.L);
@@ -785,8 +819,18 @@ export class View3D {
     lamp(0x22ff66, SHIP.bridgeX, wingW / 2 + 0.3, L.bridgeH - 2);
     lamp(0xfff6e0, m.stern[0], 0, m.stern[1]);
     const url = ({ spirit: spiritUrl } as Record<string, string>)[m.id];
-    const buf = await (await fetch(url)).arrayBuffer();
-    if (gen !== this.shipGen) return;                     // ship changed while loading
+    let buf: ArrayBuffer;
+    try { buf = await fetchBin(url); } catch (err) {
+      // offline with nothing cached, or the file is gone: draw the ship from her particulars instead
+      console.warn('ship model', m.id, err);
+      if (g.userData.gen !== gen) return;
+      this.modelFailed.add(m.id);
+      try { this.buildShip(); } finally { this.modelFailed.delete(m.id); }   // a later visit tries the file again
+      g.traverse(o => { if ((o as THREE.Mesh).isMesh) o.castShadow = o.receiveShadow = true; });
+      if (this.tod) { const t = this.tod; this.tod = null; this.setTime(t); }
+      return;
+    }
+    if (g.userData.gen !== gen) return;                   // ship changed while loading
     const dv = new DataView(buf);
     let o = 4; const n = dv.getUint32(o, true); o += 4;
     // per-pixel paint for the hull and superstructure (heights in metres above the waterline)
@@ -912,6 +956,7 @@ export class View3D {
     for (const l of this.lamps) l.visible = tod !== 'day';
   }
   private keyDir = new THREE.Vector3(0.5, 0.6, 0.5).normalize();
+  private tmpV = new THREE.Vector3();
   private updateBubbles(dt: number, rpm: number[]) {
     const B = this.bub, m = new THREE.Matrix4(), wp = new THREE.Vector3(), dir = new THREE.Vector3(), q = new THREE.Quaternion();
     this.pods.forEach((pd, i) => {
@@ -1001,7 +1046,7 @@ export class View3D {
       const len = a.distanceTo(b), sag = len * (l.T < 2e4 ? 0.08 : l.T < 1.5e5 ? 0.03 : 0.006);
       const pos = obj.geometry.getAttribute('position') as THREE.BufferAttribute;
       for (let k = 0; k <= 16; k++) {
-        const t = k / 16, p = a.clone().lerp(b, t); p.y -= 4 * sag * t * (1 - t);
+        const t = k / 16, p = this.tmpV.copy(a).lerp(b, t); p.y -= 4 * sag * t * (1 - t);
         pos.setXYZ(k, p.x, Math.max(p.y, 0.05), p.z);
       }
       pos.needsUpdate = true;
@@ -1033,9 +1078,9 @@ export class View3D {
     const tr = S.pred.mode ? S.pred.tracks.find(t => t.alt === 'current') : undefined;
     this.track.visible = this.trackEnd.visible = !!tr && tr.poses.length > 1;
     if (tr && tr.poses.length > 1) {
-      this.track.geometry.setFromPoints(tr.poses.map(p => tp(p.n, p.e, 0.6)));
+      setLine(this.track.geometry, tr.poses.map(p => tp(p.n, p.e, 0.6)));
       const e = tr.poses[tr.poses.length - 1], ce = Math.cos(e.psi), se = Math.sin(e.psi);
-      this.trackEnd.geometry.setFromPoints([...HULL, HULL[0]].map(([x, y]) => tp(e.n + x * ce - y * se, e.e + x * se + y * ce, 0.6)));
+      setLine(this.trackEnd.geometry, [...HULL, HULL[0]].map(([x, y]) => tp(e.n + x * ce - y * se, e.e + x * se + y * ce, 0.6)));
     }
 
     // foam: pod wash, thruster jets, bow wave, stern wake
