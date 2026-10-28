@@ -354,5 +354,27 @@
    "beam": 19.06,
    "draught": 6.15
   }
+ },
+ "paspaley": {
+  "ships": [
+   "paspaley-pearl"
+  ],
+  "credit": {
+   "title": "Paspaley Pearl",
+   "author": "VOLARtech",
+   "license": "supplied",
+   "url": ""
+  },
+  "eye": {
+   "x": 11.8,
+   "h": 8.7
+  },
+  "top": 18.15,
+  "fit": {
+   "stem": 29.7,
+   "stern": -23.8,
+   "beam": 11.2,
+   "draught": 3.4
+  }
  }
 }

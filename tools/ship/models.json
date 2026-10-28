@@ -225,6 +225,27 @@
         "x": 34.5,
         "h": 21
       }
+    },
+    "paspaley": {
+      "file": "sources/paspaley_pearl.glb",
+      "ships": [
+        "paspaley-pearl"
+      ],
+      "name": "Paspaley Pearl",
+      "author": "VOLARtech",
+      "license": "supplied",
+      "url": "",
+      "prepare": [
+        "--bow",
+        "aft"
+      ],
+      "tex": 512,
+      "ratio": 1,
+      "err": 0.0001,
+      "eye": {
+        "x": 11.8,
+        "h": 8.7
+      }
     }
   }
 }

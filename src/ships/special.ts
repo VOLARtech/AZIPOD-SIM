@@ -34,6 +34,34 @@ export const ICEBREAKER: ShipSpec = {
   },
 };
 
+/**
+ * Paspaley Pearl, 53.5 m expedition yacht (Vard 2021, refit 2024, operated by Ponant): published
+ * 53.5 m LOA, 11.2 m beam, 3.4 m draught, diesel-electric with two azimuthing pods aft, a bow
+ * tunnel thruster and fin stabilisers. Not published, so assumed: Lpp, Cb, pod and thruster power,
+ * speed, windage. Her stern thruster is left out: the Azipod joystick drives the pods and the bow thruster.
+ */
+const PP_XG = -1;
+const ppPod = (label: string, y: number, tol: number): PodSpec =>
+  ({ label, x: -0.5 * 47 - 0.2 * 6.5 - PP_XG + 3.45, y, Tb: 105e3, asternFrac: 0.78, strutArea: 4, D: 1.9, P: 0.85e6, slewMul: 1 + tol * 0.04, thrustMul: 1 - tol * 0.02, alphaOffset: tol * 0.3 * DEG });
+export const PASPALEY_PEARL: ShipSpec = {
+  ...POD_DEFAULTS,
+  id: 'paspaley-pearl', name: 'Paspaley Pearl · 53.5 m expedition yacht', type: 'yacht', load: 'service draught',
+  note: 'Paspaley Pearl, a 53.5 m expedition yacht built by Vard (2021): 11.2 m beam, 3.4 m draught (published), diesel-electric with two azimuthing pods aft and a bow tunnel thruster. Assumed, as not published: Lpp 47 m, block coefficient 0.5, 2 × 0.85 MW pods, a 0.3 MW bow thruster and about 13 kn. Her stern thruster and fin stabilisers are not modelled. Hull forces from Clarke\'s regression.',
+  LOA: 53.5, vmaxKn: 13,
+  L: 47, B: 11.2, T: 3.4, Cb: 0.5, xg: PP_XG,
+  pods: [ppPod('PORT', -2.7, 0), ppPod('STBD', 2.7, 1)],
+  bowThruster: { x: 0.5 * 47 + 0.8 * 6.5 - PP_XG - 4.5, Tmax: 45e3, P: 0.3e6 },
+  windage: { AF: 140, AL: 450, cx: 0.7, cy: 0.9, cn: 0.08, xw: 1 },
+  Vzero: 12, Cd: 0.8, formFactor: 1.25,
+  podSlew: 10 * DEG, podRpmTime: 15, btRpmTime: 5, powerAvail: 2.4e6, bridgeX: 12.5,
+  look: {
+    freeboard: 3.6, bridgeH: 9.6, bridgeLen: 5, wingOut: 0.3,
+    decks: [{ x0: -16, x1: 14, h: 6.6, inset: 0.4 }, { x0: -8, x1: 13, h: 9.4, inset: 0.8 }],
+    funnel: { x: -6, h: 11, w: 2, l: 3 },
+    hull: '#f4f5f2', topsides: '#f4f5f2', super: '#f4f5f2', glass: '#1a232c', accent: '#b89b5e',
+  },
+};
+
 /** European push convoy: pushboat and 2 × 2 barges (class Vb), three propellers with steering and flanking rudders. */
 const PC_XG = -10;
 export const PUSH_CONVOY: ShipSpec = {

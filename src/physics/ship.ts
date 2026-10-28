@@ -10,7 +10,7 @@ import { ROPAX, CRUISE_CONV, LNG, ULCV } from '../ships/twin';
 import { ASD_TUG, VSP_TUG, ROTOR_TUG } from '../ships/tugs';
 import { HSC_CAT } from '../ships/fast';
 import { AHTS, PSV } from '../ships/offshore';
-import { FRIGATE, ICEBREAKER, PANAMAX_ROTOR, PUSH_CONVOY, SUPERYACHT } from '../ships/special';
+import { FRIGATE, ICEBREAKER, PANAMAX_ROTOR, PASPALEY_PEARL, PUSH_CONVOY, SUPERYACHT } from '../ships/special';
 export { RHO, RHO_AIR, NU_W, G, KN, DEG } from './consts';
 
 export interface PodSpec {
@@ -277,7 +277,7 @@ export const SPIRIT: ShipSpec = {
   },
 };
 
-export const SHIPS: Record<string, ShipSpec> = { becancour: BECANCOUR, lady: LADY, spirit: SPIRIT, kvlcc2: KVLCC2, 'kvlcc2-ballast': KVLCC2_BALLAST, kcs: KCS, panamax: PANAMAX, ulcv: ULCV, lng: LNG, ropax: ROPAX, 'cruise-shaft': CRUISE_CONV, 'asd-tug': ASD_TUG, 'vsp-tug': VSP_TUG, 'rotor-tug': ROTOR_TUG, 'hsc-cat': HSC_CAT, psv: PSV, ahts: AHTS, icebreaker: ICEBREAKER, 'push-convoy': PUSH_CONVOY, frigate: FRIGATE, superyacht: SUPERYACHT, 'panamax-rotor': PANAMAX_ROTOR };
+export const SHIPS: Record<string, ShipSpec> = { becancour: BECANCOUR, lady: LADY, spirit: SPIRIT, kvlcc2: KVLCC2, 'kvlcc2-ballast': KVLCC2_BALLAST, kcs: KCS, panamax: PANAMAX, ulcv: ULCV, lng: LNG, ropax: ROPAX, 'cruise-shaft': CRUISE_CONV, 'asd-tug': ASD_TUG, 'vsp-tug': VSP_TUG, 'rotor-tug': ROTOR_TUG, 'hsc-cat': HSC_CAT, psv: PSV, ahts: AHTS, icebreaker: ICEBREAKER, 'push-convoy': PUSH_CONVOY, frigate: FRIGATE, superyacht: SUPERYACHT, 'panamax-rotor': PANAMAX_ROTOR, 'paspaley-pearl': PASPALEY_PEARL };
 /** The ship in use. A live binding: importers see the new ship after setShip(). */
 export let SHIP: ShipSpec = BECANCOUR;
 export function setShip(id: string) { SHIP = SHIPS[id] ?? BECANCOUR; return SHIP; }

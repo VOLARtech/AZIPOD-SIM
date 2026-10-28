@@ -12,11 +12,11 @@ It's free, runs on phones, tablets and computers, and once installed it keeps wo
 
 You stand on the bridge of a full-size ship and bring her into port: through a narrow channel, around a tight turn, and gently alongside the quay. The ship drifts with the wind and the current, slows down in shallow water, and doesn't stop just because you let go of the controls, just like the real thing.
 
-It started as a trainer for cruise ships with *Azipods* (propellers in pods under the ship that turn in any direction). It now has 22 ships, each with the controls its real crew would use.
+It started as a trainer for cruise ships with *Azipods* (propellers in pods under the ship that turn in any direction). It now has 23 ships, each with the controls its real crew would use.
 
 ## What you can do
 
-- **Steer 22 different ships**: cruise ships, ferries, tankers, container ships, tugs, an icebreaker and more (see the list below).
+- **Steer 23 different ships**: cruise ships, an expedition yacht, ferries, tankers, container ships, tugs, an icebreaker and more (see the list below).
 - **Sail in real places.** PortMiami, built from the official sea chart, with around 13,000 real buildings, the causeway bridges and the container cranes. The passenger terminal in Amsterdam. Practice harbours, a river, an oil terminal, an ice field and the open sea.
 - **Look out of the window in 3D.** See the view from the wheelhouse or either bridge wing, follow the ship from behind, or go underwater and watch the propellers turn. Day, dusk and night, with ship lights and lit-up windows after dark.
 - **See where you're heading.** A forecast line on the water shows where your ship will be in the next few minutes, so you can correct early.
@@ -28,7 +28,7 @@ It started as a trainer for cruise ships with *Azipods* (propellers in pods unde
 
 | Kind | Ships | How you drive them |
 | --- | --- | --- |
-| Cruise and training ships | Two large Azipod cruise ships (293 m and 278 m), a 135 m Azipod training ship, a classic twin-propeller cruise ship | Pod levers and a joystick, or propeller levers |
+| Cruise, expedition and training ships | Two large Azipod cruise ships (293 m and 278 m), the 53.5 m expedition yacht *Paspaley Pearl*, a 135 m Azipod training ship, a classic twin-propeller cruise ship | Pod levers and a joystick, or propeller levers |
 | Ferries | A car and passenger ferry, a 70 m fast catamaran ferry (36 knots) | Propeller levers; water-jet controls on the fast ferry |
 | Cargo ships | An oil supertanker (loaded or empty), a gas carrier, a medium and a huge 24,000-container ship, a bulk carrier (also a version with tall spinning *rotor sails*) | Engine telegraph and steering wheel, like a real cargo ship |
 | Tugs | Three harbour tugs of different designs | Tug controls, with a towline you can pay out and release |
@@ -73,9 +73,10 @@ On a phone or tablet, just use the levers and wheels on screen. On a computer yo
 
 ## What's new
 
-- **20 more ships.** It began with three Azipod ships; now there are 22, covering almost every way a ship can be driven: engines with a telegraph, adjustable propellers, tug drives, water jets, computer-held positioning and more.
+- **20 more ships.** It began with three Azipod ships; now there are 23, covering almost every way a ship can be driven: engines with a telegraph, adjustable propellers, tug drives, water jets, computer-held positioning and more.
 - **Realistic 3D ships.** Detailed 3D models replace the simple box shapes, fitted to each ship's real size.
 - **New places and challenges.** River, ice, offshore platform, oil terminal, tanker escort, fast ferry and ocean scenarios, plus other ships to meet and overtake.
+- **Paspaley Pearl.** The 53.5 m expedition yacht joins the fleet: small, quick to turn, with two pods and a bow thruster.
 - **Tugs come when you call them.** Harbour tugs wait out of sight until you ask for help, then leave again when you let them go.
 - **Smoother and more reliable.** Switching ships is quicker, the chart draws faster, and the app copes better with slow or missing internet.
 - **Fixes.** Ships now face the right way, with their propellers at the stern, and each bridge camera sits where the real wheelhouse is.
@@ -85,6 +86,7 @@ On a phone or tablet, just use the levers and wheels on screen. On a computer yo
 - **Sea chart of Miami:** NOAA electronic navigational charts (public domain).
 - **Buildings and roads:** © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), available under the Open Database License.
 - **Spirit-class cruise ship:** 1:300 Carnival Spirit hobby model (3D Warehouse, converted by iconic3dmodels).
+- **Paspaley Pearl:** 3D model supplied by VOLARtech.
 - **Other 3D ship models:** from [Sketchfab](https://sketchfab.com), used under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Each model shows the type of ship, not that exact vessel.
   - Large Azipod cruise ship (Lady class): “[Viking Cruise Ship](https://sketchfab.com/3d-models/none-c82a7e2bbf4c44e3ac1d1e7bac42e2b7)” by jfactory
   - Twin-propeller cruise ship: “[Carnival Fantasy](https://sketchfab.com/3d-models/none-eced5ea7f7b8460aaf91e8d9bb34427f)” by gmanisdabossatbeastmode
