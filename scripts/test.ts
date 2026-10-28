@@ -753,4 +753,15 @@ import { helm as helmTo, engines as eng, primeRunning as prime } from '../src/ph
   });
 }
 
+console.log('harbour tugs');
+import { makeTugs, tugEngaged, updateTugs } from '../src/physics/mooring';
+test('harbour tugs stand by out of sight until called, and leave once stood down', () => {
+  const tugs = makeTugs(200, 0, 1, 400e3);
+  assert.ok(tugs.every(t => !tugEngaged(t)), 'idle tugs not shown');
+  tugs[0].order = 0.5; updateTugs(tugs, 0, 0.05);
+  assert.ok(tugEngaged(tugs[0]) && !tugEngaged(tugs[1]));
+  tugs[0].order = 0; for (let t = 0; t < 60; t += 0.05) updateTugs(tugs, 0, 0.05);
+  assert.ok(!tugEngaged(tugs[0]), 'stood down');
+});
+
 console.log(`\n${pass} passed${process.exitCode ? ', some failed' : ''}`);

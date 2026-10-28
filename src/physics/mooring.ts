@@ -123,6 +123,8 @@ export function makeTugs(L: number, xg: number, side: -1 | 1, Fmax = 400e3): Tug
     { name: 'TUG AFT', x: -L * 0.36 - xg, side, order: 0, F: 0, repos: 0, Fmax },
   ];
 }
+/** A tug is on the scene only while called: given an order, still pushing or pulling, or repositioning. */
+export const tugEngaged = (t: Tug) => t.order !== 0 || Math.abs(t.F) > 1e3 || t.repos > 0;
 /** Tug response: ~20 s to change power, ~60 s to switch between pushing and pulling. */
 export function updateTugs(tugs: Tug[], u: number, dt: number) {
   const eff = Math.max(0, 1 - (u / (6 * KN)) ** 2);

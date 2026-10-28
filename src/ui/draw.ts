@@ -4,7 +4,7 @@ import { DEG, KN, SHIP } from '../physics/ship';
 import type { PodSpec } from '../physics/ship';
 import { HULL } from '../physics/contact';
 import { nearestStructure } from '../physics/harbour';
-import { LINE } from '../physics/mooring';
+import { LINE, tugEngaged } from '../physics/mooring';
 import type { Alt, Track } from '../physics/predict';
 import { S, SPEEDS, full } from './state';
 import { drawEncBase, drawEncMarks } from './enc';
@@ -343,6 +343,7 @@ export function drawTraffic() {
 export function drawTugs() {
   const rt = S.rt, est = shownPose();
   for (const t of rt.tugs) {
+    if (!tugEngaged(t)) continue;                         // standing by out of sight until called
     const pushing = t.F * t.side < -1e3, pulling = t.F * t.side > 1e3;
     const off = pulling ? 45 : SHIP.B / 2 + 6;
     ctx.save(); bodyTransform(est); ctx.translate(t.x, t.side * off);
