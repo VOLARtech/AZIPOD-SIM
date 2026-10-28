@@ -7,6 +7,10 @@ import { abs, builtinAOContext, clamp, color, float, fract, mix, mrt, normalLoca
 import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import spiritUrl from './spirit.bin?url';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { MODEL_URLS } from './models/urls';
+import MODELS from './models/models.json';
 import miamiScnUrl from './miami.scn.bin?url';
 import { buildScenery, parseScenery } from './scenery';
 const SCENERY: Record<string, string> = { 'miami-terminal-v': miamiScnUrl };
@@ -682,9 +686,9 @@ export class View3D {
     // rotor sails: tall cylinders with an end plate on top
     for (const r of SHIP.rotors ?? []) {
       const cyl = new THREE.Mesh(new THREE.CylinderGeometry(r.D / 2, r.D / 2, r.H, 24), this.mat('#e9ebec', { rough: 0.45 }));
-      cyl.position.set(r.y, fb + r.H / 2, -r.x); g.add(cyl);
+      cyl.position.set(r.y, fb + r.H / 2, -r.x); cyl.userData.keep = true; g.add(cyl);
       const plate = new THREE.Mesh(new THREE.CylinderGeometry(r.D, r.D, 0.3, 28), this.mat(L.accent, { rough: 0.5 }));
-      plate.position.set(r.y, fb + r.H, -r.x); g.add(plate);
+      plate.position.set(r.y, fb + r.H, -r.x); plate.userData.keep = true; g.add(plate);
     }
     // wheelhouse with wings, glass all round
     const glass = this.mat(L.glass, { rough: 0.15, metal: 0.5 });
@@ -723,7 +727,47 @@ export class View3D {
     lamp(0xff2a2a, bx, -wingW / 2 - 0.2, L.bridgeH - 1);
     lamp(0x22ff66, bx, wingW / 2 + 0.2, L.bridgeH - 1);
     lamp(0xfff6e0, hxa + 1, 0, fb + 2);
-    if (own) this.ship.userData.eyeH = L.bridgeH - 1.4;
+    if (own) { this.ship.userData.eyeH = L.bridgeH - 1.4; this.ship.userData.eyeX = undefined; }
+    this.loadShipModel(g, own, gen);
+  }
+
+  /** Detailed ship model (tools/ship → models/*.glb): replaces the procedural blocks once loaded. */
+  private gltf: GLTFLoader | null = null;
+  private modelCache = new Map<string, Promise<THREE.Group>>();
+  private loadShipModel(g: THREE.Group, own: boolean, gen: number) {
+    const entry = Object.entries(MODELS as Record<string, ModelEntry>).find(([, m]) => m.ships.includes(SHIP.id));
+    const url = entry && MODEL_URLS[`./${entry[0]}.glb`];
+    if (!entry || !url) return;
+    const [name, m] = entry, spec = SHIP;
+    // procedural parts built so far (after the propulsors): taken away when the model lands, except the
+    // navigation lights and anything the ship carries that the model lacks (rotor sails)
+    const procedural = g.children.filter(o => !this.pods.some(p => p.yaw === o || p.rudder === o) && !this.navLights.includes(o) && !o.userData.keep);
+    if (!this.gltf) { this.gltf = new GLTFLoader(); this.gltf.setMeshoptDecoder(MeshoptDecoder); }
+    let job = this.modelCache.get(name);
+    if (!job) {
+      job = this.gltf.loadAsync(url).then(gl => {
+        gl.scene.traverse(o => { const me = o as THREE.Mesh; if (me.isMesh) { me.castShadow = me.receiveShadow = true; } });
+        return gl.scene;
+      });
+      this.modelCache.set(name, job);
+      job.catch(() => this.modelCache.delete(name));
+    }
+    job.then(scene => {
+      if (own && gen !== this.shipGen) return;                    // ship changed while loading
+      const obj = scene.clone();
+      // the model is fitted to its reference ship: stretch it to this one (length, beam, draught)
+      const f = m.fit, over = Math.max(5, spec.LOA - spec.L);
+      const stem = spec.L / 2 + over * 0.8 - spec.xg, stern = -spec.L / 2 - over * 0.2 - spec.xg;
+      const kx = (stem - stern) / (f.stem - f.stern), kb = spec.B / f.beam;
+      obj.scale.set(kb, kx, kx);
+      obj.position.set(0, (f.draught * kx - spec.T), -(stem - f.stem * kx));
+      for (const o of procedural) { g.remove(o); o.traverse(c => { const me = c as THREE.Mesh; if (me.geometry) me.geometry.dispose(); }); }
+      g.add(obj);
+      if (own && m.eye) {
+        this.ship.userData.eyeH = m.eye.h * kx;
+        this.ship.userData.eyeX = stem - (f.stem - m.eye.x) * kx;
+      }
+    }).catch(err => console.warn('ship model', name, err));
   }
 
   /** Detailed ship from a converted STL, painted per pixel (see tools/ship/stl_to_ship.py). */
@@ -1061,7 +1105,7 @@ export class View3D {
     }
     const eye = this.ship.userData.eyeH as number;
     const half = SHIP.B / 2 + SHIP.look.wingOut + 0.4;   // leaning over the wing bulwark
-    const bx = SHIP.bridgeX, front = bx + SHIP.look.bridgeLen / 2 - 0.8;
+    const bx = SHIP.bridgeX, front = (this.ship.userData.eyeX as number | undefined) ?? bx + SHIP.look.bridgeLen / 2 - 0.8;
     const pos = this.cam === 'bridge' ? w2(front, 0, eye) : w2(bx, this.cam === 'port' ? -half : half, eye);
     cam.position.copy(pos);
     // look direction in the body frame → world
@@ -1091,6 +1135,12 @@ export class View3D {
     const d: Record<CamName, { yaw: number; pitch: number }> = { bridge: { yaw: 0, pitch: -9 }, port: { yaw: -150, pitch: -30 }, stbd: { yaw: 150, pitch: -30 }, chase: { yaw: -150, pitch: 22 }, pods: { yaw: -165, pitch: -4 } };
     Object.assign(this.look[this.cam], d[this.cam], { zoom: 1 });
   }
+}
+
+interface ModelEntry {
+  ships: string[]; credit: { title: string; author: string; license: string; url: string };
+  eye: { x: number; h: number } | null; top: number;
+  fit: { stem: number; stern: number; beam: number; draught: number };
 }
 
 export async function createView(canvas: HTMLCanvasElement) {

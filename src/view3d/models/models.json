@@ -1,0 +1,358 @@
+{
+ "viking": {
+  "ships": [
+   "lady"
+  ],
+  "credit": {
+   "title": "Viking Cruise Ship",
+   "author": "jfactory",
+   "license": "CC Attribution",
+   "url": "https://sketchfab.com/3d-models/none-c82a7e2bbf4c44e3ac1d1e7bac42e2b7"
+  },
+  "eye": {
+   "x": 104.73,
+   "h": 27.31
+  },
+  "top": 40.78,
+  "fit": {
+   "stem": 151.4,
+   "stern": -126.6,
+   "beam": 38,
+   "draught": 8.05
+  }
+ },
+ "fantasy": {
+  "ships": [
+   "cruise-shaft"
+  ],
+  "credit": {
+   "title": "Carnival Fantasy",
+   "author": "gmanisdabossatbeastmode",
+   "license": "CC Attribution",
+   "url": "https://sketchfab.com/3d-models/none-eced5ea7f7b8460aaf91e8d9bb34427f"
+  },
+  "eye": {
+   "x": 105.17,
+   "h": 34.67
+  },
+  "top": 46.91,
+  "fit": {
+   "stem": 142.7,
+   "stern": -119.3,
+   "beam": 31.5,
+   "draught": 7.75
+  }
+ },
+ "vesteraalen": {
+  "ships": [
+   "becancour"
+  ],
+  "credit": {
+   "title": "MS Vesteraalen",
+   "author": "gmanisdabossatbeastmode",
+   "license": "CC Attribution",
+   "url": "https://sketchfab.com/3d-models/none-58cc913aad14466c8b83ca44f3a8043c"
+  },
+  "eye": {
+   "x": 31.88,
+   "h": 17.37
+  },
+  "top": 34.65,
+  "fit": {
+   "stem": 70.5,
+   "stern": -64.5,
+   "beam": 21,
+   "draught": 5.5
+  }
+ },
+ "catferry": {
+  "ships": [
+   "hsc-cat"
+  ],
+  "credit": {
+   "title": "A fast passenger catamaran ferry",
+   "author": "kekgaminglive986",
+   "license": "CC Attribution",
+   "url": "https://sketchfab.com/3d-models/none-1325955eece245fb91bc20ed6d666194"
+  },
+  "eye": {
+   "x": 16.73,
+   "h": 10.36
+  },
+  "top": 20.41,
+  "fit": {
+   "stem": 40.1,
+   "stern": -29.9,
+   "beam": 17.5,
+   "draught": 2.5
+  }
+ },
+ "rastar": {
+  "ships": [
+   "asd-tug"
+  ],
+  "credit": {
+   "title": "Rastar 3200 tugboat",
+   "author": "davidbroutian",
+   "license": "CC Attribution",
+   "url": "https://sketchfab.com/3d-models/none-1bbadbe4ab0a4b2599cd3f450942e6fe"
+  },
+  "eye": {
+   "x": 1.27,
+   "h": 8.21
+  },
+  "top": 16.6,
+  "fit": {
+   "stem": 18.5,
+   "stern": -15.5,
+   "beam": 13,
+   "draught": 5
+  }
+ },
+ "tugboat": {
+  "ships": [
+   "rotor-tug"
+  ],
+  "credit": {
+   "title": "Tug Boat",
+   "author": "agt14032013",
+   "license": "CC Attribution",
+   "url": "https://sketchfab.com/3d-models/none-2260a148c83c41c0b9ffc491f8ee7863"
+  },
+  "eye": {
+   "x": 1.75,
+   "h": 10.05
+  },
+  "top": 19.47,
+  "fit": {
+   "stem": 19,
+   "stern": -16,
+   "beam": 13.2,
+   "draught": 5.2
+  }
+ },
+ "tugboat2": {
+  "ships": [
+   "vsp-tug"
+  ],
+  "credit": {
+   "title": "Tug Boat 02",
+   "author": "agt14032013",
+   "license": "CC Attribution",
+   "url": "https://sketchfab.com/3d-models/none-1b64860d3aaa41e8b82afcb0d56fae52"
+  },
+  "eye": {
+   "x": 4.31,
+   "h": 13.31
+  },
+  "top": 15.52,
+  "fit": {
+   "stem": 18.75,
+   "stern": -15.75,
+   "beam": 12.5,
+   "draught": 5
+  }
+ },
+ "offshore": {
+  "ships": [
+   "psv",
+   "ahts"
+  ],
+  "credit": {
+   "title": "Multi Purpose Offshore Vessel",
+   "author": "agt14032013",
+   "license": "CC Attribution",
+   "url": "https://sketchfab.com/3d-models/none-c604045da67a4a0b93d8ce4dc8db3e56"
+  },
+  "eye": {
+   "x": 23.5,
+   "h": 23.24
+  },
+  "top": 48.4,
+  "fit": {
+   "stem": 48.1,
+   "stern": -39.9,
+   "beam": 19,
+   "draught": 6.2
+  }
+ },
+ "icebreaker": {
+  "ships": [
+   "icebreaker"
+  ],
+  "credit": {
+   "title": "Icebreaker",
+   "author": "agt14032013",
+   "license": "CC Attribution",
+   "url": "https://sketchfab.com/3d-models/none-1ed361672e6e42298fa5b92dd61127bd"
+  },
+  "eye": {
+   "x": 26.7,
+   "h": 26.64
+  },
+  "top": 37.7,
+  "fit": {
+   "stem": 61.2,
+   "stern": -48.8,
+   "beam": 24,
+   "draught": 8
+  }
+ },
+ "clio": {
+  "ships": [
+   "superyacht"
+  ],
+  "credit": {
+   "title": "Clio",
+   "author": "gmanisdabossatbeastmode",
+   "license": "CC Attribution",
+   "url": "https://sketchfab.com/3d-models/none-306ef5879ba44031851be0555b80484d"
+  },
+  "eye": {
+   "x": 17.12,
+   "h": 9.69
+  },
+  "top": 16.54,
+  "fit": {
+   "stem": 49,
+   "stern": -41,
+   "beam": 14.5,
+   "draught": 3.9
+  }
+ },
+ "tanker": {
+  "ships": [
+   "kvlcc2",
+   "kvlcc2-ballast"
+  ],
+  "credit": {
+   "title": "Oil tanker",
+   "author": "factorydottcat",
+   "license": "CC Attribution",
+   "url": "https://sketchfab.com/3d-models/none-63339c2e2f274672a9bdcf924864ae62"
+  },
+  "eye": {
+   "x": -126.64,
+   "h": 40.69
+  },
+  "top": 77.77,
+  "fit": {
+   "stem": 170.4,
+   "stern": -162.6,
+   "beam": 58,
+   "draught": 20.8
+  }
+ },
+ "lngcarrier": {
+  "ships": [
+   "lng"
+  ],
+  "credit": {
+   "title": "Gas Carrier Ship",
+   "author": "medialog",
+   "license": "CC Attribution",
+   "url": "https://sketchfab.com/3d-models/none-0fe1b96ac2754fb59e0745443294eb50"
+  },
+  "eye": {
+   "x": -110.62,
+   "h": 53.09
+  },
+  "top": 77.7,
+  "fit": {
+   "stem": 149,
+   "stern": -146,
+   "beam": 46.4,
+   "draught": 11.5
+  }
+ },
+ "bulker": {
+  "ships": [
+   "panamax",
+   "panamax-rotor"
+  ],
+  "credit": {
+   "title": "Bulk Carrier",
+   "author": "medialog",
+   "license": "CC Attribution",
+   "url": "https://sketchfab.com/3d-models/none-93c076900f004102b78dfac989efae1d"
+  },
+  "eye": {
+   "x": -76.33,
+   "h": 33.58
+  },
+  "top": 42.78,
+  "fit": {
+   "stem": 114.1,
+   "stern": -114.9,
+   "beam": 32.26,
+   "draught": 14.45
+  }
+ },
+ "boxship": {
+  "ships": [
+   "kcs",
+   "ulcv"
+  ],
+  "credit": {
+   "title": "Container Ship",
+   "author": "RM02",
+   "license": "CC Attribution",
+   "url": "https://sketchfab.com/3d-models/none-aaa41cca946b4a08bc08cf692b7757be"
+  },
+  "eye": {
+   "x": -0.27,
+   "h": 24.72
+  },
+  "top": 32.0,
+  "fit": {
+   "stem": 128.8,
+   "stern": -114.19999999999999,
+   "beam": 32.2,
+   "draught": 10.8
+  }
+ },
+ "ropax": {
+  "ships": [
+   "ropax"
+  ],
+  "credit": {
+   "title": "PRIDE OF KENT (P&O Ferries)",
+   "author": "ipierre",
+   "license": "CC Attribution",
+   "url": "https://sketchfab.com/3d-models/none-f7c269fbb81e4072b72e28b085e52c7e"
+  },
+  "eye": {
+   "x": 74.7,
+   "h": 24.05
+  },
+  "top": 54.99,
+  "fit": {
+   "stem": 106.2,
+   "stern": -93.8,
+   "beam": 30.5,
+   "draught": 6.4
+  }
+ },
+ "ddg51": {
+  "ships": [
+   "frigate"
+  ],
+  "credit": {
+   "title": "1:1 Low poly US NAVY DDG-51 USS Arleigh Burke.",
+   "author": "WTigerTw",
+   "license": "CC Attribution",
+   "url": "https://sketchfab.com/3d-models/none-17be09c31c6047e4a5969b68c29eba03"
+  },
+  "eye": {
+   "x": 27.39,
+   "h": 33.83
+  },
+  "top": 46.85,
+  "fit": {
+   "stem": 82.54,
+   "stern": -70.76,
+   "beam": 19.06,
+   "draught": 6.15
+  }
+ }
+}
