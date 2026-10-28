@@ -754,7 +754,7 @@ import { helm as helmTo, engines as eng, primeRunning as prime } from '../src/ph
 }
 
 console.log('harbour tugs');
-import { makeTugs, tugEngaged, updateTugs } from '../src/physics/mooring';
+import { tugEngaged } from '../src/physics/mooring';
 test('harbour tugs stand by out of sight until called, and leave once stood down', () => {
   const tugs = makeTugs(200, 0, 1, 400e3);
   assert.ok(tugs.every(t => !tugEngaged(t)), 'idle tugs not shown');
