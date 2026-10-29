@@ -1,6 +1,6 @@
 // Headless sea trials against IMO MSC.137(76) manoeuvrability standards.
 import { DEG, KN, ShipSpec } from './ship';
-import { Command, Env, Model, ShipState, cloneState, holdCourse, makeState, rk4, updateActuators, wrap } from './sim';
+import { Command, Env, Model, ShipState, cloneState, holdCourse, makeState, rk4, steerSign, updateActuators, wrap } from './sim';
 import { engines, fullAstern, helm, isJetShip, isShaftShip, primeRunning } from './pilot';
 import { jetJoystick } from './units/jet';
 
@@ -22,7 +22,20 @@ const cmdOf = (a: number[], rpm: number[], bt = 0): Command =>
 
 export interface TrialResult { key: string; label: string; value: string; limit?: string; pass?: boolean; note?: string }
 
+/** IMO MSC.137(76) applies to ships of 100 m and over, and to every chemical tanker and gas carrier. */
+export const imoApplies = (spec: ShipSpec) => spec.L >= 100 || spec.type === 'gas' || spec.type === 'chemical';
+const IMO_KEYS = new Set(['adv', 'tact', 'init', 'zz', 'zz2', 'zz20', 'crash', 'crash2']);
+
 export function runTrials(spec: ShipSpec, depth = Infinity): { rows: TrialResult[]; Vs: number } {
+  const r = runAllTrials(spec, depth);
+  if (!imoApplies(spec)) for (const row of r.rows) if (IMO_KEYS.has(row.key) && row.limit) {
+    // shown for comparison, not graded: the standard does not cover her
+    row.note = [row.note, `IMO ${row.limit.replace('< ', '<')} applies from 100 m`].filter(Boolean).join(' · ');
+    row.limit = undefined; row.pass = undefined;
+  }
+  return r;
+}
+function runAllTrials(spec: ShipSpec, depth: number): { rows: TrialResult[]; Vs: number } {
   if (isShaftShip(spec)) return runShaftTrials(spec, depth);
   if (isJetShip(spec)) return runJetTrials(spec, depth);
   const model = new Model(spec, depth);
@@ -35,18 +48,22 @@ export function runTrials(spec: ShipSpec, depth = Infinity): { rows: TrialResult
   let st = makeState(spec, 0, 0, 0, 12);
   st.pods.forEach(p => (p.rpm = 1));
   const apc = cmdOf(zeros, full);
-  run(model, st, apc, env, 1200, s => { holdCourse(apc, s, 0); });
+  run(model, st, apc, env, 1200, s => { holdCourse(apc, s, 0, spec); });
   st.psi = 0; st.r = 0; st.v = 0;
   const Vs = st.u;
   rows.push({ key: 'vmax', label: 'Service speed, 100 % rpm', value: `${(Vs / KN).toFixed(1)} kn` });
   const approach = cloneState(st);
 
-  // 2. Turning circle, pods 35° (stern pushed to port → turn to starboard)
+  // 2. Turning circle, units 35° (aft units push the stern to port, forward units the bow to starboard)
+  const steer = (deg: number) => spec.pods.map(p => deg * steerSign(p));
+  const vsp = spec.pods.some(p => p.kind === 'vsp'), unitWord = vsp ? 'thrust' : 'pods';
   st = cloneState(approach);
   let psi0 = st.psi, n0 = st.n, e0 = st.e, dpsi = 0, last = st.psi;
   let adv = NaN, trans = NaN, tact = NaN, t90 = NaN; const tT0 = st.t;
   let rSteady = 0, uSteady = 0, vSteady = 0;
-  run(model, st, cmdOf(Array(np).fill(-35), full), env, 900, s => {
+  // a Voith Schneider order is one vector: full ahead and full steering together saturate at 45°
+  const hard = vsp ? 45 : 35;
+  run(model, st, cmdOf(steer(-hard), full), env, 900, s => {
     dpsi += wrap(s.psi - last); last = s.psi;
     const dn = s.n - n0, de = s.e - e0;
     const along = dn * Math.cos(psi0) + de * Math.sin(psi0);
@@ -58,10 +75,10 @@ export function runTrials(spec: ShipSpec, depth = Infinity): { rows: TrialResult
   const Ust = Math.hypot(uSteady, vSteady);
   const Dst = 2 * Ust / Math.abs(rSteady);
   const pivot = -vSteady / rSteady; // x (rel CG) of zero lateral velocity
-  rows.push({ key: 'adv', label: 'Advance (pods 35°)', value: `${(adv / L).toFixed(2)} L · ${adv.toFixed(0)} m`, limit: '< 4.5 L', pass: adv < 4.5 * L });
+  rows.push({ key: 'adv', label: `Advance (${unitWord} ${hard}°)`, value: `${(adv / L).toFixed(2)} L · ${adv.toFixed(0)} m`, limit: '< 4.5 L', pass: adv < 4.5 * L });
   rows.push({ key: 'tact', label: 'Tactical diameter', value: `${(tact / L).toFixed(2)} L · ${tact.toFixed(0)} m`, limit: '< 5.0 L', pass: tact < 5 * L });
   rows.push({ key: 'trans', label: 'Transfer at 90°', value: `${(trans / L).toFixed(2)} L`, note: `t₉₀ ${t90.toFixed(0)} s` });
-  rows.push({ key: 'dst', label: 'Steady turning diameter', value: `${(Dst / L).toFixed(2)} L`, note: `speed ${(Ust / KN).toFixed(1)} kn (−${(100 * (1 - Ust / Vs)).toFixed(0)} %)` });
+  rows.push({ key: 'dst', label: 'Steady turning diameter', value: `${(Dst / L).toFixed(2)} L`, note: `speed ${(Ust / KN).toFixed(1)} kn (${Ust <= Vs ? '−' : '+'}${Math.abs(100 * (1 - Ust / Vs)).toFixed(0)} %)` });
   rows.push({ key: 'rot', label: 'Steady rate of turn', value: `${(rSteady / DEG * 60).toFixed(0)} °/min`, note: `drift β ${(Math.atan2(-vSteady, uSteady) / DEG).toFixed(1)}°` });
   rows.push({ key: 'pivot', label: 'Pivot point', value: `${((L / 2 - spec.xg - pivot) / L).toFixed(2)} L aft of FP` });
 
@@ -69,11 +86,12 @@ export function runTrials(spec: ShipSpec, depth = Infinity): { rows: TrialResult
   st = cloneState(approach);
   let phase = 0, hdg = 0, lp = st.psi, ext = 0;
   const overs: number[] = [];
-  const zz = cmdOf(Array(np).fill(-10), full);
+  const zz = cmdOf(steer(-10), full);
+  const set = (deg: number) => steer(deg).forEach((a, i) => (zz.pods[i].alpha = a * DEG));
   run(model, st, zz, env, 900, s => {
     hdg += wrap(s.psi - lp) / DEG; lp = s.psi;
-    if (phase === 0 && hdg >= 10) { phase = 1; ext = hdg; zz.pods.forEach(p => (p.alpha = 10 * DEG)); }
-    else if (phase === 1) { ext = Math.max(ext, hdg); if (hdg <= -10) { overs.push(ext - 10); phase = 2; ext = hdg; zz.pods.forEach(p => (p.alpha = -10 * DEG)); } }
+    if (phase === 0 && hdg >= 10) { phase = 1; ext = hdg; set(10); }
+    else if (phase === 1) { ext = Math.max(ext, hdg); if (hdg <= -10) { overs.push(ext - 10); phase = 2; ext = hdg; set(-10); } }
     else if (phase === 2) { ext = Math.min(ext, hdg); if (hdg >= 10) { overs.push(-10 - ext); return true; } }
   });
   const LV = L / Vs;
@@ -92,25 +110,44 @@ export function runTrials(spec: ShipSpec, depth = Infinity): { rows: TrialResult
   });
   rows.push({ key: 'crash', label: 'Crash stop, pods swung 180°', value: `${(path / L).toFixed(2)} L track reach`, limit: '< 15 L', pass: path < 15 * L, note: `${tStop.toFixed(0)} s, head reach ${(headReach / L).toFixed(2)} L, heading Δ ${(wrap(st.psi - psiS) / DEG).toFixed(0)}°` });
 
-  st = cloneState(approach); path = 0; pn = st.n; pe = st.e; tStop = NaN; const tC1 = st.t;
-  // reversal interlock: order stop first, then full astern once below the interlock rpm
-  const rev = cmdOf(zeros, zeros);
-  run(model, st, rev, env, 900, s => {
-    if (Math.abs(s.pods[0].rpm) <= spec.revInterlock) rev.pods.forEach(p => (p.rpm = -1));
-    path += Math.hypot(s.n - pn, s.e - pe); pn = s.n; pe = s.e;
-    if (s.u <= 0) { tStop = s.t - tC1; return true; }
-  });
-  rows.push({ key: 'crash2', label: 'Crash stop, rpm reversal', value: `${(path / L).toFixed(2)} L track reach`, limit: '< 15 L', pass: path < 15 * L, note: `${tStop.toFixed(0)} s` });
+  if (spec.asternMax <= 0 || vsp) {
+    // Z-drives on non-reversing engines and Voith Schneider rotors have no astern rpm: they stop by turning the thrust
+    rows.push({ key: 'crash2', label: 'Crash stop, rpm reversal', value: 'n/a', note: vsp ? 'cycloidal rotors reverse by pitch, not rpm' : 'the units turn to go astern; they do not reverse' });
+  } else {
+    st = cloneState(approach); path = 0; pn = st.n; pe = st.e; tStop = NaN; const tC1 = st.t;
+    // reversal interlock: order stop first, then full astern once below the interlock rpm
+    const rev = cmdOf(zeros, zeros);
+    run(model, st, rev, env, 900, s => {
+      if (Math.abs(s.pods[0].rpm) <= spec.revInterlock) rev.pods.forEach(p => (p.rpm = -1));
+      path += Math.hypot(s.n - pn, s.e - pe); pn = s.n; pe = s.e;
+      if (s.u <= 0) { tStop = s.t - tC1; return true; }
+    });
+    rows.push({ key: 'crash2', label: 'Crash stop, rpm reversal', value: `${(path / L).toFixed(2)} L track reach`, limit: '< 15 L', pass: path < 15 * L, note: `${tStop.toFixed(0)} s` });
+  }
 
-  // 5. Turn on the spot: both pods push stern to port, bow thruster to stbd
+  // 5. Turn on the spot. With a bow thruster: pods athwartships pushing the stern to port, the thruster
+  // the bow to starboard, balanced. Without one: the units make a couple on their own (forward units
+  // across against the aft ones, or the two aft units one ahead and one astern).
   st = makeState(spec, 0, 0, 0, 0);
-  let maxDrift = 0;
-  const podSum = spec.pods.reduce((a, p) => a + p.Tb, 0) * (1 - spec.tded);
-  const rpmBal = Math.sqrt(spec.bowThruster.Tmax / podSum);
-  run(model, st, cmdOf(Array(np).fill(-90), Array(np).fill(rpmBal), 1), env, 300, s => {
+  let maxDrift = 0, spinCmd: Command, spinLabel: string;
+  if (spec.bowThruster.Tmax > 0) {
+    const podSum = spec.pods.reduce((a, p) => a + p.Tb, 0) * (1 - spec.tded);
+    const rpmBal = Math.sqrt(spec.bowThruster.Tmax / podSum);
+    spinCmd = cmdOf(Array(np).fill(-90), Array(np).fill(rpmBal), 1);
+    spinLabel = `Turn on the spot (pods 90° @ ${(rpmBal * 100).toFixed(0)} %, BT 100 %)`;
+  } else if (spec.pods.some(p => p.x > 0) && spec.pods.some(p => p.x < 0)) {
+    const fwd = spec.pods.filter(p => p.x > 0).reduce((a, p) => a + p.Tb, 0), aft = spec.pods.filter(p => p.x < 0).reduce((a, p) => a + p.Tb, 0);
+    const k = Math.min(fwd, aft);
+    spinCmd = cmdOf(spec.pods.map(p => (p.x > 0 ? 90 : -90)), spec.pods.map(p => Math.sqrt(k / (p.x > 0 ? fwd : aft))));
+    spinLabel = 'Turn on the spot (forward units across one way, aft the other)';
+  } else {
+    spinCmd = cmdOf(spec.pods.map(p => (p.y < 0 ? 0 : p.y > 0 ? 180 : 0)), spec.pods.map(p => (p.y === 0 ? 0 : 0.5)));
+    spinLabel = 'Turn on the spot (port unit ahead, starboard astern, 50 %)';
+  }
+  run(model, st, spinCmd, env, 300, s => {
     if (s.t > 200) maxDrift = Math.max(maxDrift, Math.hypot(s.u, s.v));
   });
-  rows.push({ key: 'spin', label: `Turn on the spot (pods 90° @ ${(rpmBal * 100).toFixed(0)} %, BT 100 %)`, value: `${(st.r / DEG * 60).toFixed(0)} °/min`, note: `residual CG speed ${maxDrift.toFixed(2)} m/s` });
+  rows.push({ key: 'spin', label: spinLabel, value: `${Math.abs(st.r / DEG * 60).toFixed(0)} °/min`, note: `residual CG speed ${maxDrift.toFixed(2)} m/s` });
 
   // Coast-down: dead ship from 6 kn, how far until 2 kn (headway carried when stopping)
   st = makeState(spec, 0, 0, 0, 6);
@@ -172,7 +209,7 @@ export function runShaftTrials(spec: ShipSpec, depth = Infinity): { rows: TrialR
   rows.push({ key: 'adv', label: 'Advance (rudder 35° stbd)', value: `${(ts.adv / L).toFixed(2)} L · ${ts.adv.toFixed(0)} m`, limit: '< 4.5 L', pass: ts.adv < 4.5 * L, note: `port ${(tp.adv / L).toFixed(2)} L` });
   rows.push({ key: 'tact', label: 'Tactical diameter', value: `${(ts.tact / L).toFixed(2)} L · ${ts.tact.toFixed(0)} m`, limit: '< 5.0 L', pass: ts.tact < 5 * L, note: `port ${(tp.tact / L).toFixed(2)} L` });
   rows.push({ key: 'trans', label: 'Transfer at 90°', value: `${(ts.trans / L).toFixed(2)} L`, note: `t₉₀ ${ts.t90.toFixed(0)} s` });
-  rows.push({ key: 'dst', label: 'Steady turning diameter', value: `${(2 * Ust / Math.abs(ts.rS) / L).toFixed(2)} L`, note: `speed ${(Ust / KN).toFixed(1)} kn (−${(100 * (1 - Ust / Vs)).toFixed(0)} %)` });
+  rows.push({ key: 'dst', label: 'Steady turning diameter', value: `${(2 * Ust / Math.abs(ts.rS) / L).toFixed(2)} L`, note: `speed ${(Ust / KN).toFixed(1)} kn (${Ust <= Vs ? '−' : '+'}${Math.abs(100 * (1 - Ust / Vs)).toFixed(0)} %)` });
   rows.push({ key: 'rot', label: 'Steady rate of turn', value: `${(Math.abs(ts.rS) / DEG * 60).toFixed(0)} °/min`, note: `drift β ${(Math.atan2(-ts.vS, ts.uS) / DEG).toFixed(1)}°` });
   const pivot = -ts.vS / ts.rS - (spec.mmg ? 0 : -spec.xg);
   rows.push({ key: 'pivot', label: 'Pivot point', value: `${((L / 2 - pivot) / L).toFixed(2)} L aft of FP` });

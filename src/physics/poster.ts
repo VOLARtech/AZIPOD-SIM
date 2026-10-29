@@ -23,7 +23,7 @@ function steady(model: Model, spec: ShipSpec, rpm: number, env: Env, u0 = 8): Sh
   const st = makeState(spec, 0, 0, 0, u0);
   st.pods.forEach(p => (p.rpm = rpm));
   const cmd: Command = { pods: spec.pods.map(() => ({ alpha: 0, rpm })), bt: 0 };
-  for (let t = 0; t < 1200; t += DT) { holdCourse(cmd, st, 0); updateActuators(spec, st, cmd, DT); rk4(model, st, env, { V: 0, from: 0 }, null, DT); }
+  for (let t = 0; t < 1200; t += DT) { holdCourse(cmd, st, 0, spec); updateActuators(spec, st, cmd, DT); rk4(model, st, env, { V: 0, from: 0 }, null, DT); }
   st.t = 0; st.n = 0; st.e = 0; st.psi = 0; st.r = 0; st.v = 0;
   return st;
 }

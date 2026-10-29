@@ -1,6 +1,6 @@
 import { KN, ShipSpec } from './ship';
 import {
-  ActStatus, Command, Env, Gust, Model, ShipState, World, Breakdown, emptyBreakdown, emptyStatus, rk4, updateActuators,
+  ActStatus, Command, Env, Gust, Model, ShipState, World, Breakdown, emptyBreakdown, emptyStatus, rk4, updateActuators, thrusterEff,
 } from './sim';
 import { ContactInfo, Fender, Obstacle, Pt } from './contact';
 import { DepthField, bankEffect, squat, washReflection } from './harbour';
@@ -130,7 +130,7 @@ export class Runtime {
     // joystick / DP → lever orders (on sensor estimates, like the real system)
     if (this.lever === 'joy' && this.canJoy) {
       const uc = Math.cos(st.psi) * cur[0] + Math.sin(st.psi) * cur[1];
-      const btEff = 1 / (1 + ((st.u - uc) / 1.6) ** 2);
+      const btEff = thrusterEff(st.u - uc);
       const lim = joyLimits(spec, btEff);
       const d = dpForces(spec, this.model.h.M[0], this.model.h.M[8], this.sensors.out.est, this.dp, lim);
       const j = this.joy;
@@ -143,7 +143,7 @@ export class Runtime {
     } else this.cmd.mode = this.lever === 'joy' ? 'twin' : this.lever;
     if (this.dps) {
       const uc = Math.cos(st.psi) * cur[0] + Math.sin(st.psi) * cur[1];
-      const btEff = 1 / (1 + ((st.u - uc) / 1.6) ** 2);
+      const btEff = thrusterEff(st.u - uc);
       const d = this.dps;
       for (const x of this.dpScript) if (!x.done && st.t >= x.t) {
         x.done = true;
@@ -198,13 +198,21 @@ export class Runtime {
 
     for (const tr of this.traffic) tr.step(dt);
     const esc = this.escort;
+    // towline tension with both ends at the same instant (end of the last step): the ship takes it
+    // as her reaction over this step, as the tug takes the line force inside its own integrator
+    const T0 = esc ? esc.line.T : 0;
     if (esc) this.world.tow = { line: esc.line, anchor: esc.anchor() };
     rk4(this.model, st, this.env, wind, this.world, dt);
     // diagnostics at end-of-step state
     this.model.accel(st, this.env, wind, this.world, this.bd, this.ci);
     if (esc) {
       const tp = pointWorld(st, esc.line.fairTug);
+      esc.line.T = T0;
       esc.step(dt, this.env, [tp[0], tp[1]]);
+      // the stiff line's tension is only meaningful with the ship's fairlead where she is now; with it
+      // held at the start of the step the tug has already closed the gap and the line reads slack
+      this.world.tow!.anchor = esc.anchor();
+      esc.line.T = towForce(st, esc.line, this.world.tow!.anchor).T;
       const ev = updateTowWinch(esc.line, dt);
       if (ev) this.alert(ev, 'heavy');
     }

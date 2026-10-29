@@ -1,6 +1,6 @@
 # Azipod Bridge: technical notes
 
-The physics, data sources, ship models and developer workflow behind the simulator. For an overview in plain language, see the [README](../README.md).
+The physics, data sources, ship models and developer workflow behind the simulator. For an overview in plain language, see the [README](../README.md); for how the physics compares with published tests and real ships, see the [physics audit](PHYSICS_AUDIT.md).
 
 > Training simulator. **Not for navigation.** The 278 m cruise ship is modelled on the published particulars of an Azipod cruise ship of the *Valiant Lady* class; hull derivatives, windage and bow-thruster data are estimates, the Amsterdam harbour is a schematic, and the PortMiami chart is reduced and simplified from NOAA ENCs and may be out of date. Behaviour will differ from any real vessel.
 

@@ -1108,7 +1108,9 @@ export class View3D {
         return;
       }
       pd.yaw.rotation.y = -(ps.alpha + spec.alphaOffset);
-      pd.spin += ps.rpm * (140 / 60) * 2 * Math.PI * simDt * (i ? -1 : 1);   // ~140 rpm at 100 %, outward-turning pair
+      // full rpm from a typical blade-tip speed (≈ 42 m/s): ~130 rpm on a 6 m Azipod, ~420 on a 2 m pod;
+      // outward turning: port unit anticlockwise seen from astern, starboard (and a centre unit) clockwise
+      pd.spin += ps.rpm * (42 / (Math.PI * spec.D)) * 2 * Math.PI * simDt * (spec.y < 0 ? 1 : -1);
       pd.prop.rotation.z = pd.spin;
     });
     this.placeCamera(w2, psi);

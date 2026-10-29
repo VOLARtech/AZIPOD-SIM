@@ -38,9 +38,11 @@ test('bow thruster +1 pushes bow to starboard', () => {
   const st = makeState(SHIP, 0, 0, 0, 0); st.bt = 1;
   const bd = forces(st); assert.ok(bd.bt.Y > 0 && bd.bt.N > 0);
 });
-test('bow thruster loses most effect at 5 kn', () => {
-  const st = makeState(SHIP, 0, 0, 0, 5); st.bt = 1;
-  assert.ok(forces(st).bt.eff < 0.35);
+test('bow thruster: about half its side force by 3–4 kn, then roughly level (model tests)', () => {
+  const eff = (kn: number) => { const st = makeState(SHIP, 0, 0, 0, kn); st.bt = 1; return forces(st).bt.eff; };
+  assert.ok(eff(0) > 0.99, `${eff(0)}`);
+  assert.ok(eff(3.5) > 0.45 && eff(3.5) < 0.65, `3.5 kn ${eff(3.5).toFixed(2)}`);
+  assert.ok(eff(8) > 0.45 && eff(8) < 0.55, `8 kn ${eff(8).toFixed(2)}`);
 });
 test('wind from starboard beam pushes the ship to port', () => {
   const bd = forces(makeState(SHIP, 0, 0, 0, 0), { V: 15, from: 90 * DEG });
@@ -417,11 +419,12 @@ import { stepRoll, rollInit } from '../src/physics/roll';
     assert.ok(Math.cos(st.pods[0].alpha) < -0.99 && st.pods[0].rpm > 0.9, 'astern at full');
     assert.ok(minE < 0.05 && side < 0.05, `passed through zero (min ${minE.toFixed(2)}, side ${side.toFixed(2)})`);
   });
-  test('escort tug hull and skeg at 8 kn, 45° to the flow: side force 1.3–2 × bollard pull', () => {
+  test('escort tug hull, skeg and drive legs at 8 kn, 45° to the flow: side force 1.3–2 × bollard pull', () => {
     const sp = SHIPS['asd-tug'], mm = new Model(sp, Infinity), st = makeState(sp, 0, 0, 0, 0);
     st.u = -8 * KN * Math.cos(45 * DEG); st.v = -8 * KN * Math.sin(45 * DEG);
-    const bd = emptyBreakdown(2); mm.accel(st, env0, still, null, bd);
-    const bp = sp.pods.reduce((a, p) => a + p.Tb * (1 - sp.tded), 0), f = Math.hypot(bd.hull.X, bd.hull.Y) / bp;
+    // not turning: the force on the tug is the mass matrix times her acceleration
+    const a = mm.accel(st, env0, still, null), M = mm.h.M, X = M[0] * a[0], Y = M[4] * a[1] + M[5] * a[2];
+    const bp = sp.pods.reduce((s, p) => s + p.Tb * (1 - sp.tded), 0), f = Math.hypot(X, Y) / bp;
     assert.ok(f > 1.3 && f < 2, `${f.toFixed(2)} × BP`);
   });
   test('tug roll: natural period 5–9 s; full bollard pull abeam at the winch, held by the hull, heels her 8–20°', () => {
