@@ -79,6 +79,7 @@ On a phone or tablet, just use the levers and wheels on screen. On a computer yo
 - **Paspaley Pearl.** The 53.5 m expedition yacht joins the fleet: small, quick to turn, with two pods and a bow thruster.
 - **Tugs come when you call them.** Harbour tugs wait out of sight until you ask for help, then leave again when you let them go.
 - **Smoother and more reliable.** Switching ships is quicker, the chart draws faster, and the app copes better with slow or missing internet.
+- **Checked against real ships.** A full audit of the physics, every propulsion system and every ship's layout against published tests and IMO standards: bow thrusters now keep about half their push under way as model tests show, tugs handle like real tugs, the escort towline pulls the tanker properly, and rudders sit right behind their propellers. The details, with what is still uncertain, are in [docs/PHYSICS_AUDIT.md](docs/PHYSICS_AUDIT.md).
 - **Fixes.** Ships now face the right way, with their propellers at the stern, and each bridge camera sits where the real wheelhouse is.
 
 ## Thanks and credits
@@ -116,7 +117,7 @@ npm test           # check the physics still behaves
 npm run build:all  # build the app and the offline copy
 ```
 
-Every change to `main` is tested and published automatically. The physics, data sources, ship-model tools and every command are described in [docs/TECHNICAL.md](docs/TECHNICAL.md); the plan behind the fleet expansion is in [docs/expansion/PLAN.md](docs/expansion/PLAN.md).
+Every change to `main` is tested and published automatically. The physics, data sources, ship-model tools and every command are described in [docs/TECHNICAL.md](docs/TECHNICAL.md), and how it all compares with real ships in [docs/PHYSICS_AUDIT.md](docs/PHYSICS_AUDIT.md); the plan behind the fleet expansion is in [docs/expansion/PLAN.md](docs/expansion/PLAN.md).
 
 ## Licence
 

@@ -147,6 +147,9 @@ export interface ShipSpec {
   rotors?: { x: number; y: number; D: number; H: number; zc: number; vMax: number }[];
   /** Icebreaking bow for Lindqvist's level-ice resistance: stem angle φ, waterline entrance half-angle α [rad]. */
   iceBow?: { phi: number; alpha: number };
+  /** Draught of the hull itself, when propulsors or fins reach deeper (Voith tractor: flat hull, the
+   *  propellers, guard plate and fin below it). Mass and hull derivatives use it; depth and grounding use T. */
+  hullT?: number;
 }
 
 /** MMG standard-method hull: non-dimensional derivatives about midship, ÷ ½ρ L d U² (forces), ÷ ½ρ L² d U² (moment). */
@@ -306,7 +309,9 @@ export function inv3(a: number[]): number[] {
 }
 
 export function deriveHydro(s: ShipSpec, depth: number): Hydro {
-  const { L, B, T, Cb } = s;
+  // the canoe body sets mass and hull derivatives; appendages below it (tractor-tug propellers, guard
+  // plate and fin) add their own forces and only count for the navigational draught T
+  const { L, B, Cb } = s, T = s.hullT ?? s.T;
   const m = RHO * Cb * L * B * T;
   const k = Math.PI * (T / L) ** 2;
   const BL = B / L, BT = B / T;

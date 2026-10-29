@@ -3,7 +3,7 @@
 // propulsor positions are given from midship and shifted by −xg).
 import { DEG } from '../physics/consts';
 import type { ShipSpec } from '../physics/ship';
-import { AIR_2S, POD_DEFAULTS, TELEGRAPH_2S, rudder, shaftUnit } from './base';
+import { AIR_2S, POD_DEFAULTS, TELEGRAPH_2S, rudder, shaftUnit, fujii } from './base';
 import { KVLCC2, KVLCC2_PROP, KVLCC2_RUDDER } from './kvlcc2';
 
 /**
@@ -66,11 +66,11 @@ export const PANAMAX: ShipSpec = {
 
 /** The KVLCC2 tanker in ballast: same ship, light draught, twice the windage, Clarke hull model. */
 export const KVLCC2_BALLAST: ShipSpec = {
-  ...KVLCC2, id: 'kvlcc2-ballast', name: 'VLCC · KVLCC2 hull, ballast', load: 'ballast, T 10.5 m even keel',
-  note: 'The KVLCC2 VLCC in ballast. The published MMG coefficients are for the loaded draught, so in ballast the hull uses Clarke\'s regression; the propeller is barely immersed and the windage doubles.',
+  ...KVLCC2, id: 'kvlcc2-ballast', name: 'VLCC · KVLCC2 hull, ballast', load: 'ballast, 10.5 m mean, trimmed by the stern',
+  note: 'The KVLCC2 VLCC in ballast. The published MMG coefficients are for the loaded draught, so in ballast the hull uses Clarke\'s regression; she ballasts trimmed by the stern (about 12 m aft) so the propeller stays immersed, and only the lower 11.4 m of the 15.8 m rudder is in the water. The windage doubles.',
   T: 10.5, Cb: 0.78, xg: 6, mmg: undefined, vmaxKn: 17.2,
   pods: [shaftUnit('MAIN', 0, { ...KVLCC2_PROP, xP: -0.48 * 320 - 6, wP0: 0.3 }, KVLCC2.pods[0].shaft!.engine,
-    { ...KVLCC2_RUDDER, xR: -0.5 * 320 - 6, xH: -0.464 * 320 - 6, rate: 2.32 * DEG }, TELEGRAPH_2S)],
+    { ...KVLCC2_RUDDER, A: KVLCC2_RUDDER.A * 11.4 / KVLCC2_RUDDER.H, H: 11.4, fa: KVLCC2_RUDDER.fa * fujii(11.4, KVLCC2_RUDDER.A * 11.4 / KVLCC2_RUDDER.H) / fujii(KVLCC2_RUDDER.H, KVLCC2_RUDDER.A), xR: -0.5 * 320 - 6, xH: -0.464 * 320 - 6, rate: 2.32 * DEG }, TELEGRAPH_2S)],
   windage: { AF: 2300, AL: 8600, cx: 0.75, cy: 0.9, cn: 0.1, xw: -10 },
   bridgeX: -128,
   look: { ...KVLCC2.look, freeboard: 19.5, bridgeH: 43, decks: KVLCC2.look.decks.map(d => ({ ...d, x0: d.x0 - 6, x1: d.x1 - 6, h: d.h + 10.3 })), funnel: { ...KVLCC2.look.funnel, x: -156, h: 54 } },

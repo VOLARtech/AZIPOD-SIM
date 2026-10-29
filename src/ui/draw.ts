@@ -3,6 +3,7 @@
 import { DEG, KN, SHIP } from '../physics/ship';
 import type { PodSpec } from '../physics/ship';
 import { HULL } from '../physics/contact';
+import { unitAxis } from '../physics/units/kinds';
 import { nearestStructure } from '../physics/harbour';
 import { LINE, tugEngaged } from '../physics/mooring';
 import type { Alt, Track } from '../physics/predict';
@@ -392,7 +393,8 @@ export function drawShip() {
   SHIP.pods.forEach((p, i) => {
     const ps = st.pods[i], b = bd.pods[i];
     if (p.kind === 'shaft') { drawShaft(p, ps, b, i, Fs); return; }
-    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(ps.alpha + p.alphaOffset);
+    // the unit's thrust axis: a waterjet pushes against its jet, so its glyph points opposite the nozzle
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(unitAxis(p, ps));
     const T = b.T, wl = Math.min(90, Math.abs(T) / 400e3 * 60);
     if (wl > 2) {
       const sg = T >= 0 ? -1 : 1;
@@ -402,7 +404,8 @@ export function drawShip() {
     }
     ctx.fillStyle = podColors[i];
     ctx.beginPath(); ctx.ellipse(0, 0, 4.2, 1.7, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillRect(3.4, -2.6, 0.8, 5.2);
+    // propeller: ahead of the pod on a pulling Azipod, behind the leg on a pushing Z-drive
+    if (p.kind !== 'waterjet' && p.kind !== 'vsp') ctx.fillRect(p.azimuth?.pusher ? -4.2 : 3.4, -2.6, 0.8, 5.2);
     ctx.restore();
     if (full() && Math.hypot(b.X, b.Y) > 5e3) { ctx.strokeStyle = ctx.fillStyle = podColors[i]; ctx.lineWidth = px(2.4); arrow(p.x, p.y, p.x + b.X * Fs, p.y + b.Y * Fs, Math.max(4, px(9))); }
   });

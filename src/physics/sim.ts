@@ -76,6 +76,9 @@ export function emptyBreakdown(nPods: number): Breakdown {
 
 export const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
+/** Tunnel-thruster side force under way, fraction of the bollard value: half by 3–4 kn, then level. */
+export const thrusterEff = (u: number) => 0.5 + 0.5 * Math.exp(-((u / 1.2) ** 2));
+
 /** Thrust of one pod for normalised rpm n and axial advance speed Va (linear K_T(J)). */
 function podThrust(Tb: number, asternFrac: number, Vz: number, n: number, Va: number) {
   if (n >= 0) return Math.max(Tb * (n * n - n * Va / Vz), -0.1 * Tb * n * n);
@@ -223,10 +226,13 @@ export class Model {
       if (bd) { const b = bd.pods[j]; b.X += Fx; b.Y += Fy; b.N += q.x * Fy - q.y * Fx; b.eff *= 1 - loss; }
     }
 
-    // Bow thruster: effectiveness collapses with forward speed
+    // Bow thruster: its jet is bent aft by the flow along the hull and the suction behind it cancels
+    // part of the push, so the side force falls to about half by 3–4 kn and then holds roughly
+    // steady (model tests on a 60 000 dwt tanker, Int. Shipbuilding Progress 14/156, 1967; side-thruster
+    // experiments reported 1975: about 50 % between rest and 3–4 kn, then nearly constant)
     {
       const bt = s.bowThruster;
-      const eff = 1 / (1 + (ur / 1.6) ** 2);
+      const eff = thrusterEff(ur);
       const Fy = bt.Tmax * st.bt * Math.abs(st.bt) * eff;
       Y += Fy; N += bt.x * Fy;
       if (bd) { bd.bt.X = 0; bd.bt.Y = Fy; bd.bt.N = bt.x * Fy; bd.bt.eff = eff; }
@@ -242,7 +248,7 @@ export class Model {
     }
     if (s.sternThruster && st.sbt) {
       const sb = s.sternThruster;
-      const eff = 1 / (1 + (ur / 1.6) ** 2);
+      const eff = thrusterEff(ur);
       const Fy = sb.Tmax * st.sbt * Math.abs(st.sbt) * eff;
       Y += Fy; N += sb.x * Fy;
       if (bd) bd.sbt = { X: 0, Y: Fy, N: sb.x * Fy, eff };
@@ -464,10 +470,14 @@ export class Gust {
   }
 }
 
+/** Steering sense of an azimuthing unit: one aft of the CG turns the ship the opposite way to its
+ *  side thrust, one forward of it (rotor tug, tractor tug) the same way. */
+export const steerSign = (p: PodSpec) => (p.x < 0 ? 1 : -1);
+
 /** Autopilot used for approach runs in trials: pods steer to hold a heading. */
-export function holdCourse(cmd: Command, st: ShipState, psiRef: number) {
+export function holdCourse(cmd: Command, st: ShipState, psiRef: number, spec?: ShipSpec) {
   const a = Math.max(-0.17, Math.min(0.17, -1.2 * wrap(psiRef - st.psi) + 25 * st.r));
-  cmd.pods.forEach(p => (p.alpha = a));
+  cmd.pods.forEach((p, i) => (p.alpha = spec ? a * steerSign(spec.pods[i]) : a));
 }
 
 /** Rotor sails in apparent wind (awx, awy: velocity of the air relative to the ship, body axes).
