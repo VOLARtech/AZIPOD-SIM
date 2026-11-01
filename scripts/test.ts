@@ -197,6 +197,33 @@ test('DP heading hold in 25 kn beam wind keeps heading within 3°', () => {
   assert.ok(worst < 3 && Math.hypot(rt.state.n, rt.state.e) < 15, `hdg err ${worst.toFixed(2)}°, pos err ${Math.hypot(rt.state.n, rt.state.e).toFixed(1)} m`);
 });
 
+test('joystick sideways under way: she moves the way the stick points, bow held (gyro assist), every joystick ship', () => {
+  for (const sp of Object.values(SHIPS)) {
+    const st = makeState(sp, 0, 0, 0, 4), c0 = Math.min(1, 4 / sp.vmaxKn);
+    st.pods.forEach(p => (p.rpm = c0));
+    const rt = new Runtime(sp, st, { pods: sp.pods.map(() => ({ alpha: 0, rpm: c0 })), bt: 0 }, calm, OPEN);
+    if (!rt.canJoy) continue;
+    setHull(buildHull(sp.L, sp.B, sp.xg, sp.LOA));
+    rt.setLever('joy'); rt.joy = { x: 1, y: 0, r: 0 };
+    let worst = 0;
+    for (let i = 0; i < 400; i++) { rt.step(); worst = Math.max(worst, Math.abs(rt.state.r)); }
+    assert.ok(rt.state.v > 0.05 && rt.state.e > 0.3 && worst / DEG * 60 < 12, `${sp.id}: v ${rt.state.v.toFixed(2)} e ${rt.state.e.toFixed(1)} worst ROT ${(worst / DEG * 60).toFixed(1)}°/min`);
+  }
+  setHull(buildHull(SHIP.L, SHIP.B, SHIP.xg, SHIP.LOA));
+});
+test('joystick twist still turns her the way it is pushed, assist or not', () => {
+  const sp = SHIPS['paspaley-pearl'], rt = new Runtime(sp, makeState(sp, 0, 0, 0, 4), { pods: sp.pods.map(() => ({ alpha: 0, rpm: 0.3 })), bt: 0 }, calm, OPEN);
+  rt.setLever('joy'); rt.joy = { x: 0, y: 0, r: 1 };
+  for (let i = 0; i < 200; i++) rt.step();
+  assert.ok(rt.state.r > 1 * DEG, `r ${(rt.state.r / DEG).toFixed(2)}°/s`);
+});
+test('Paspaley Pearl tracks straight with her pods centred: < 0.5°/min swing', () => {
+  const sp = SHIPS['paspaley-pearl'], st = makeState(sp, 0, 0, 0, 9); st.pods.forEach(p => (p.rpm = 0.7));
+  const rt = new Runtime(sp, st, { pods: sp.pods.map(() => ({ alpha: 0, rpm: 0.7 })), bt: 0 }, calm, OPEN);
+  for (let i = 0; i < 3600; i++) rt.step();
+  assert.ok(Math.abs(rt.state.r / DEG * 60) < 0.5, `ROT ${(rt.state.r / DEG * 60).toFixed(2)}°/min`);
+});
+
 console.log('predictor & validation');
 import { runPrediction } from '../src/physics/predict';
 import { scenarioWorld } from '../src/scenarios';

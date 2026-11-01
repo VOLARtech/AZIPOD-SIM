@@ -72,6 +72,17 @@ An audit of the simulator's ship physics, every propulsion system, every ship's 
 
 The regression baseline for the original Azipod ships was re-recorded. The bow-thruster correction is the only change to them: with the old curve put back, all records match exactly. The baseline now also covers every scenario.
 
+### Follow-up: joystick and straight running (Paspaley Pearl)
+
+Reported: on the Paspaley Pearl the joystick seemed to work backwards, and she would not hold a straight course.
+
+| What | Was | Now | Why |
+| --- | --- | --- | --- |
+| Joystick sideways under way | Stick to starboard at 4 kn swung the yacht's bow to port at 37°/min, so she seemed to go the wrong way. Every sign in the allocator was right; the big ships swung 0–4°/min | 4°/min or less on every joystick ship, up to 8 kn | Drifting sideways while making way gives a hull turning moment (the Munk moment). Here it was about 390 kN·m, more than the yacht's 45 kN bow thruster can balance at that speed. The allocator commanded thrust as if it could, so the moment won. Two changes. First, with the twist centred the joystick uses the gyro to stop any swing, then gently keeps the heading she settled on. The rate gain scales with her length so the slow pods of a big ship don't hunt, and the heading term is kept soft because the bow thruster takes seconds to spin up. Second, the sideways order is cut back until the bow thruster can still balance it, so heading comes before sway. In the PortMiami channel at nearly 5 kn, with 13 kn of wind on the quarter, a full sideways stick now moves her about 1.3° off heading in 30 s (it was 19°/min). Twisting the stick, HDG HOLD and POS HOLD work as before. |
+| Pod dials | No centre detent: a pixel off dead ahead was 1° of pod angle, about 9°/min of swing on the yacht against 2°/min on a cruise ship | Snaps to dead ahead within 3° | You could never put the pods back exactly straight. |
+| Paspaley Pearl pod alignment | Starboard pod mis-set by 0.3°, as on the big ships | Zeroed | On a 47 m hull that small error swung her 2.6°/min with the pods centred, which the centre detent would have made impossible to trim out. |
+| Joystick on ships without a bow thruster | Allowed by the physics (the tugs' tray never offers it), and gave NaN | Not offered | The allocator divides by the bow thruster's lever arm. |
+
 ## Fleet trials after the audit
 
 Deep, calm water, from full speed. Turning at hard over (35°; 45° for the Voith tractor), crash stop full astern (pods swung outward on pod ships).

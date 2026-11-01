@@ -80,6 +80,7 @@ On a phone or tablet, just use the levers and wheels on screen. On a computer yo
 - **Tugs come when you call them.** Harbour tugs wait out of sight until you ask for help, then leave again when you let them go.
 - **Smoother and more reliable.** Switching ships is quicker, the chart draws faster, and the app copes better with slow or missing internet.
 - **Checked against real ships.** A full audit of the physics, every propulsion system and every ship's layout against published tests and IMO standards: bow thrusters now keep about half their push under way as model tests show, tugs handle like real tugs, the escort towline pulls the tanker properly, and rudders sit right behind their propellers. The details, with what is still uncertain, are in [docs/PHYSICS_AUDIT.md](docs/PHYSICS_AUDIT.md).
+- **Joystick that goes where you point it.** Pushing the stick sideways while moving no longer swings the bow the other way (it was worst on the Paspaley Pearl). The pod dials also click into dead ahead, so she holds a straight course.
 - **Fixes.** Ships now face the right way, with their propellers at the stern, and each bridge camera sits where the real wheelhouse is.
 
 ## Thanks and credits

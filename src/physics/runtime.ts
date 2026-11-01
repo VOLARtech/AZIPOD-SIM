@@ -1,4 +1,4 @@
-import { KN, ShipSpec } from './ship';
+import { DEG, KN, ShipSpec, wrapAngle } from './ship';
 import {
   ActStatus, Command, Env, Gust, Model, ShipState, World, Breakdown, emptyBreakdown, emptyStatus, rk4, updateActuators, thrusterEff,
 } from './sim';
@@ -17,6 +17,11 @@ import { IceState } from './ice';
 import { HULL } from './contact';
 
 export const DT = 0.05;
+/** Joystick gyro assist with the twist centred, as rate gain × length (m/s): 1.7 /s on the 47 m yacht, 0.32 /s
+ *  on a 250 m cruise ship, whose slower pods and thruster would otherwise chase the swing round and round. */
+export const JOY_RATE_GAIN = 80;
+/** …and its heading stiffness, rad/s: soft, as the bow thruster takes seconds to spin up. */
+export const JOY_HDG_W = 0.12;
 
 export interface ContactEvent {
   t: number; vn: number; F: number;
@@ -45,6 +50,7 @@ export class Runtime {
   tugs: Tug[] = [];
   lever: LeverMode = 'twin';
   joy: JoyInput = { x: 0, y: 0, r: 0 };
+  private joyPsi: number | null = null;           // heading when the twist was last let go, for the gyro assist
   dp: DPState = { hdgHold: false, posHold: false, psiRef: 0, nRef: 0, eRef: 0 };
   bank = { X: 0, Y: 0, N: 0, side: 0, clear: Infinity };
   wash: ReturnType<typeof washReflection> = { X: 0, Y: 0, N: 0, hits: [] };
@@ -105,11 +111,12 @@ export class Runtime {
     const line = makeTowline([tp.x, 0], fairShip, tp.h, setup.L0, bp);
     this.escort = new Escort(ship, setup, line, st.n + d * c, st.e + d * s, this.env);
   }
-  /** The joystick allocator drives two azimuthing pods and the bow thruster. */
-  get canJoy() { return this.spec.pods.length === 2 && this.spec.pods.every(isPod); }
+  /** The joystick allocator drives two azimuthing pods and a bow thruster (the tugs have their own console). */
+  get canJoy() { return this.spec.pods.length === 2 && this.spec.pods.every(isPod) && this.spec.bowThruster.Tmax > 0; }
   setLever(m: LeverMode) {
     this.lever = m;
     if (m !== 'joy') { this.dp.hdgHold = this.dp.posHold = false; this.joy = { x: 0, y: 0, r: 0 }; }
+    this.joyPsi = null;
   }
   setHdgHold(on: boolean) { this.dp.hdgHold = on; this.dp.psiRef = this.sensors.out.est.psi; }
   setPosHold(on: boolean) { const e = this.sensors.out.est; this.dp.posHold = on; this.dp.nRef = e.n; this.dp.eRef = e.e; }
@@ -138,7 +145,14 @@ export class Runtime {
       if (this.dp.posHold && (Math.abs(j.x) > 0.05 || Math.abs(j.y) > 0.05)) this.setPosHold(true);
       if (this.dp.hdgHold && Math.abs(j.r) > 0.05) this.dp.psiRef = this.sensors.out.est.psi;
       const c = (a: number) => Math.max(-1, Math.min(1, a));
-      allocate(spec, st, { x: c(j.x + d.Y), y: c(j.y + d.X), r: c(j.r + d.N) }, btEff, this.cmd);
+      // gyro assist: with the twist centred the system stops any swing the stick or the hull causes (pushing
+      // sideways under way turns the bow against the push) and, once she has steadied, keeps that heading
+      const est = this.sensors.out.est, twist = Math.abs(j.r) > 0.05 || this.dp.hdgHold;
+      if (twist) this.joyPsi = null; else if (this.joyPsi === null && Math.abs(est.r) < 0.2 * DEG) this.joyPsi = est.psi;
+      const k = JOY_RATE_GAIN / spec.L, dPsi = this.joyPsi === null ? 0 : wrapAngle(est.psi - this.joyPsi);
+      const yaw = twist ? j.r : -this.model.h.M[8] * (k * est.r + JOY_HDG_W * JOY_HDG_W * dPsi) / lim.N;
+      // heading before sway: the sideways push gives way when the bow thruster cannot balance it
+      allocate(spec, st, { x: c(j.x + d.Y), y: c(j.y + d.X), r: c(yaw + d.N) }, btEff, this.cmd, true);
       this.cmd.mode = 'twin';
     } else this.cmd.mode = this.lever === 'joy' ? 'twin' : this.lever;
     if (this.dps) {

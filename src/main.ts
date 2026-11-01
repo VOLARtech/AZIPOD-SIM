@@ -369,7 +369,8 @@ class Dial {
   fromEvent(e: PointerEvent) {
     const { dx, dy, R } = this.geom(e);
     if (Math.hypot(dx, dy) < R * 0.18) return;          // centre: no direction, ignore
-    const a = wrap(Math.atan2(dx, -dy)), old = S.cmd.pods[this.i].alpha;
+    let a = wrap(Math.atan2(dx, -dy)); const old = S.cmd.pods[this.i].alpha;
+    if (Math.abs(a) < 3 * DEG) a = 0;                     // centre detent: a pixel off dead ahead turns a small ship
     const step = (x: number) => Math.floor(((x / DEG) + 360.0001) % 360 / 15);
     const sa = step(a), so = step(old);
     if (sa !== so) { const edge = Math.abs(sa - so) > 12 ? 0 : Math.max(sa, so); uiTick(edge % 6 === 0 ? 'cardinal' : 'step'); }   // 15° steps, 90° marks
