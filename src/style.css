@@ -480,3 +480,92 @@ details.sec[open] { display: flex; flex-direction: column; gap: 10px; padding-bo
 .st-gen .dpref .stat { width: 240px; }
 .st-gen .dpins .cb { font-size: 10px; }
 @media (max-width: 600px) { .st-gen .dpcap, .st-gen .dpins { display: none; } }
+
+/* ================= v5: console — one dark look for every control, in every chart palette =================
+   The chart palettes (day / dusk / night) set the tokens on :root. Here the control surfaces set their
+   own, which their contents inherit, so only the chart, its labels and the 3D view change with the palette. */
+.hud, .mapbtns, .tray, .panel, .legend, .toast, .sheet, .gate {
+  --panel: rgba(20, 26, 32, 0.86); --panel-solid: #171e25; --rule: #303b45;
+  --ink: #eef3f5; --muted: #8d9aa4; --own: #f39a2b; --port: #ef4452; --stbd: #33c46a;
+  --warn: #ff6b3d; --ok: #33c46a; --predict: #d65aad; --alt-crash: #e7b54b; --alt-coast: #a3b1bc;
+  --face: #2a333c; --face-2: #12181d;
+  --tile: linear-gradient(180deg, #2c353e 0%, #1c2329 100%);
+  --tile-on: linear-gradient(180deg, #3a2a17 0%, #23190e 100%);
+  --edge: rgba(255, 255, 255, 0.08);
+  --lift: 0 2px 6px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  color-scheme: dark; color: var(--ink);
+}
+.gate { background: #0e1419; }
+
+/* readouts: a floating glass card */
+.hud {
+  top: calc(env(safe-area-inset-top, 0px) + 6px); left: var(--gutL); right: var(--gutR);
+  padding: 8px 14px 8px; border: 1px solid var(--edge); border-radius: 14px;
+  background: linear-gradient(180deg, rgba(34, 42, 50, 0.9), rgba(16, 21, 26, 0.9));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(10px) saturate(1.2); -webkit-backdrop-filter: blur(10px) saturate(1.2);
+}
+@media (max-width: 600px) { .hud { padding-top: 7px; padding-bottom: 7px; } }
+@media (orientation: landscape) and (max-height: 520px) { .hud { padding-top: 4px; padding-bottom: 4px; } }
+.hud .val { color: var(--ink); font-weight: 600; }
+.hud .lab, .hud .unit { color: var(--muted); }
+.hud .more { right: 12px; }
+.flag { top: calc(100% + 56px); left: 0; border-radius: 8px; background: var(--panel-solid); border-color: var(--edge); box-shadow: var(--lift); }
+
+/* chart and sim buttons: dark tiles, orange when on */
+.mb, .cb, .x, .lrow .btns button, .seg button, .chips button, .rev, .scen button {
+  background: var(--tile); border: 1px solid var(--edge); color: var(--ink); border-radius: 8px; box-shadow: var(--lift);
+}
+.mb { color: var(--ink); }
+.mb.on, .mb[aria-pressed="true"], .cb[aria-pressed="true"], .cb.on, .scen button.cur,
+.lrow .btns button[aria-pressed="true"], .seg button[aria-pressed="true"], .chips button[aria-pressed="true"],
+.st-gen .dpmode .cb.on, .st-gen .dpref .cb.on {
+  color: var(--own); border-color: var(--own); background: var(--tile-on);
+  box-shadow: var(--lift), 0 0 0 1px rgba(243, 154, 43, 0.25), 0 0 12px rgba(243, 154, 43, 0.18);
+}
+.mb:active, .cb:active { transform: translateY(1px); box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5); }
+.scen button { text-align: left; }
+
+/* the tray: a dark console along the bottom; its action buttons in orange */
+.tray {
+  background: linear-gradient(180deg, rgba(30, 37, 44, 0.95), rgba(14, 19, 24, 0.97));
+  border-top: 1px solid var(--edge); border-radius: 18px 18px 0 0;
+  box-shadow: 0 -8px 26px rgba(0, 0, 0, 0.35); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+.tray .cb { color: var(--own); border-color: rgba(243, 154, 43, 0.75); }
+.tray .cb.warn { color: var(--own); }
+.tray .cb[aria-pressed="true"] { color: var(--own); border-color: var(--own); }
+.btwrap .tag, .podread { color: var(--ink); }
+.podread { font-weight: 500; }
+.st-gen .cell { border-color: var(--edge); background: rgba(255, 255, 255, 0.02); border-radius: 10px; }
+@media (orientation: landscape) and (max-height: 520px) {
+  .tray { background: transparent; border-top: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .tray > * { background: linear-gradient(180deg, rgba(30, 37, 44, 0.92), rgba(14, 19, 24, 0.94)); border: 1px solid var(--edge); border-radius: 14px; }
+}
+
+/* thruster and yaw sliders: red to green track, dark square thumb ringed in orange */
+#bt, .btwrap input[type=range] { -webkit-appearance: none; appearance: none; height: 40px; background: transparent; }
+#bt::-webkit-slider-runnable-track, .btwrap input[type=range]::-webkit-slider-runnable-track {
+  height: 8px; border-radius: 4px; background: linear-gradient(90deg, var(--port), #3a2a2e 42%, #2a333c 50%, #273a2e 58%, var(--stbd));
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+#bt::-moz-range-track, .btwrap input[type=range]::-moz-range-track {
+  height: 8px; border-radius: 4px; background: linear-gradient(90deg, var(--port), #3a2a2e 42%, #2a333c 50%, #273a2e 58%, var(--stbd));
+}
+#bt::-webkit-slider-thumb, .btwrap input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 30px; height: 30px; margin-top: -11px; border-radius: 8px;
+  background: linear-gradient(180deg, #5a636b, #353d44); border: 2px solid var(--own);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+#bt::-moz-range-thumb, .btwrap input[type=range]::-moz-range-thumb {
+  width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(180deg, #5a636b, #353d44); border: 2px solid var(--own);
+}
+
+/* cards over the chart */
+.legend, .panel, .toast { border-color: var(--edge); border-radius: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
+.legend { background: var(--panel); }
+.panel, .toast { background: var(--panel-solid); }
+.toast { border-color: var(--own); }
+.sheet { background: #11171c; }
+.gate-card { background: var(--panel-solid); border-color: var(--edge); border-radius: 14px; box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45); }
+.st-gen .btns { background: none; }

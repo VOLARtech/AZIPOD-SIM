@@ -387,7 +387,8 @@ class Dial {
     const joy = S.rt.lever === 'joy';
     if (joy && this.i === 0) return this.drawPad(R);
     if (joy && this.i === 1) return this.drawPodsIndicator(R);
-    const col = D.podColors[this.i];
+    const col = D.kPod[this.i];
+    this.face(R);
     this.ring(R);
     const ps = S.rt.state.pods[this.i];
     // actual: needle in the direction of pull (reversed rpm pulls the other way)
@@ -399,7 +400,7 @@ class Dial {
     // ordered azimuth: handle on the rim (where the pod is told to point)
     const c = S.cmd.pods[this.i], rc = R * 0.86;
     const hx = Math.sin(c.alpha) * rc, hy = -Math.cos(c.alpha) * rc;
-    g.fillStyle = D.C['panel-solid']; g.strokeStyle = col; g.lineWidth = 2;
+    g.fillStyle = D.K['panel-solid']; g.strokeStyle = col; g.lineWidth = 2;
     g.beginPath(); g.arc(hx, hy, 9, 0, Math.PI * 2); g.fill(); g.stroke();
     g.fillStyle = col; g.beginPath(); g.arc(hx, hy, 3.5, 0, Math.PI * 2); g.fill();
     this.extras(R);
@@ -408,53 +409,67 @@ class Dial {
   extras(R: number) {
     const g = this.g, st = S.rt.status, i = this.i;
     const frac = Math.min(1, st.podPower[i] / SHIP.pods[i].P);
-    const a0 = Math.PI * 0.75, span = Math.PI * 1.5;
-    g.lineCap = 'butt'; g.lineWidth = 3;
-    g.strokeStyle = D.C.rule; g.beginPath(); g.arc(0, 0, R + 12, a0, a0 + span); g.stroke();
-    if (frac > 0.005) { g.strokeStyle = st.rpmLimit[i] < 0.999 ? D.C.warn : D.C.own; g.beginPath(); g.arc(0, 0, R + 12, a0, a0 + span * frac); g.stroke(); }
+    const a0 = Math.PI * 0.75, span = Math.PI * 1.5, col = D.kPod[i];
+    // bezel: the pod's colour, dim for the whole range, bright for the power drawn, orange tip
+    g.lineCap = 'round'; g.lineWidth = 5;
+    g.strokeStyle = col; g.globalAlpha = 0.22; g.beginPath(); g.arc(0, 0, R + 12, a0, a0 + span); g.stroke(); g.globalAlpha = 1;
+    if (frac > 0.005) {
+      g.strokeStyle = st.rpmLimit[i] < 0.999 ? D.K.warn : col; g.shadowColor = col; g.shadowBlur = 8;
+      g.beginPath(); g.arc(0, 0, R + 12, a0, a0 + span * frac); g.stroke(); g.shadowBlur = 0;
+    }
+    const ae = a0 + span * frac;
+    g.fillStyle = D.K.own; g.beginPath(); g.arc(Math.cos(ae) * (R + 12), Math.sin(ae) * (R + 12), 3, 0, Math.PI * 2); g.fill();
     const w = st.revBlocked[i] ? 'REV BLOCKED' : st.split[i] ? 'SPLIT 70%' : st.rpmLimit[i] < 0.999 ? 'PWR LIMIT' : '';
     if (w) {
-      g.font = `600 ${Math.max(9, R * 0.17).toFixed(0)}px ${D.C.fontLabel}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.font = `600 ${Math.max(9, R * 0.17).toFixed(0)}px ${D.K.fontLabel}`; g.textAlign = 'center'; g.textBaseline = 'middle';
       const tw = g.measureText(w).width + 8;
-      g.fillStyle = D.C['panel-solid']; g.fillRect(-tw / 2, R * 0.55 - 8, tw, 16);
-      g.fillStyle = D.C.warn; g.fillText(w, 0, R * 0.55);
+      g.fillStyle = D.K['panel-solid']; g.fillRect(-tw / 2, R * 0.55 - 8, tw, 16);
+      g.fillStyle = D.K.warn; g.fillText(w, 0, R * 0.55);
     }
+  }
+  /** Dark dial face with a soft top light. */
+  face(R: number) {
+    const g = this.g, gr = g.createRadialGradient(0, -R * 0.4, R * 0.1, 0, 0, R + 4);
+    gr.addColorStop(0, D.K.face); gr.addColorStop(1, D.K['face-2']);
+    g.fillStyle = gr; g.beginPath(); g.arc(0, 0, R + 4, 0, Math.PI * 2); g.fill();
   }
   ring(R: number) {
     const g = this.g;
-    g.strokeStyle = D.C.rule; g.lineWidth = 1;
+    g.strokeStyle = D.K.rule; g.lineWidth = 1;
     for (const f of [0.14, 0.57, 1]) { g.beginPath(); g.arc(0, 0, R * f, 0, Math.PI * 2); g.stroke(); }
     for (let k = 0; k < 36; k++) {
       const a = k * 10 * DEG, big = k % 9 === 0, mid = k % 3 === 0;
       const r0 = R + 2, r1 = R + (big ? 9 : mid ? 6 : 3.5);
-      g.strokeStyle = big ? D.C.ink : D.C.muted; g.lineWidth = big ? 1.5 : 1;
+      g.strokeStyle = big ? D.K.ink : D.K.muted; g.lineWidth = big ? 1.5 : 1;
       g.beginPath(); g.moveTo(Math.sin(a) * r0, -Math.cos(a) * r0); g.lineTo(Math.sin(a) * r1, -Math.cos(a) * r1); g.stroke();
     }
-    g.strokeStyle = D.C.rule; g.beginPath(); g.moveTo(0, -R * 0.35); g.lineTo(R * 0.12, -R * 0.15); g.lineTo(R * 0.12, R * 0.3); g.lineTo(-R * 0.12, R * 0.3); g.lineTo(-R * 0.12, -R * 0.15); g.closePath(); g.stroke();
+    g.strokeStyle = D.K.rule; g.beginPath(); g.moveTo(0, -R * 0.35); g.lineTo(R * 0.12, -R * 0.15); g.lineTo(R * 0.12, R * 0.3); g.lineTo(-R * 0.12, R * 0.3); g.lineTo(-R * 0.12, -R * 0.15); g.closePath(); g.stroke();
   }
   drawPad(R: number) {
     const g = this.g, j = S.rt.joy;
-    g.strokeStyle = D.C.rule; g.lineWidth = 1;
+    this.face(R);
+    g.strokeStyle = D.K.rule; g.lineWidth = 1;
     g.beginPath(); g.arc(0, 0, R, 0, Math.PI * 2); g.stroke();
     g.beginPath(); g.moveTo(-R, 0); g.lineTo(R, 0); g.moveTo(0, -R); g.lineTo(0, R); g.stroke();
-    g.fillStyle = D.C.muted; g.font = `600 10px ${D.C.fontLabel}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = D.K.muted; g.font = `600 10px ${D.K.fontLabel}`; g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText('AHEAD', 0, -R + 10); g.fillText('ASTERN', 0, R - 10); g.fillText('P', -R + 8, 0); g.fillText('S', R - 8, 0);
     const x = j.x * R, y = -j.y * R;
-    g.fillStyle = D.C['panel-solid']; g.strokeStyle = D.C.own; g.lineWidth = 2;
+    g.fillStyle = D.K['panel-solid']; g.strokeStyle = D.K.own; g.lineWidth = 2;
     g.beginPath(); g.arc(x, y, 12, 0, Math.PI * 2); g.fill(); g.stroke();
-    g.fillStyle = D.C.own; g.beginPath(); g.arc(x, y, 4, 0, Math.PI * 2); g.fill();
+    g.fillStyle = D.K.own; g.beginPath(); g.arc(x, y, 4, 0, Math.PI * 2); g.fill();
   }
   drawPodsIndicator(R: number) {
     const g = this.g;
+    this.face(R);
     this.ring(R);
     S.rt.state.pods.forEach((ps, i) => {
       const pull = ps.alpha + (ps.rpm < 0 ? Math.PI : 0), ra = (0.14 + 0.86 * Math.abs(ps.rpm)) * R;
-      g.strokeStyle = D.podColors[i]; g.lineWidth = 3; g.lineCap = 'round';
+      g.strokeStyle = D.kPod[i]; g.lineWidth = 3; g.lineCap = 'round';
       const ox = (i ? 1 : -1) * 6;
       g.beginPath(); g.moveTo(ox, R * 0.2); g.lineTo(ox + Math.sin(pull) * ra, R * 0.2 - Math.cos(pull) * ra); g.stroke();
     });
     const bt = S.rt.state.bt;
-    if (Math.abs(bt) > 0.02) { g.strokeStyle = D.C.own; g.lineWidth = 3; g.beginPath(); g.moveTo(0, -R * 0.3); g.lineTo(bt * R * 0.6, -R * 0.3); g.stroke(); }
+    if (Math.abs(bt) > 0.02) { g.strokeStyle = D.K.own; g.lineWidth = 3; g.beginPath(); g.moveTo(0, -R * 0.3); g.lineTo(bt * R * 0.6, -R * 0.3); g.stroke(); }
   }
 }
 
@@ -491,25 +506,25 @@ class RpmLever {
   }
   set(v: number) { for (const j of S.rt.lever === 'twin' ? [0, 1] : [this.i]) S.cmd.pods[j].rpm = v; }
   draw() {
-    const g = this.g, w = this.w, joy = S.rt.lever === 'joy', col = D.podColors[this.i];
+    const g = this.g, w = this.w, joy = S.rt.lever === 'joy', col = D.kPod[this.i];
     if (w < 8 || this.h < 40) return;
     g.setTransform(D.DPR, 0, 0, D.DPR, 0, 0); g.clearRect(0, 0, w, this.h);
     const x0 = w / 2, y0 = this.y(0);
     // slot
-    g.fillStyle = D.C.rule; g.fillRect(x0 - 3, this.y(1), 6, this.y(-1) - this.y(1));
+    g.fillStyle = D.K.rule; g.fillRect(x0 - 3, this.y(1), 6, this.y(-1) - this.y(1));
     // scale: ticks every 25 %, zero heavy
-    g.strokeStyle = D.C.muted; g.lineWidth = 1;
+    g.strokeStyle = D.K.muted; g.lineWidth = 1;
     for (let k = -4; k <= 4; k++) {
       const yy = Math.round(this.y(k / 4)) + 0.5, big = k === 0;
-      g.strokeStyle = big ? D.C.ink : D.C.muted; g.lineWidth = big ? 1.5 : 1;
+      g.strokeStyle = big ? D.K.ink : D.K.muted; g.lineWidth = big ? 1.5 : 1;
       g.beginPath(); g.moveTo(2, yy); g.lineTo(big ? 9 : 6, yy); g.moveTo(w - 2, yy); g.lineTo(w - (big ? 9 : 6), yy); g.stroke();
     }
-    g.fillStyle = D.C.muted; g.font = `600 9px ${D.C.fontLabel}`; g.textAlign = 'center';
+    g.fillStyle = D.K.muted; g.font = `600 9px ${D.K.fontLabel}`; g.textAlign = 'center';
     g.textBaseline = 'top'; g.fillText('AH', x0, 0);
     g.textBaseline = 'bottom'; g.fillText('AS', x0, this.h);
     // control-system ceiling (power / berthing split / astern limit)
     const lim = S.rt.status.rpmLimit[this.i], am = SHIP.asternMax * lim;
-    g.strokeStyle = D.C.warn; g.setLineDash([3, 2]); g.lineWidth = 1.5;
+    g.strokeStyle = D.K.warn; g.setLineDash([3, 2]); g.lineWidth = 1.5;
     for (const v of [lim < 0.999 ? lim : NaN, -am]) if (isFinite(v)) { const yy = this.y(v); g.beginPath(); g.moveTo(3, yy); g.lineTo(w - 3, yy); g.stroke(); }
     g.setLineDash([]);
     // actual rpm: bar from zero (lags the order: 30 s run-up, 60 s through a reversal)
@@ -519,7 +534,7 @@ class RpmLever {
     if (joy) return;
     // ordered rpm: handle
     const yc = this.y(S.cmd.pods[this.i].rpm), hw = Math.min(w - 4, 30);
-    g.fillStyle = D.C['panel-solid']; g.strokeStyle = S.cmd.pods[this.i].rpm < 0 ? D.C.warn : col; g.lineWidth = 2;
+    g.fillStyle = D.K['panel-solid']; g.strokeStyle = S.cmd.pods[this.i].rpm < 0 ? D.K.warn : col; g.lineWidth = 2;
     g.beginPath(); g.roundRect(x0 - hw / 2, yc - 7, hw, 14, 3); g.fill(); g.stroke();
     g.strokeStyle = g.fillStyle = col; g.beginPath(); g.moveTo(x0 - hw / 2 + 4, yc); g.lineTo(x0 + hw / 2 - 4, yc); g.lineWidth = 1.5; g.stroke();
   }

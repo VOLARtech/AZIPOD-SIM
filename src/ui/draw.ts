@@ -19,6 +19,19 @@ export function readTheme() {
   C.fontNum = cs.getPropertyValue('--font-num');
   C.fontLabel = cs.getPropertyValue('--font-label');
   podColors = [C.port, C.stbd];
+  readConsole();
+}
+/** Console palette: the controls, readouts and buttons keep one dark look whatever the chart palette
+ *  (day, dusk or night only recolours the chart). Read from the tray, where the console tokens are set. */
+export const K: Record<string, string> = {};
+export let kPod = ['#ef4452', '#33c46a'];
+function readConsole() {
+  const el = document.querySelector('.tray'); if (!el) return;
+  const cs = getComputedStyle(el);
+  for (const k of ['ink', 'muted', 'own', 'port', 'stbd', 'warn', 'ok', 'rule', 'panel-solid', 'face', 'face-2'])
+    K[k] = cs.getPropertyValue('--' + k).trim();
+  K.fontNum = C.fontNum; K.fontLabel = C.fontLabel;
+  kPod = [K.port, K.stbd];
 }
 export const altColor = (a: Alt) => ({ current: C.predict, port: C.port, stbd: C.stbd, crash: C['alt-crash'], coast: C['alt-coast'] })[a];
 

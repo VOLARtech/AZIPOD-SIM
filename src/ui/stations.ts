@@ -22,7 +22,7 @@ export interface Station {
 }
 
 const shafts = () => SHIP.pods.map((p, i) => [p, i] as [PodSpec, number]).filter(([p]) => p.kind === 'shaft');
-const sideCol = (p: PodSpec) => (p.y < -0.5 ? D.C.port : p.y > 0.5 ? D.C.stbd : D.C.ink);
+const sideCol = (p: PodSpec) => (p.y < -0.5 ? D.K.port : p.y > 0.5 ? D.K.stbd : D.K.ink);
 const sideTag = (p: PodSpec) => (p.y < -0.5 ? 'PORT' : p.y > 0.5 ? 'STBD' : '');
 
 abstract class Canvas {
@@ -33,8 +33,8 @@ abstract class Canvas {
   }
   resize() { this.w = this.c.clientWidth; this.h = this.c.clientHeight; this.c.width = Math.round(this.w * D.DPR); this.c.height = Math.round(this.h * D.DPR); }
   begin() { const g = this.g; g.setTransform(D.DPR, 0, 0, D.DPR, 0, 0); g.clearRect(0, 0, this.w, this.h); return g; }
-  font(px: number, w = 600) { this.g.font = `${w} ${px}px ${D.C.fontLabel}`; }
-  num(px: number) { this.g.font = `500 ${px}px ${D.C.fontNum}`; }
+  font(px: number, w = 600) { this.g.font = `${w} ${px}px ${D.K.fontLabel}`; }
+  num(px: number) { this.g.font = `500 ${px}px ${D.K.fontNum}`; }
   abstract draw(): void;
 }
 
@@ -74,26 +74,26 @@ class Telegraph extends Canvas {
     const eng = S.rt.state.pods[i0].eng, rpm = S.rt.state.pods[i0].rpm;
     const answer = !eng || eng.mode === 'stop' || eng.mode === 'wait' ? this.index(0) : this.index(rpm);
     const stop = this.index(0);
-    g.fillStyle = D.C['panel-solid']; g.strokeStyle = D.C.rule; g.lineWidth = 1;
+    g.fillStyle = D.K['panel-solid']; g.strokeStyle = D.K.rule; g.lineWidth = 1;
     g.beginPath(); g.roundRect(x - 6, this.top - 8, 12, this.bot - this.top + 16, 6); g.fill(); g.stroke();
-    g.fillStyle = D.C.rule; g.fillRect(x - 2, this.y(stop), 4, this.bot - this.y(stop));          // astern half of the slot
+    g.fillStyle = D.K.rule; g.fillRect(x - 2, this.y(stop), 4, this.bot - this.y(stop));          // astern half of the slot
     const fs = Math.max(9, Math.min(12, (this.bot - this.top) / this.steps.length * 0.8));
     this.steps.forEach((s, k) => {
       const yy = Math.round(this.y(k)) + 0.5, on = k === order, isStop = k === stop;
-      g.strokeStyle = isStop ? D.C.ink : D.C.muted; g.lineWidth = isStop ? 1.6 : 1;
+      g.strokeStyle = isStop ? D.K.ink : D.K.muted; g.lineWidth = isStop ? 1.6 : 1;
       g.beginPath(); g.moveTo(x + 9, yy); g.lineTo(x + (isStop ? 19 : 14), yy); g.stroke();
       this.font(on ? fs + 1 : fs, on ? 700 : 600); g.textBaseline = 'middle'; g.textAlign = 'left';
-      g.fillStyle = on ? D.C.ink : s.v < 0 ? D.C.muted : D.C.muted;
+      g.fillStyle = on ? D.K.ink : s.v < 0 ? D.K.muted : D.K.muted;
       g.fillText(s.name, x + 23, yy);
     });
-    this.font(9); g.fillStyle = D.C.muted; g.textAlign = 'center'; g.textBaseline = 'top'; g.fillText('AH', x, 0);
+    this.font(9); g.fillStyle = D.K.muted; g.textAlign = 'center'; g.textBaseline = 'top'; g.fillText('AH', x, 0);
     g.textBaseline = 'bottom'; g.fillText('AS', x, this.h);
     // answer-back: where the engine actually is
     const ya = this.y(answer);
-    g.fillStyle = D.C.ink; g.beginPath(); g.moveTo(x - 9, ya); g.lineTo(x - 18, ya - 6); g.lineTo(x - 18, ya + 6); g.closePath(); g.fill();
+    g.fillStyle = D.K.ink; g.beginPath(); g.moveTo(x - 9, ya); g.lineTo(x - 18, ya - 6); g.lineTo(x - 18, ya + 6); g.closePath(); g.fill();
     // order handle
     const yo = this.y(order);
-    g.fillStyle = D.C['panel-solid']; g.strokeStyle = S.cmd.pods[i0].rpm < 0 ? D.C.warn : D.C.own; g.lineWidth = 2.5;
+    g.fillStyle = D.K['panel-solid']; g.strokeStyle = S.cmd.pods[i0].rpm < 0 ? D.K.warn : D.K.own; g.lineWidth = 2.5;
     g.beginPath(); g.roundRect(x - 13, yo - 8, 26, 16, 3); g.fill(); g.stroke();
     g.beginPath(); g.moveTo(x - 7, yo); g.lineTo(x + 7, yo); g.lineWidth = 2; g.stroke();
   }
@@ -126,23 +126,23 @@ class PitchLever extends Canvas {
     if (this.h < 60) return;
     const g = this.begin(), x = this.w / 2 - 6, i = this.units[0], ps = S.rt.state.pods[i];
     const col = sideCol(SHIP.pods[i]);
-    g.fillStyle = D.C.rule; g.fillRect(x - 3, this.y(1), 6, this.y(-1) - this.y(1));
+    g.fillStyle = D.K.rule; g.fillRect(x - 3, this.y(1), 6, this.y(-1) - this.y(1));
     for (let k = -10; k <= 10; k += 2) {
       const yy = Math.round(this.y(k / 10)) + 0.5, big = k === 0;
-      g.strokeStyle = big ? D.C.ink : D.C.muted; g.lineWidth = big ? 1.5 : 1;
+      g.strokeStyle = big ? D.K.ink : D.K.muted; g.lineWidth = big ? 1.5 : 1;
       g.beginPath(); g.moveTo(x + 7, yy); g.lineTo(x + (big ? 16 : 12), yy); g.stroke();
     }
-    this.font(9); g.fillStyle = D.C.muted; g.textAlign = 'left'; g.textBaseline = 'middle';
+    this.font(9); g.fillStyle = D.K.muted; g.textAlign = 'left'; g.textBaseline = 'middle';
     for (const [v, t] of [[1, '100'], [0.5, '50'], [-0.5, '50'], [-1, '100']] as [number, string][]) g.fillText(t, x + 19, this.y(v));
     g.textAlign = 'center'; g.textBaseline = 'top'; g.fillText('AH', x, 0); g.textBaseline = 'bottom'; g.fillText('AS', x, this.h);
     // astern pitch limit and power-management cap
-    g.strokeStyle = D.C.warn; g.setLineDash([3, 2]); g.lineWidth = 1.5;
+    g.strokeStyle = D.K.warn; g.setLineDash([3, 2]); g.lineWidth = 1.5;
     for (const v of [-this.astern, S.rt.status.rpmLimit[i] < 0.999 ? S.rt.status.rpmLimit[i] : NaN]) if (isFinite(v) && v > -1) { const yy = this.y(v); g.beginPath(); g.moveTo(x - 10, yy); g.lineTo(x + 10, yy); g.stroke(); }
     g.setLineDash([]);
     const a = this.mode === 'pitch' ? ps.pitch ?? 0 : ps.rpm, y0 = this.y(0);
     g.fillStyle = col; g.globalAlpha = 0.85; g.fillRect(x - 3, Math.min(y0, this.y(a)), 6, Math.abs(this.y(a) - y0)); g.globalAlpha = 1;
     const o = this.get(), yo = this.y(o);
-    g.fillStyle = D.C['panel-solid']; g.strokeStyle = o < 0 ? D.C.warn : D.C.own; g.lineWidth = 2.5;
+    g.fillStyle = D.K['panel-solid']; g.strokeStyle = o < 0 ? D.K.warn : D.K.own; g.lineWidth = 2.5;
     g.beginPath(); g.roundRect(x - 13, yo - 7, 26, 14, 3); g.fill(); g.stroke();
   }
 }
@@ -156,24 +156,24 @@ class ShaftGauge extends Canvas {
     const cx = this.w / 2, R = Math.min(this.w / 2 - 10, this.h * 0.62), cy = R + 8, sweep = 120 * DEG;
     const nmax = e.n * 60, A = (v: number) => -sweep + (v + 1) / 2 * 2 * sweep;     // v: fraction −1..1
     const arc = (a0: number, a1: number, r: number) => { g.beginPath(); g.arc(cx, cy, r, a0 - Math.PI / 2, a1 - Math.PI / 2); };
-    g.lineWidth = 7; g.strokeStyle = D.C.rule; arc(-sweep, sweep, R); g.stroke();
+    g.lineWidth = 7; g.strokeStyle = D.K.rule; arc(-sweep, sweep, R); g.stroke();
     // dead band (below minimum running speed) and barred range, both sides
     const hatch = (a0: number, a1: number, col: string) => { g.strokeStyle = col; g.globalAlpha = 0.55; g.setLineDash([2, 3]); arc(a0, a1, R); g.stroke(); g.setLineDash([]); g.globalAlpha = 1; };
-    if (e.type === 'direct2s') hatch(A(-e.nMin), A(e.nMin), D.C.muted);
-    if (e.barred) for (const s of [1, -1]) { const [a, b] = [A(s * e.barred[0]), A(s * e.barred[1])]; hatch(Math.min(a, b), Math.max(a, b), D.C.warn); g.lineWidth = 1.5; g.strokeStyle = D.C.warn; arc(Math.min(a, b), Math.max(a, b), R + 6); g.stroke(); g.lineWidth = 7; }
+    if (e.type === 'direct2s') hatch(A(-e.nMin), A(e.nMin), D.K.muted);
+    if (e.barred) for (const s of [1, -1]) { const [a, b] = [A(s * e.barred[0]), A(s * e.barred[1])]; hatch(Math.min(a, b), Math.max(a, b), D.K.warn); g.lineWidth = 1.5; g.strokeStyle = D.K.warn; arc(Math.min(a, b), Math.max(a, b), R + 6); g.stroke(); g.lineWidth = 7; }
     const v = ps.rpm, z = A(0);
-    g.strokeStyle = D.C.ink; g.lineWidth = 3; arc(Math.min(z, A(v)), Math.max(z, A(v)), R); g.stroke();
+    g.strokeStyle = D.K.ink; g.lineWidth = 3; arc(Math.min(z, A(v)), Math.max(z, A(v)), R); g.stroke();
     g.lineWidth = 1;
-    for (let k = -4; k <= 4; k++) { const a = A(k / 4) - Math.PI / 2; g.strokeStyle = D.C.muted; g.beginPath(); g.moveTo(cx + Math.cos(a) * (R - 6), cy + Math.sin(a) * (R - 6)); g.lineTo(cx + Math.cos(a) * (R - (k % 2 ? 10 : 14)), cy + Math.sin(a) * (R - (k % 2 ? 10 : 14))); g.stroke(); }
+    for (let k = -4; k <= 4; k++) { const a = A(k / 4) - Math.PI / 2; g.strokeStyle = D.K.muted; g.beginPath(); g.moveTo(cx + Math.cos(a) * (R - 6), cy + Math.sin(a) * (R - 6)); g.lineTo(cx + Math.cos(a) * (R - (k % 2 ? 10 : 14)), cy + Math.sin(a) * (R - (k % 2 ? 10 : 14))); g.stroke(); }
     const an = A(v) - Math.PI / 2;
-    g.strokeStyle = D.C.ink; g.lineWidth = 2.5; g.lineCap = 'round'; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(an) * (R - 4), cy + Math.sin(an) * (R - 4)); g.stroke();
-    g.fillStyle = D.C.ink; g.beginPath(); g.arc(cx, cy, 3.5, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = D.K.ink; g.lineWidth = 2.5; g.lineCap = 'round'; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(an) * (R - 4), cy + Math.sin(an) * (R - 4)); g.stroke();
+    g.fillStyle = D.K.ink; g.beginPath(); g.arc(cx, cy, 3.5, 0, Math.PI * 2); g.fill();
     const tgt = ps.eng?.target ?? 0, ao = A(Math.max(-1, Math.min(1, ps.eng && ps.eng.mode === 'run' ? tgt : S.cmd.pods[this.i].rpm))) - Math.PI / 2;
-    g.fillStyle = D.C.own; g.beginPath(); g.moveTo(cx + Math.cos(ao) * (R + 4), cy + Math.sin(ao) * (R + 4));
+    g.fillStyle = D.K.own; g.beginPath(); g.moveTo(cx + Math.cos(ao) * (R + 4), cy + Math.sin(ao) * (R + 4));
     g.lineTo(cx + Math.cos(ao - 0.07) * (R + 13), cy + Math.sin(ao - 0.07) * (R + 13)); g.lineTo(cx + Math.cos(ao + 0.07) * (R + 13), cy + Math.sin(ao + 0.07) * (R + 13)); g.closePath(); g.fill();
-    this.num(Math.max(11, R * 0.3)); g.fillStyle = D.C.ink; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    this.num(Math.max(11, R * 0.3)); g.fillStyle = D.K.ink; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
     g.fillText(`${v < -0.005 ? '−' : ''}${Math.abs(v * nmax).toFixed(0)}`, cx, cy + R * 0.42);
-    this.font(9); g.fillStyle = D.C.muted; g.fillText(`${sideTag(p) ? sideTag(p) + ' · ' : ''}RPM`, cx, cy + R * 0.42 + 12);
+    this.font(9); g.fillStyle = D.K.muted; g.fillText(`${sideTag(p) ? sideTag(p) + ' · ' : ''}RPM`, cx, cy + R * 0.42 + 12);
   }
 }
 
@@ -213,30 +213,30 @@ class Helm extends Canvas {
     const g = this.begin(), { cx, cy, R } = this.geom(this.w, this.h), sw = 75 * DEG, mx = this.max;
     const A = (d: number) => d / mx * sw - Math.PI / 2;
     g.lineWidth = 6; g.globalAlpha = 0.35;
-    g.strokeStyle = D.C.port; g.beginPath(); g.arc(cx, cy, R, A(-mx), A(0)); g.stroke();
-    g.strokeStyle = D.C.stbd; g.beginPath(); g.arc(cx, cy, R, A(0), A(mx)); g.stroke(); g.globalAlpha = 1;
+    g.strokeStyle = D.K.port; g.beginPath(); g.arc(cx, cy, R, A(-mx), A(0)); g.stroke();
+    g.strokeStyle = D.K.stbd; g.beginPath(); g.arc(cx, cy, R, A(0), A(mx)); g.stroke(); g.globalAlpha = 1;
     const stepDeg = mx > 50 * DEG ? 10 : 5;
     for (let d = -Math.round(mx / DEG); d <= Math.round(mx / DEG); d += stepDeg) {
       const a = A(d * DEG), major = d % (stepDeg * 2) === 0 || Math.abs(d) === Math.round(mx / DEG);
-      g.strokeStyle = D.C.muted; g.lineWidth = major ? 1.5 : 1;
+      g.strokeStyle = D.K.muted; g.lineWidth = major ? 1.5 : 1;
       g.beginPath(); g.moveTo(cx + Math.cos(a) * (R - 5), cy + Math.sin(a) * (R - 5)); g.lineTo(cx + Math.cos(a) * (R - (major ? 14 : 9)), cy + Math.sin(a) * (R - (major ? 14 : 9))); g.stroke();
-      if (major && d) { this.num(9); g.fillStyle = d < 0 ? D.C.port : D.C.stbd; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(Math.abs(d)), cx + Math.cos(a) * (R + 12), cy + Math.sin(a) * (R + 12)); }
+      if (major && d) { this.num(9); g.fillStyle = d < 0 ? D.K.port : D.K.stbd; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(Math.abs(d)), cx + Math.cos(a) * (R + 12), cy + Math.sin(a) * (R + 12)); }
     }
     // actual rudder angle(s)
     this.units.forEach((i, k) => {
       const d = S.rt.state.pods[i].alpha, a = A(d);
-      g.strokeStyle = this.units.length > 1 ? sideCol(SHIP.pods[i]) : D.C.ink; g.lineWidth = 2.5; g.lineCap = 'round';
+      g.strokeStyle = this.units.length > 1 ? sideCol(SHIP.pods[i]) : D.K.ink; g.lineWidth = 2.5; g.lineCap = 'round';
       g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * (R - 3 - k * 6), cy + Math.sin(a) * (R - 3 - k * 6)); g.stroke();
     });
-    g.fillStyle = D.C.ink; g.beginPath(); g.arc(cx, cy, 4.5, 0, Math.PI * 2); g.fill();
+    g.fillStyle = D.K.ink; g.beginPath(); g.arc(cx, cy, 4.5, 0, Math.PI * 2); g.fill();
     const o = S.cmd.pods[this.units[0]].alpha, ao = A(o);
-    g.fillStyle = D.C.own; g.beginPath(); g.moveTo(cx + Math.cos(ao) * (R + 1), cy + Math.sin(ao) * (R + 1));
+    g.fillStyle = D.K.own; g.beginPath(); g.moveTo(cx + Math.cos(ao) * (R + 1), cy + Math.sin(ao) * (R + 1));
     g.lineTo(cx + Math.cos(ao - 0.06) * (R + 10), cy + Math.sin(ao - 0.06) * (R + 10)); g.lineTo(cx + Math.cos(ao + 0.06) * (R + 10), cy + Math.sin(ao + 0.06) * (R + 10)); g.closePath(); g.fill();
     const side = (v: number) => Math.abs(v) < 0.5 * DEG ? 'MID' : `${v < 0 ? 'P' : 'S'} ${Math.abs(v / DEG).toFixed(0)}°`;
     const act = S.rt.state.pods[this.units[0]].alpha;
-    this.num(14); g.fillStyle = D.C.ink; g.textAlign = 'right'; g.textBaseline = 'alphabetic'; g.fillText(side(act), cx - 10, cy - 12);
-    this.num(11); g.fillStyle = D.C.own; g.textAlign = 'left'; g.fillText(side(o), cx + 10, cy - 12);
-    this.font(9); g.fillStyle = D.C.muted; g.textAlign = 'center';
+    this.num(14); g.fillStyle = D.K.ink; g.textAlign = 'right'; g.textBaseline = 'alphabetic'; g.fillText(side(act), cx - 10, cy - 12);
+    this.num(11); g.fillStyle = D.K.own; g.textAlign = 'left'; g.fillText(side(o), cx + 10, cy - 12);
+    this.font(9); g.fillStyle = D.K.muted; g.textAlign = 'center';
     const rd = SHIP.pods[this.units[0]].shaft?.rudder;
     g.fillText(rd ? `RUDDER · ${rd.type === 'conventional' ? '' : rd.type.toUpperCase() + ' · '}${(rd.rate / DEG).toFixed(1)} °/s` : `NOZZLES · ±${Math.round(this.max / DEG)}°`, cx, cy + 16);
   }
@@ -415,12 +415,12 @@ class CombiLever extends Canvas {
     if (this.w < 60) return;
     const g = this.begin(), cx = this.w / 2, cy = this.h / 2, R = Math.min(this.w, this.h) / 2 - 12;
     const i = this.units[0], ps = S.rt.state.pods[i], c = S.cmd.pods[i], col = sideCol(SHIP.pods[i]);
-    g.fillStyle = D.C['panel-solid']; g.strokeStyle = D.C.rule; g.lineWidth = 1.5;
+    g.fillStyle = D.K['panel-solid']; g.strokeStyle = D.K.rule; g.lineWidth = 1.5;
     g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill(); g.stroke();
     g.setLineDash([2, 3]); g.beginPath(); g.arc(cx, cy, R * 0.5, 0, Math.PI * 2); g.stroke(); g.setLineDash([]);
     for (let k = 0; k < 24; k++) {
       const a = k * 15 * DEG, big = k % 6 === 0;
-      g.strokeStyle = big ? D.C.ink : D.C.muted; g.lineWidth = big ? 1.5 : 1;
+      g.strokeStyle = big ? D.K.ink : D.K.muted; g.lineWidth = big ? 1.5 : 1;
       g.beginPath(); g.moveTo(cx + Math.sin(a) * R, cy - Math.cos(a) * R); g.lineTo(cx + Math.sin(a) * (R - (big ? 9 : 5)), cy - Math.cos(a) * (R - (big ? 9 : 5))); g.stroke();
     }
     // actual thrust: arrow along the unit's actual azimuth, length by rpm
@@ -432,10 +432,10 @@ class CombiLever extends Canvas {
     // order: handle on the ring for direction, dot for power
     const hx = cx + Math.sin(c.alpha) * R, hy = cy - Math.cos(c.alpha) * R;
     const mx = cx + Math.sin(c.alpha) * R * 0.92 * c.rpm, my = cy - Math.cos(c.alpha) * R * 0.92 * c.rpm;
-    g.strokeStyle = D.C.own; g.lineWidth = 1; g.setLineDash([2, 3]); g.beginPath(); g.moveTo(cx, cy); g.lineTo(hx, hy); g.stroke(); g.setLineDash([]);
+    g.strokeStyle = D.K.own; g.lineWidth = 1; g.setLineDash([2, 3]); g.beginPath(); g.moveTo(cx, cy); g.lineTo(hx, hy); g.stroke(); g.setLineDash([]);
     g.lineWidth = 2; g.beginPath(); g.arc(mx, my, 4, 0, Math.PI * 2); g.stroke();
-    g.fillStyle = D.C['panel-solid']; g.lineWidth = 2.5; g.beginPath(); g.arc(hx, hy, 8, 0, Math.PI * 2); g.fill(); g.stroke();
-    this.num(11); g.fillStyle = D.C.ink; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    g.fillStyle = D.K['panel-solid']; g.lineWidth = 2.5; g.beginPath(); g.arc(hx, hy, 8, 0, Math.PI * 2); g.fill(); g.stroke();
+    this.num(11); g.fillStyle = D.K.ink; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
     const deg = ((ps.alpha / DEG) % 360 + 360) % 360;
     g.fillText(`${String(Math.round(deg)).padStart(3, '0')}° ${Math.round(Math.abs(ps.rpm) * 100)}%`, cx, this.h - 1);
   }
@@ -470,18 +470,18 @@ class VspPad extends Canvas {
     if (this.w < 60) return;
     const g = this.begin(), cx = this.w / 2, cy = this.h / 2, R = Math.min(this.w, this.h) / 2 - 12;
     const i = this.units[0], ps = S.rt.state.pods[i], c = S.cmd.pods[i];
-    g.fillStyle = D.C['panel-solid']; g.strokeStyle = D.C.rule; g.lineWidth = 1.5;
+    g.fillStyle = D.K['panel-solid']; g.strokeStyle = D.K.rule; g.lineWidth = 1.5;
     g.beginPath(); g.roundRect(cx - R, cy - R, 2 * R, 2 * R, 6); g.fill(); g.stroke();
     g.setLineDash([2, 3]); g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.stroke(); g.setLineDash([]);
-    g.strokeStyle = D.C.muted; g.lineWidth = 1; g.beginPath(); g.moveTo(cx, cy - R); g.lineTo(cx, cy + R); g.moveTo(cx - R, cy); g.lineTo(cx + R, cy); g.stroke();
-    this.font(9); g.fillStyle = D.C.muted; g.textAlign = 'left'; g.textBaseline = 'top'; g.fillText('AH', cx + 3, cy - R + 2); g.textBaseline = 'bottom'; g.fillText('AS', cx + 3, cy + R - 2);
-    g.fillStyle = D.C.port; g.textBaseline = 'middle'; g.fillText('P', cx - R + 3, cy - 7); g.fillStyle = D.C.stbd; g.textAlign = 'right'; g.fillText('S', cx + R - 3, cy - 7);
+    g.strokeStyle = D.K.muted; g.lineWidth = 1; g.beginPath(); g.moveTo(cx, cy - R); g.lineTo(cx, cy + R); g.moveTo(cx - R, cy); g.lineTo(cx + R, cy); g.stroke();
+    this.font(9); g.fillStyle = D.K.muted; g.textAlign = 'left'; g.textBaseline = 'top'; g.fillText('AH', cx + 3, cy - R + 2); g.textBaseline = 'bottom'; g.fillText('AS', cx + 3, cy + R - 2);
+    g.fillStyle = D.K.port; g.textBaseline = 'middle'; g.fillText('P', cx - R + 3, cy - 7); g.fillStyle = D.K.stbd; g.textAlign = 'right'; g.fillText('S', cx + R - 3, cy - 7);
     const px = cx + Math.sin(ps.alpha) * ps.rpm * R, py = cy - Math.cos(ps.alpha) * ps.rpm * R;
-    g.strokeStyle = g.fillStyle = D.C.ink; g.lineWidth = 4; g.lineCap = 'round'; g.beginPath(); g.moveTo(cx, cy); g.lineTo(px, py); g.stroke();
+    g.strokeStyle = g.fillStyle = D.K.ink; g.lineWidth = 4; g.lineCap = 'round'; g.beginPath(); g.moveTo(cx, cy); g.lineTo(px, py); g.stroke();
     g.beginPath(); g.arc(px, py, 4, 0, Math.PI * 2); g.fill();
     const ox = cx + Math.sin(c.alpha) * c.rpm * R, oy = cy - Math.cos(c.alpha) * c.rpm * R;
-    g.strokeStyle = D.C.own; g.lineWidth = 2.5; g.beginPath(); g.arc(ox, oy, 8, 0, Math.PI * 2); g.stroke();
-    this.num(10.5); g.fillStyle = D.C.ink; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    g.strokeStyle = D.K.own; g.lineWidth = 2.5; g.beginPath(); g.arc(ox, oy, 8, 0, Math.PI * 2); g.stroke();
+    this.num(10.5); g.fillStyle = D.K.ink; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
     g.fillText(`${Math.round(ps.rpm * 100)}% · ${String(Math.round(((ps.alpha / DEG) % 360 + 360) % 360)).padStart(3, '0')}°`, cx, this.h - 1);
   }
 }
@@ -493,16 +493,16 @@ class HeelGauge extends Canvas {
     const rs = S.rt.roll; if (!rs || this.w < 60) return;
     const g = this.begin(), cx = this.w / 2, R = Math.min(this.w / 2 - 8, this.h - 26), cy = R + 6, sp = SHIP.roll!;
     const de = Math.atan2(SHIP.look.freeboard, SHIP.B / 2), sweep = 50 * DEG, A = (p: number) => p / sweep * 75 * DEG - Math.PI / 2;
-    g.lineWidth = 6; g.strokeStyle = D.C.rule; g.beginPath(); g.arc(cx, cy, R, A(-sweep), A(sweep)); g.stroke();
-    g.strokeStyle = D.C.warn;
+    g.lineWidth = 6; g.strokeStyle = D.K.rule; g.beginPath(); g.arc(cx, cy, R, A(-sweep), A(sweep)); g.stroke();
+    g.strokeStyle = D.K.warn;
     for (const s of [1, -1]) { const a0 = A(s * de), a1 = A(s * Math.min(sweep, sp.vanish)); g.beginPath(); g.arc(cx, cy, R, Math.min(a0, a1), Math.max(a0, a1)); g.stroke(); }
     const a = A(Math.max(-sweep, Math.min(sweep, rs.phi)));
-    g.strokeStyle = D.C.ink; g.lineWidth = 2.5; g.lineCap = 'round'; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * (R - 4), cy + Math.sin(a) * (R - 4)); g.stroke();
-    g.fillStyle = D.C.ink; g.beginPath(); g.arc(cx, cy, 4, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = D.K.ink; g.lineWidth = 2.5; g.lineCap = 'round'; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * (R - 4), cy + Math.sin(a) * (R - 4)); g.stroke();
+    g.fillStyle = D.K.ink; g.beginPath(); g.arc(cx, cy, 4, 0, Math.PI * 2); g.fill();
     const deg = rs.phi / DEG;
-    this.num(14); g.fillStyle = Math.abs(rs.phi) > de ? D.C.warn : D.C.ink; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    this.num(14); g.fillStyle = Math.abs(rs.phi) > de ? D.K.warn : D.K.ink; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
     g.fillText(`${deg < -0.05 ? 'P' : deg > 0.05 ? 'S' : ''} ${Math.abs(deg).toFixed(1)}°`, cx, cy - R * 0.35);
-    this.font(9); g.fillStyle = D.C.muted; g.fillText(`HEEL · DECK EDGE ${(de / DEG).toFixed(0)}°`, cx, cy + 14);
+    this.font(9); g.fillStyle = D.K.muted; g.fillText(`HEEL · DECK EDGE ${(de / DEG).toFixed(0)}°`, cx, cy + 14);
   }
 }
 
@@ -513,14 +513,14 @@ class TowGauge extends Canvas {
     const esc = S.rt.escort; if (!esc || this.w < 60) return;
     const l = esc.line, g = this.begin(), cx = this.w / 2, R = Math.min(this.w / 2 - 10, this.h * 0.62), cy = R + 8, sw = 120 * DEG;
     const max = l.MBL, A = (t: number) => -sw + Math.min(1, t / max) * 2 * sw - Math.PI / 2;
-    g.lineWidth = 7; g.strokeStyle = D.C.rule; g.beginPath(); g.arc(cx, cy, R, A(0), A(max)); g.stroke();
-    g.strokeStyle = D.C.warn; g.beginPath(); g.arc(cx, cy, R, A(l.brake), A(max)); g.stroke();
-    g.strokeStyle = D.C.ink; g.lineWidth = 3; g.beginPath(); g.arc(cx, cy, R, A(0), A(l.T)); g.stroke();
+    g.lineWidth = 7; g.strokeStyle = D.K.rule; g.beginPath(); g.arc(cx, cy, R, A(0), A(max)); g.stroke();
+    g.strokeStyle = D.K.warn; g.beginPath(); g.arc(cx, cy, R, A(l.brake), A(max)); g.stroke();
+    g.strokeStyle = D.K.ink; g.lineWidth = 3; g.beginPath(); g.arc(cx, cy, R, A(0), A(l.T)); g.stroke();
     const a = A(l.T); g.lineWidth = 2.5; g.lineCap = 'round'; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * (R - 4), cy + Math.sin(a) * (R - 4)); g.stroke();
-    if (l.mode === 'render') { const ar = A(l.renderT); g.fillStyle = D.C.own; g.beginPath(); g.arc(cx + Math.cos(ar) * (R + 9), cy + Math.sin(ar) * (R + 9), 3.5, 0, Math.PI * 2); g.fill(); }
-    this.num(15); g.fillStyle = l.parted ? D.C.warn : D.C.ink; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    if (l.mode === 'render') { const ar = A(l.renderT); g.fillStyle = D.K.own; g.beginPath(); g.arc(cx + Math.cos(ar) * (R + 9), cy + Math.sin(ar) * (R + 9), 3.5, 0, Math.PI * 2); g.fill(); }
+    this.num(15); g.fillStyle = l.parted ? D.K.warn : D.K.ink; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
     g.fillText(l.parted ? 'PARTED' : l.mode === 'released' ? 'FREE' : `${(l.T / 9.81e3).toFixed(0)} t`, cx, cy + R * 0.42);
-    this.font(9); g.fillStyle = D.C.muted; g.fillText(`TENSION · MBL ${(l.MBL / 9.81e3).toFixed(0)} t`, cx, cy + R * 0.42 + 13);
+    this.font(9); g.fillStyle = D.K.muted; g.fillText(`TENSION · MBL ${(l.MBL / 9.81e3).toFixed(0)} t`, cx, cy + R * 0.42 + 13);
   }
 }
 
@@ -652,25 +652,25 @@ class JetLever extends Canvas {
   draw() {
     if (this.h < 60) return;
     const g = this.begin(), x = this.w / 2 - 6, i = this.units[0], ps = S.rt.state.pods[i], idle = SHIP.pods[i].jet!.idle;
-    g.fillStyle = D.C.rule; g.fillRect(x - 3, this.y(1), 6, this.y(-1) - this.y(1));
+    g.fillStyle = D.K.rule; g.fillRect(x - 3, this.y(1), 6, this.y(-1) - this.y(1));
     // bucket band around zero, impeller band beyond
-    g.fillStyle = D.C.muted; g.globalAlpha = 0.25; g.fillRect(x - 6, this.y(BAND), 12, this.y(-BAND) - this.y(BAND)); g.globalAlpha = 1;
+    g.fillStyle = D.K.muted; g.globalAlpha = 0.25; g.fillRect(x - 6, this.y(BAND), 12, this.y(-BAND) - this.y(BAND)); g.globalAlpha = 1;
     for (let k = -10; k <= 10; k += 2) {
       const yy = Math.round(this.y(k / 10)) + 0.5, big = k === 0;
-      g.strokeStyle = big ? D.C.ink : D.C.muted; g.lineWidth = big ? 1.5 : 1;
+      g.strokeStyle = big ? D.K.ink : D.K.muted; g.lineWidth = big ? 1.5 : 1;
       g.beginPath(); g.moveTo(x + 7, yy); g.lineTo(x + (big ? 16 : 12), yy); g.stroke();
     }
-    this.font(8.5); g.fillStyle = D.C.muted; g.textAlign = 'left'; g.textBaseline = 'middle';
+    this.font(8.5); g.fillStyle = D.K.muted; g.textAlign = 'left'; g.textBaseline = 'middle';
     g.fillText('BUCKET', x + 18, this.y(0) - 9); g.fillText('ZERO', x + 18, this.y(0) + 2);
     g.fillText('RPM', x + 18, this.y(0.75)); g.fillText('RPM', x + 18, this.y(-0.75));
     g.textAlign = 'center'; g.textBaseline = 'top'; g.fillText('AH', x, 0); g.textBaseline = 'bottom'; g.fillText('AS', x, this.h);
     // cavitation ceiling
     const lim = S.rt.status.rpmLimit[i];
-    if (lim < 0.999) { const yy = this.y(jetToLever(1, Math.max(idle, lim), idle)); g.strokeStyle = D.C.warn; g.setLineDash([3, 2]); g.lineWidth = 1.5; g.beginPath(); g.moveTo(x - 10, yy); g.lineTo(x + 10, yy); g.stroke(); g.setLineDash([]); }
+    if (lim < 0.999) { const yy = this.y(jetToLever(1, Math.max(idle, lim), idle)); g.strokeStyle = D.K.warn; g.setLineDash([3, 2]); g.lineWidth = 1.5; g.beginPath(); g.moveTo(x - 10, yy); g.lineTo(x + 10, yy); g.stroke(); g.setLineDash([]); }
     const a = jetToLever(ps.bucket ?? 1, ps.rpm, idle), y0 = this.y(0);
     g.fillStyle = sideCol(SHIP.pods[i]); g.globalAlpha = 0.85; g.fillRect(x - 3, Math.min(y0, this.y(a)), 6, Math.abs(this.y(a) - y0)); g.globalAlpha = 1;
     const yo = this.y(this.v);
-    g.fillStyle = D.C['panel-solid']; g.strokeStyle = this.v < 0 ? D.C.warn : D.C.own; g.lineWidth = 2.5;
+    g.fillStyle = D.K['panel-solid']; g.strokeStyle = this.v < 0 ? D.K.warn : D.K.own; g.lineWidth = 2.5;
     g.beginPath(); g.roundRect(x - 13, yo - 7, 26, 14, 3); g.fill(); g.stroke();
   }
 }
@@ -683,7 +683,7 @@ class JetGauge extends Canvas {
     const g = this.begin(), p = SHIP.pods[this.i], ps = S.rt.state.pods[this.i], c = S.cmd.pods[this.i];
     const cx = this.w / 2, top = 10, L = Math.min(this.h - 40, this.w * 1.4), col = sideCol(p);
     // duct
-    g.fillStyle = D.C['panel-solid']; g.strokeStyle = D.C.rule; g.lineWidth = 1.5;
+    g.fillStyle = D.K['panel-solid']; g.strokeStyle = D.K.rule; g.lineWidth = 1.5;
     g.beginPath(); g.roundRect(cx - 9, top, 18, L * 0.55, 4); g.fill(); g.stroke();
     // nozzle: turns about its pivot at the transom
     const py = top + L * 0.55, d = ps.alpha;
@@ -691,13 +691,13 @@ class JetGauge extends Canvas {
     g.fillStyle = col; g.globalAlpha = 0.9; g.beginPath(); g.moveTo(-7, 0); g.lineTo(7, 0); g.lineTo(5, L * 0.28); g.lineTo(-5, L * 0.28); g.closePath(); g.fill(); g.globalAlpha = 1;
     // bucket: covers the nozzle exit as it comes down
     const b = ps.bucket ?? 1, cover = (1 - b) / 2;
-    g.fillStyle = b < 0 ? D.C.warn : D.C.ink; g.globalAlpha = 0.2 + 0.8 * cover;
+    g.fillStyle = b < 0 ? D.K.warn : D.K.ink; g.globalAlpha = 0.2 + 0.8 * cover;
     g.fillRect(-9, L * 0.28 + 2, 18, 5 + 8 * cover); g.globalAlpha = 1;
     g.restore();
     // ordered nozzle angle
-    g.strokeStyle = D.C.own; g.lineWidth = 1; g.setLineDash([2, 3]);
+    g.strokeStyle = D.K.own; g.lineWidth = 1; g.setLineDash([2, 3]);
     g.beginPath(); g.moveTo(cx, py); g.lineTo(cx + Math.sin(-c.alpha) * L * 0.4, py + Math.cos(c.alpha) * L * 0.4); g.stroke(); g.setLineDash([]);
-    this.num(10); g.fillStyle = D.C.ink; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    this.num(10); g.fillStyle = D.K.ink; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
     const deg = d / DEG;
     g.fillText(`${Math.abs(deg) < 0.5 ? 'MID' : (deg < 0 ? 'P' : 'S') + Math.abs(deg).toFixed(0) + '°'}`, cx, this.h - 15);
     g.fillText(`${Math.round(ps.rpm * 100)}% ${b > 0.95 ? 'AH' : b < -0.95 ? 'AS' : 'B' + Math.round(b * 100)}`, cx, this.h - 2);
@@ -725,19 +725,19 @@ class JetJoy extends Canvas {
   draw() {
     if (this.w < 60) return;
     const g = this.begin(), R = Math.min(this.w, this.h - 26) / 2 - 10, cx = this.w / 2, cy = R + 10;
-    g.fillStyle = D.C['panel-solid']; g.strokeStyle = D.C.rule; g.lineWidth = 1.5;
+    g.fillStyle = D.K['panel-solid']; g.strokeStyle = D.K.rule; g.lineWidth = 1.5;
     g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill(); g.stroke();
-    g.strokeStyle = D.C.muted; g.lineWidth = 1; g.beginPath(); g.moveTo(cx, cy - R); g.lineTo(cx, cy + R); g.moveTo(cx - R, cy); g.lineTo(cx + R, cy); g.stroke();
+    g.strokeStyle = D.K.muted; g.lineWidth = 1; g.beginPath(); g.moveTo(cx, cy - R); g.lineTo(cx, cy + R); g.moveTo(cx - R, cy); g.lineTo(cx + R, cy); g.stroke();
     // what the ship is doing: speed over ground as a vector (1 kn per tenth of the radius)
     const st = S.rt.state, kx = Math.max(-1, Math.min(1, st.v / 0.514444 / 10)), ky = Math.max(-1, Math.min(1, st.u / 0.514444 / 10));
-    g.strokeStyle = D.C.ink; g.lineWidth = 3; g.lineCap = 'round'; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + kx * R, cy - ky * R); g.stroke();
-    g.strokeStyle = D.C.own; g.lineWidth = 2.5; g.beginPath(); g.arc(cx + this.fy * R, cy - this.fx * R, 8, 0, Math.PI * 2); g.stroke();
+    g.strokeStyle = D.K.ink; g.lineWidth = 3; g.lineCap = 'round'; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + kx * R, cy - ky * R); g.stroke();
+    g.strokeStyle = D.K.own; g.lineWidth = 2.5; g.beginPath(); g.arc(cx + this.fy * R, cy - this.fx * R, 8, 0, Math.PI * 2); g.stroke();
     // twist bar
     const by = cy + R + 14;
-    g.fillStyle = D.C.rule; g.fillRect(cx - R, by - 2, 2 * R, 4);
-    g.fillStyle = D.C.own; g.beginPath(); g.roundRect(cx + this.nz * R - 6, by - 7, 12, 14, 3); g.fill();
-    const rot = st.r / DEG * 60; g.fillStyle = D.C.ink; g.fillRect(cx, by + 5, Math.max(-R, Math.min(R, rot / 60 * R)), 3);
-    this.font(8.5); g.fillStyle = D.C.muted; g.textAlign = 'left'; g.textBaseline = 'top'; g.fillText('AH', cx + 3, cy - R + 2);
+    g.fillStyle = D.K.rule; g.fillRect(cx - R, by - 2, 2 * R, 4);
+    g.fillStyle = D.K.own; g.beginPath(); g.roundRect(cx + this.nz * R - 6, by - 7, 12, 14, 3); g.fill();
+    const rot = st.r / DEG * 60; g.fillStyle = D.K.ink; g.fillRect(cx, by + 5, Math.max(-R, Math.min(R, rot / 60 * R)), 3);
+    this.font(8.5); g.fillStyle = D.K.muted; g.textAlign = 'left'; g.textBaseline = 'top'; g.fillText('AH', cx + 3, cy - R + 2);
     g.textAlign = 'center'; g.textBaseline = 'bottom'; g.fillText('TWIST', cx, by - 4);
   }
 }
@@ -757,7 +757,7 @@ export function buildJetStation(host: HTMLElement): Station {
   const lc = cell('Jets', 'LINKED', 'eng');
   const lrow = document.createElement('div'); lrow.className = 'row'; lc.appendChild(lrow);
   const levers = [new JetLever(port, 'Port'), new JetLever(stbd, 'Starboard')];
-  levers.forEach((l, k) => { const t = document.createElement('span'); t.className = 'unit-tag'; t.textContent = k ? 'STBD' : 'PORT'; t.style.color = k ? D.C.stbd : D.C.port; lrow.appendChild(t); lrow.appendChild(l.c); canvases.push(l); });
+  levers.forEach((l, k) => { const t = document.createElement('span'); t.className = 'unit-tag'; t.textContent = k ? 'STBD' : 'PORT'; t.style.color = k ? D.K.stbd : D.K.port; lrow.appendChild(t); lrow.appendChild(l.c); canvases.push(l); });
   const linkB = lc.querySelector('b')!; linkB.style.cursor = 'pointer';
   const relink = () => { levers[0].units = linked ? all : port; levers[1].units = linked ? all : stbd; linkB.textContent = linked ? 'LINKED' : 'SPLIT'; };
   linkB.onclick = () => { linked = !linked; relink(); };
@@ -849,33 +849,33 @@ class PosPlot extends Canvas {
     // ship-up plot: rotate north-east offsets into ship axes
     const toXY = (n: number, e: number) => { const dn = n - sp.n, de = e - sp.e, c = Math.cos(psi), s2 = Math.sin(psi); const ax = c * dn + s2 * de, ay = -s2 * dn + c * de; return [cx + ay * k, cy - ax * k] as const; };
     if (S.rt.state.t - this.t > 1) { this.t = S.rt.state.t; this.trail.push([d.pos.n, d.pos.e]); if (this.trail.length > 90) this.trail.shift(); }
-    g.fillStyle = D.C['panel-solid']; g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill();
-    for (const [r, col, dash] of [[2.5, D.C.muted, [2, 3]], [5, D.C.warn, [4, 3]], [10, D.C.rule, []]] as [number, string, number[]][]) {
+    g.fillStyle = D.K['panel-solid']; g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.fill();
+    for (const [r, col, dash] of [[2.5, D.K.muted, [2, 3]], [5, D.K.warn, [4, 3]], [10, D.K.rule, []]] as [number, string, number[]][]) {
       g.strokeStyle = col; g.lineWidth = 1.2; g.setLineDash(dash); g.beginPath(); g.arc(cx, cy, r * k, 0, Math.PI * 2); g.stroke();
     }
-    g.setLineDash([]); g.strokeStyle = D.C.rule; g.lineWidth = 1; g.beginPath(); g.moveTo(cx - R, cy); g.lineTo(cx + R, cy); g.moveTo(cx, cy - R); g.lineTo(cx, cy + R); g.stroke();
+    g.setLineDash([]); g.strokeStyle = D.K.rule; g.lineWidth = 1; g.beginPath(); g.moveTo(cx - R, cy); g.lineTo(cx + R, cy); g.moveTo(cx, cy - R); g.lineTo(cx, cy + R); g.stroke();
     // trail
-    g.strokeStyle = D.C.muted; g.lineWidth = 1.2; g.beginPath();
+    g.strokeStyle = D.K.muted; g.lineWidth = 1.2; g.beginPath();
     this.trail.forEach(([n, e], i) => { const [x, y] = toXY(n, e); if (i) g.lineTo(x, y); else g.moveTo(x, y); }); g.stroke();
     // references
     const est = S.rt.sensors.out.est, st = S.rt.state;
     d.refs.forEach((r, i) => {
       const base = r.name === 'HPR' ? [st.n, st.e] : [est.n, est.e];
       const [x, y] = toXY(base[0] + r.off[0], base[1] + r.off[1]);
-      g.fillStyle = !r.on ? D.C.rule : r.rejected ? D.C.warn : D.C.muted;
+      g.fillStyle = !r.on ? D.K.rule : r.rejected ? D.K.warn : D.K.muted;
       this.font(9, 700); g.textAlign = 'center'; g.textBaseline = 'middle';
       g.fillText(['1', '2', 'H'][i], Math.max(6, Math.min(this.w - 6, x)), Math.max(6, Math.min(this.h - 6, y)));
     });
     // voted position and heading error
     const [px, py] = toXY(d.pos.n, d.pos.e), err = Math.hypot(d.pos.n - sp.n, d.pos.e - sp.e);
     const ep = Math.atan2(Math.sin(sp.psi - psi), Math.cos(sp.psi - psi));
-    g.strokeStyle = g.fillStyle = err > 5 ? D.C.warn : D.C.own; g.lineWidth = 2.5;
+    g.strokeStyle = g.fillStyle = err > 5 ? D.K.warn : D.K.own; g.lineWidth = 2.5;
     g.beginPath(); g.arc(Math.max(4, Math.min(this.w - 4, px)), Math.max(4, Math.min(this.h - 20, py)), 5, 0, Math.PI * 2); g.stroke();
     // heading: the setpoint mark on the rim, offset from the ship's head by the heading error
     const hx = cx + Math.sin(ep) * R, hy = cy - Math.cos(ep) * R;
-    g.strokeStyle = D.C.ink; g.lineWidth = 2; g.beginPath(); g.moveTo(cx, cy - R + 2); g.lineTo(cx, cy - R + 12); g.stroke();
-    g.fillStyle = D.C.own; g.beginPath(); g.arc(hx, hy, 3.5, 0, Math.PI * 2); g.fill();
-    this.num(11); g.fillStyle = err > 5 ? D.C.warn : D.C.ink; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    g.strokeStyle = D.K.ink; g.lineWidth = 2; g.beginPath(); g.moveTo(cx, cy - R + 2); g.lineTo(cx, cy - R + 12); g.stroke();
+    g.fillStyle = D.K.own; g.beginPath(); g.arc(hx, hy, 3.5, 0, Math.PI * 2); g.fill();
+    this.num(11); g.fillStyle = err > 5 ? D.K.warn : D.K.ink; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
     g.fillText(`${err.toFixed(1)} m · ${(ep / DEG >= 0 ? '+' : '') + (ep / DEG).toFixed(1)}°`, cx, this.h - 1);
   }
 }
@@ -889,27 +889,27 @@ class ThrusterPanel extends Canvas {
     d.acts.forEach((a, k) => {
       const cx = cw * (k + 0.5), cy = this.h / 2 - 6, R = Math.min(cw / 2 - 4, this.h / 2 - 16);
       const util = d.last?.util[k] ?? 0, out = !av[k];
-      this.font(8.5, 700); g.fillStyle = out ? D.C.warn : D.C.muted; g.textAlign = 'center'; g.textBaseline = 'top';
+      this.font(8.5, 700); g.fillStyle = out ? D.K.warn : D.K.muted; g.textAlign = 'center'; g.textBaseline = 'top';
       g.fillText(out ? (d.faults.blackout > 0 ? 'NO POWER' : (d.faults.restart[k] ?? 0) > 0 ? 'STARTING' : 'TRIPPED') : a.label, cx, 0);
       if (a.kind === 'azi') {
-        g.fillStyle = D.C['panel-solid']; g.strokeStyle = D.C.rule; g.lineWidth = 1;
+        g.fillStyle = D.K['panel-solid']; g.strokeStyle = D.K.rule; g.lineWidth = 1;
         g.beginPath(); g.arc(cx, cy + 4, R, 0, Math.PI * 2); g.fill(); g.stroke();
-        g.fillStyle = D.C.warn; g.globalAlpha = 0.25;
+        g.fillStyle = D.K.warn; g.globalAlpha = 0.25;
         for (const [a0, a1] of a.forbid) { g.beginPath(); g.moveTo(cx, cy + 4); g.arc(cx, cy + 4, R, a0 - Math.PI / 2, a1 - Math.PI / 2); g.closePath(); g.fill(); }
         g.globalAlpha = 1;
         const ps = S.rt.state.pods[a.unit], c = S.cmd.pods[a.unit], L = R * Math.min(1, ps.rpm * ps.rpm);
-        g.strokeStyle = out ? D.C.warn : D.C.ink; g.lineWidth = 3; g.lineCap = 'round';
+        g.strokeStyle = out ? D.K.warn : D.K.ink; g.lineWidth = 3; g.lineCap = 'round';
         g.beginPath(); g.moveTo(cx, cy + 4); g.lineTo(cx + Math.sin(ps.alpha) * L, cy + 4 - Math.cos(ps.alpha) * L); g.stroke();
-        g.fillStyle = D.C.own; g.beginPath(); g.arc(cx + Math.sin(c.alpha) * R, cy + 4 - Math.cos(c.alpha) * R, 3, 0, Math.PI * 2); g.fill();
+        g.fillStyle = D.K.own; g.beginPath(); g.arc(cx + Math.sin(c.alpha) * R, cy + 4 - Math.cos(c.alpha) * R, 3, 0, Math.PI * 2); g.fill();
       } else {
         const v = a.kind === 'tunnel' ? (a.unit === -1 ? S.rt.state.bt : S.rt.state.sbt ?? 0) : (S.rt.state.pods[a.unit].pitch ?? S.rt.state.pods[a.unit].rpm);
         const horiz = a.kind === 'tunnel', len = R * 1.7;
-        g.fillStyle = D.C.rule;
+        g.fillStyle = D.K.rule;
         if (horiz) g.fillRect(cx - len / 2, cy + 2, len, 5); else g.fillRect(cx - 2.5, cy + 4 - len / 2, 5, len);
-        g.fillStyle = out ? D.C.warn : D.C.ink;
+        g.fillStyle = out ? D.K.warn : D.K.ink;
         if (horiz) g.fillRect(cx, cy + 1, v * len / 2, 7); else g.fillRect(cx - 3.5, cy + 4, 7, -v * len / 2);
       }
-      this.num(9.5); g.fillStyle = D.C.ink; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+      this.num(9.5); g.fillStyle = D.K.ink; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
       g.fillText(`${Math.round(util * 100)}%`, cx, this.h - 1);
     });
   }
@@ -922,21 +922,21 @@ class CapPlot extends Canvas {
   draw() {
     if (!this.cap || this.w < 60) return;
     const g = this.begin(), cx = this.w / 2, cy = this.h / 2 - 6, R = Math.min(this.w, this.h - 16) / 2 - 8, vmax = 70;
-    g.strokeStyle = D.C.rule; g.lineWidth = 1;
+    g.strokeStyle = D.K.rule; g.lineWidth = 1;
     for (const v of [20, 40, 60]) { g.beginPath(); g.arc(cx, cy, v / vmax * R, 0, Math.PI * 2); g.stroke(); }
     // hull outline at the centre
-    g.fillStyle = D.C.muted; g.beginPath(); g.ellipse(cx, cy, R * 0.07, R * 0.22, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = D.K.muted; g.beginPath(); g.ellipse(cx, cy, R * 0.07, R * 0.22, 0, 0, Math.PI * 2); g.fill();
     const curve = (v: number[], col: string, dash: number[]) => {
       g.strokeStyle = col; g.lineWidth = 2; g.setLineDash(dash); g.beginPath();
       v.forEach((kn, i) => { const a = i * 2 * Math.PI / v.length, r = Math.min(vmax, kn) / vmax * R; const x = cx + Math.sin(a) * r, y = cy - Math.cos(a) * r; if (i) g.lineTo(x, y); else g.moveTo(x, y); });
       g.closePath(); g.stroke(); g.setLineDash([]);
     };
-    curve(this.cap.intact, D.C.ink, []);
-    curve(this.cap.worst, D.C.warn, [4, 3]);
+    curve(this.cap.intact, D.K.ink, []);
+    curve(this.cap.worst, D.K.warn, [4, 3]);
     // the wind now, relative to the bow
     const w = S.rt.env.windSpeed / 0.514444, rel = S.rt.env.windFrom - S.rt.state.psi, rw = Math.min(vmax, w) / vmax * R;
-    g.fillStyle = D.C.own; g.beginPath(); g.arc(cx + Math.sin(rel) * rw, cy - Math.cos(rel) * rw, 4.5, 0, Math.PI * 2); g.fill();
-    this.font(8.5); g.fillStyle = D.C.muted; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    g.fillStyle = D.K.own; g.beginPath(); g.arc(cx + Math.sin(rel) * rw, cy - Math.cos(rel) * rw, 4.5, 0, Math.PI * 2); g.fill();
+    this.font(8.5); g.fillStyle = D.K.muted; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
     g.fillText(`kn · 1 kn current · worst: ${this.cap.worstUnit}`, cx, this.h - 1);
   }
 }
