@@ -233,6 +233,51 @@ test('Paspaley Pearl tracks straight with her pods centred: < 0.5°/min swing', 
   assert.ok(Math.abs(rt.state.r / DEG * 60) < 0.5, `ROT ${(rt.state.r / DEG * 60).toFixed(2)}°/min`);
 });
 
+console.log('control feel');
+import { AngleDetent, LinearDetent, CONTROL, onFeel, type Feel } from '../src/ui/controls';
+{
+  const felt: [Feel, boolean][] = [];
+  onFeel((k, vib) => felt.push([k, vib]));
+  const kinds = () => felt.map(f => f[0]).join(',');
+  test('lever deadband: ±4 % reads exactly 0, one firm click on entering, none while resting on its edge', () => {
+    const d = new LinearDetent(); d.begin(0.5); felt.length = 0;
+    assert.equal(d.update(0.3), 0.3);
+    assert.equal(d.update(0.035), 0);
+    for (const x of [0.04, 0.05, 0.039, 0.055, 0.045]) assert.equal(d.update(x), 0, `${x}`);   // hysteresis: still in
+    assert.equal(kinds(), 'step,zero', kinds());
+    assert.equal(d.update(0.07), 0.07);
+    assert.equal(d.update(-0.02), 0); assert.equal(kinds(), 'step,zero,zero');
+  });
+  test('lever release: let go inside the deadband locks to 0; anywhere else it stays put', () => {
+    const d = new LinearDetent(); d.begin(0.2);
+    d.update(0.055); assert.equal(d.release(0.055), 0);
+    d.begin(0.2); d.update(0.37); assert.equal(d.release(0.37), 0.37);
+    const a = new LinearDetent({ min: 0.6 }); a.begin(0); assert.equal(a.update(-0.9), -0.6);   // astern limit
+  });
+  test('azimuth dial: snaps to 000° and 180° within 3° with a pronounced click, ticks every 5°, whole degrees between', () => {
+    const DEGR = Math.PI / 180, d = new AngleDetent(); d.begin(30 * DEGR); felt.length = 0;
+    assert.equal(d.update(2.5 * DEGR), 0);
+    assert.equal(d.update(4 * DEGR), 0, 'held through the hysteresis');
+    assert.ok(Math.abs(d.update(7.4 * DEGR) - 7 * DEGR) < 1e-9);
+    assert.ok(Math.abs(Math.abs(d.update(178.2 * DEGR)) - Math.PI) < 1e-9, 'astern');
+    assert.ok(Math.abs(Math.abs(d.update(-178.6 * DEGR)) - Math.PI) < 1e-9, 'astern from the other side, no click');
+    assert.equal(felt.filter(f => f[0] === 'cardinal').length, 2, kinds());
+    assert.ok(felt.some(f => f[0] === 'step'));
+    const v = d.update(93.6 * DEGR); assert.equal(d.release(), v, 'no drift on release');
+  });
+  test('helm: midships is the only snap, limits respected', () => {
+    const DEGR = Math.PI / 180, h = new AngleDetent({ cardinals: [0], min: -35 * DEGR, max: 35 * DEGR }); h.begin(0);
+    assert.ok(Math.abs(h.update(50 * DEGR) - 35 * DEGR) < 1e-9);
+    assert.equal(h.update(-1.5 * DEGR), 0);
+  });
+  test('enableHaptics off: the click still sounds, the vibration does not', () => {
+    CONTROL.enableHaptics = false; felt.length = 0;
+    const d = new LinearDetent(); d.begin(0.5); d.update(0);
+    assert.deepEqual(felt, [['zero', false]]);
+    CONTROL.enableHaptics = true;
+  });
+}
+
 console.log('predictor & validation');
 import { runPrediction } from '../src/physics/predict';
 import { scenarioWorld } from '../src/scenarios';

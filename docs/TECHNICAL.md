@@ -62,6 +62,23 @@ The physics, data sources, ship models and developer workflow behind the simulat
 
 Azipod ships: port pod `A` `D` azimuth, `W` `S` rpm · stbd pod `J` `L`, `I` `K` · bow thruster `Q` `E` · joystick arrows. Telegraph and lever ships: `W` `S` engine order, `A` `D` helm, `X` stop, `M` midships. Waterjets: `J` joystick mode. DP: `1` `2` `3` modes, `W` `A` `S` `D` `Q` `E` joystick, `I` `J` `K` `L` `U` `O` move the setpoint. Everywhere: `H` head-up · `V` chart / split / 3D · `C` 3D camera.
 
+## Control feel
+
+Every lever, slider and dial runs its raw drag position through `src/ui/controls.ts` before anything reaches the ship. Rendering is unchanged.
+
+- **Levers and sliders through zero** (Azipod rpm, pitch and propulsion levers, waterjet levers, bow and stern thrusters, the joystick yaw bar, combi-lever and Voith power) use `LinearDetent`:
+  - Within ±4 % of centre the order is exactly 0.
+  - One firm click (sound and a 24 ms vibration) fires on entering the zero band. It doesn't fire again until the lever has moved 2 % beyond the band.
+  - A light tick sounds every 10 %.
+  - Letting go inside the band locks the lever at 0.
+- **Rotary controls** (Azipod dials, combi-lever and Voith direction, helm and nozzle helm) use `AngleDetent`:
+  - Orders are in whole degrees, with a light tick every 5°.
+  - The dial snaps to 000° and 180° (the helm only to midships) within ±3°, with a double-knock vibration, and lets go 1.5° further out.
+  - On release the order stays exactly where it was.
+- **Tuning** is in `CONTROL` (`deadzoneThreshold`, `angleStepDegrees`, `cardinalSnapDegrees`, the hysteresis values, `enableHaptics`). A control can pass its own values; the combi-lever, for example, has a 12 % hub. `enableHaptics` turns off the vibration and leaves the click sound. The user's haptics setting must also be on.
+- **Feedback** goes through `onFeel`, so the module has no DOM dependency and is unit tested in `npm test`.
+- **Not covered:** the telegraph has fixed steps. The 2-D joysticks keep their per-axis deadband and their centre click.
+
 ## Develop
 
 ```bash

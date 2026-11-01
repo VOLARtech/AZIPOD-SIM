@@ -7,6 +7,7 @@ import type { PodSpec } from '../physics/ship';
 import { S } from './state';
 import * as D from './draw';
 import { uiTick } from './audio';
+import { AngleDetent, LinearDetent, detentSlider } from './controls';
 import { BAND, jetJoystick, jetToLever, leverToJet } from '../physics/units/jet';
 import { capability } from '../physics/dp';
 
@@ -106,16 +107,17 @@ const combinatorRpm = (pitch: number) => (combinator ? 0.72 + 0.28 * Math.min(1,
 class PitchLever extends Canvas {
   constructor(public units: number[], public astern: number, public mode: 'pitch' | 'rpm' = 'pitch') {
     super('lev', mode === 'pitch' ? 'Pitch lever: ahead up, astern down' : 'Propulsion lever: ahead up, astern down');
+    const lin = new LinearDetent({ min: astern });
+    let raw = 0;
     const ptr = (e: PointerEvent) => {
       const r = this.c.getBoundingClientRect(), H = r.height - 28;
-      let v = (r.height / 2 - (e.clientY - r.top)) / (H / 2);
-      v = Math.max(-this.astern, Math.min(1, v)); if (Math.abs(v) < 0.04) v = 0; v = Math.round(v * 100) / 100;
-      const old = this.get();
-      if (v === 0 && old !== 0) uiTick('detent'); else if (Math.floor(v * 10) !== Math.floor(old * 10)) uiTick('step');
-      this.set(v);
+      raw = (r.height / 2 - (e.clientY - r.top)) / (H / 2);
+      this.set(lin.update(raw));
     };
-    this.c.addEventListener('pointerdown', e => { this.c.setPointerCapture(e.pointerId); ptr(e); });
+    this.c.addEventListener('pointerdown', e => { this.c.setPointerCapture(e.pointerId); lin.begin(this.get()); ptr(e); });
     this.c.addEventListener('pointermove', e => { if (this.c.hasPointerCapture(e.pointerId)) ptr(e); });
+    const end = (e: PointerEvent) => { if (this.c.hasPointerCapture(e.pointerId)) this.set(lin.release(raw)); };
+    this.c.addEventListener('pointerup', end); this.c.addEventListener('pointercancel', end);
   }
   get() { const c = S.cmd.pods[this.units[0]]; return this.mode === 'pitch' ? c.pitch ?? 0 : c.rpm; }
   set(v: number) { for (const i of this.units) { const c = S.cmd.pods[i]; if (this.mode === 'pitch') { c.pitch = v; c.rpm = combinatorRpm(v); } else c.rpm = v; } }
@@ -181,20 +183,24 @@ class Helm extends Canvas {
   constructor(public units: number[], max?: number) {
     super('helm', 'Helm: drag left for port rudder, right for starboard; double-tap for midships');
     this.max = max ?? SHIP.pods[units[0]].shaft!.rudder!.max;
+    // midships is the one cardinal; detents every 5° of rudder (or nozzle)
+    const ang = new AngleDetent({ cardinals: [0], min: -this.max, max: this.max });
     const ptr = (e: PointerEvent) => {
       const r = this.c.getBoundingClientRect(), { cx, cy } = this.geom(r.width, r.height);
       const a = Math.atan2(e.clientX - r.left - cx, cy - (e.clientY - r.top));
-      const v = Math.max(-this.max, Math.min(this.max, a / (75 * DEG) * this.max));
-      this.set(Math.round(v / DEG) * DEG);
+      this.write(ang.update(a / (75 * DEG) * this.max));   // wheel angle → rudder order
     };
     this.c.addEventListener('pointerdown', e => {
       this.c.setPointerCapture(e.pointerId);
       const now = performance.now();
-      if (now - this.lastTap < 300) { this.lastTap = 0; this.set(0); return; }
-      this.lastTap = now; ptr(e);
+      if (now - this.lastTap < 300) { this.lastTap = 0; ang.begin(0); this.set(0); return; }
+      this.lastTap = now; ang.begin(S.cmd.pods[this.units[0]].alpha); ptr(e);
     });
     this.c.addEventListener('pointermove', e => { if (this.c.hasPointerCapture(e.pointerId)) ptr(e); });
+    const end = (e: PointerEvent) => { if (this.c.hasPointerCapture(e.pointerId)) this.write(ang.release()); };
+    this.c.addEventListener('pointerup', end); this.c.addEventListener('pointercancel', end);
   }
+  write(v: number) { for (const i of this.units) S.cmd.pods[i].alpha = v; }
   geom(w: number, h: number) { const R = Math.min(w / 2 - 22, h - 34); return { cx: w / 2, cy: R + 14, R }; }
   set(v: number) {
     const old = S.cmd.pods[this.units[0]].alpha;
@@ -291,8 +297,7 @@ export function buildStation(host: HTMLElement): Station {
     w.innerHTML = `<label class="tag">${label} <span class="mono" data-k="${key}">0</span></label><input type="range" min="-100" max="100" step="1" value="0" aria-label="${label}" /><div class="btscale"><span>PORT</span><span>STBD</span></div>`;
     tCell!.appendChild(w);
     const el = w.querySelector('input')!;
-    el.oninput = () => { S.cmd[key] = +el.value / 100; };
-    el.ondblclick = () => { el.value = '0'; S.cmd[key] = 0; };
+    detentSlider(el, v => { S.cmd[key] = v; }, () => S.cmd[key] ?? 0);
     thr.push({ el, key });
   };
   if (SHIP.bowThruster.Tmax > 0) addThr('bt', 'BOW');
@@ -391,19 +396,20 @@ export function initialOrders(spec: ShipSpec, kn: number) {
 class CombiLever extends Canvas {
   constructor(public units: number[], public label: string) {
     super('combi', `${label} azimuth combi-lever: direction of thrust, distance from centre for power`);
+    // direction: 5° detents, snap to ahead / astern; power: distance from the centre, with a wide zero (the hub)
+    const ang = new AngleDetent(), lin = new LinearDetent({ min: 0, deadzone: 0.12, step: 0.25 });
+    let raw = 0;
     const ptr = (e: PointerEvent) => {
       const r = this.c.getBoundingClientRect(), R = Math.min(r.width, r.height) / 2 - 12;
       const dx = e.clientX - r.left - r.width / 2, dy = e.clientY - r.top - r.height / 2;
-      const d = Math.hypot(dx, dy);
-      let rpm = Math.min(1, d / R); if (rpm < 0.12) rpm = 0; rpm = Math.round(rpm * 50) / 50;
-      const old = S.cmd.pods[this.units[0]];
-      const a = d > 6 ? Math.atan2(dx, -dy) : old.alpha;
-      if ((rpm === 0) !== (old.rpm === 0)) uiTick('detent');
-      else if (Math.floor(a / DEG / 15) !== Math.floor(old.alpha / DEG / 15)) uiTick('step');
+      const d = Math.hypot(dx, dy); raw = d / R;
+      const rpm = lin.update(raw), a = d > 6 ? ang.update(Math.atan2(dx, -dy)) : S.cmd.pods[this.units[0]].alpha;
       for (const i of this.units) { S.cmd.pods[i].alpha = a; S.cmd.pods[i].rpm = rpm; }
     };
-    this.c.addEventListener('pointerdown', e => { this.c.setPointerCapture(e.pointerId); ptr(e); });
+    this.c.addEventListener('pointerdown', e => { this.c.setPointerCapture(e.pointerId); const c = S.cmd.pods[this.units[0]]; ang.begin(c.alpha); lin.begin(c.rpm); ptr(e); });
     this.c.addEventListener('pointermove', e => { if (this.c.hasPointerCapture(e.pointerId)) ptr(e); });
+    const end = (e: PointerEvent) => { if (this.c.hasPointerCapture(e.pointerId)) { const rpm = lin.release(raw), a = ang.release(); for (const i of this.units) { S.cmd.pods[i].alpha = a; S.cmd.pods[i].rpm = rpm; } } };
+    this.c.addEventListener('pointerup', end); this.c.addEventListener('pointercancel', end);
   }
   draw() {
     if (this.w < 60) return;
@@ -439,18 +445,26 @@ class CombiLever extends Canvas {
 class VspPad extends Canvas {
   constructor(public units: number[], public label: string) {
     super('vsppad', `${label} Voith Schneider pitch: drag the thrust vector`);
-    const ptr = (e: PointerEvent) => {
-      const r = this.c.getBoundingClientRect(), R = Math.min(r.width, r.height) / 2 - 12;
-      let x = (e.clientX - r.left - r.width / 2) / R, y = -(e.clientY - r.top - r.height / 2) / R;
-      const m = Math.hypot(x, y); if (m > 1) { x /= m; y /= m; }
-      if (Math.abs(x) < 0.06) x = 0; if (Math.abs(y) < 0.06) y = 0;
-      const rpm = Math.min(1, Math.hypot(x, y)), a = rpm > 0 ? Math.atan2(x, y) : S.cmd.pods[this.units[0]].alpha;
-      if ((rpm === 0) !== (S.cmd.pods[this.units[0]].rpm === 0)) uiTick('detent');
+    // pitch vector: each axis has the zero deadband (pure ahead / pure sideways), its length a zero stop,
+    // and its direction the azimuth detents with a snap to ahead / astern
+    const px = new LinearDetent({ quiet: true }), py = new LinearDetent({ quiet: true }), mag = new LinearDetent({ min: 0, step: 0.25 }), ang = new AngleDetent();
+    let rx = 0, ry = 0;
+    const out = (x: number, y: number) => {
+      const rpm = mag.update(Math.min(1, Math.hypot(x, y))), a = rpm > 0 ? ang.update(Math.atan2(x, y)) : S.cmd.pods[this.units[0]].alpha;
       for (const i of this.units) { S.cmd.pods[i].alpha = a; S.cmd.pods[i].rpm = rpm; }
     };
-    this.c.addEventListener('pointerdown', e => { this.c.setPointerCapture(e.pointerId); ptr(e); });
+    const ptr = (e: PointerEvent) => {
+      const r = this.c.getBoundingClientRect(), R = Math.min(r.width, r.height) / 2 - 12;
+      rx = (e.clientX - r.left - r.width / 2) / R; ry = -(e.clientY - r.top - r.height / 2) / R;
+      const m = Math.hypot(rx, ry); if (m > 1) { rx /= m; ry /= m; }
+      out(px.update(rx), py.update(ry));
+    };
+    const begin = () => { const c = S.cmd.pods[this.units[0]]; px.begin(c.rpm * Math.sin(c.alpha)); py.begin(c.rpm * Math.cos(c.alpha)); mag.begin(c.rpm); ang.begin(c.alpha); };
+    this.c.addEventListener('pointerdown', e => { this.c.setPointerCapture(e.pointerId); begin(); ptr(e); });
     this.c.addEventListener('pointermove', e => { if (this.c.hasPointerCapture(e.pointerId)) ptr(e); });
-    this.c.addEventListener('dblclick', () => { for (const i of this.units) S.cmd.pods[i].rpm = 0; });
+    const end = (e: PointerEvent) => { if (this.c.hasPointerCapture(e.pointerId)) out(px.release(rx), py.release(ry)); };
+    this.c.addEventListener('pointerup', end); this.c.addEventListener('pointercancel', end);
+    this.c.addEventListener('dblclick', () => { for (const i of this.units) S.cmd.pods[i].rpm = 0; uiTick('zero'); });
   }
   draw() {
     if (this.w < 60) return;
@@ -616,15 +630,19 @@ class JetLever extends Canvas {
   constructor(public units: number[], public label: string) {
     super('lev', `${label} waterjet lever: ahead up, bucket zero at the centre, astern down`);
     const c = S.cmd.pods[units[0]]; this.v = jetToLever(c.bucket ?? 1, c.rpm, SHIP.pods[units[0]].jet!.idle);
+    const lin = new LinearDetent();
+    let raw = 0;
     const ptr = (e: PointerEvent) => {
       const r = this.c.getBoundingClientRect(), H = r.height - 28;
-      let v = (r.height / 2 - (e.clientY - r.top)) / (H / 2);
-      v = Math.max(-1, Math.min(1, v)); if (Math.abs(v) < 0.04) v = 0; v = Math.round(v * 100) / 100;
-      if ((v === 0 && this.v !== 0) || (Math.abs(v) >= BAND) !== (Math.abs(this.v) >= BAND)) uiTick('detent'); else if (Math.floor(v * 10) !== Math.floor(this.v * 10)) uiTick('step');
+      raw = (r.height / 2 - (e.clientY - r.top)) / (H / 2);
+      const v = lin.update(raw);
+      if (v !== 0 && (Math.abs(v) >= BAND) !== (Math.abs(this.v) >= BAND)) uiTick('detent');   // bucket fully up or down: impeller takes over
       this.set(v);
     };
-    this.c.addEventListener('pointerdown', e => { this.c.setPointerCapture(e.pointerId); ptr(e); });
+    this.c.addEventListener('pointerdown', e => { this.c.setPointerCapture(e.pointerId); lin.begin(this.v); ptr(e); });
     this.c.addEventListener('pointermove', e => { if (this.c.hasPointerCapture(e.pointerId)) ptr(e); });
+    const end = (e: PointerEvent) => { if (this.c.hasPointerCapture(e.pointerId)) this.set(lin.release(raw)); };
+    this.c.addEventListener('pointerup', end); this.c.addEventListener('pointercancel', end);
   }
   set(v: number) {
     this.v = v;
@@ -771,7 +789,7 @@ export function buildJetStation(host: HTMLElement): Station {
     const w = document.createElement('div'); w.className = 'btwrap';
     w.innerHTML = `<label class="tag">BOW <span class="mono" data-k="bt">0</span></label><input type="range" min="-100" max="100" step="1" value="0" aria-label="Bow thruster" /><div class="btscale"><span>PORT</span><span>STBD</span></div>`;
     tc.appendChild(w); btEl = w.querySelector('input')!;
-    btEl.oninput = () => { if (mode !== 'joy') S.cmd.bt = +btEl!.value / 100; };
+    detentSlider(btEl, v => { if (mode !== 'joy') S.cmd.bt = v; }, () => S.cmd.bt);
   }
   const bc = cell('', '', 'btns');
   bc.innerHTML = '<button class="cb warn" data-a="zero">BUCKETS ZERO</button><button class="cb" data-a="mid">MIDSHIPS</button>';

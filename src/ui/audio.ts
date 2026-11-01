@@ -127,11 +127,12 @@ export function haptic(p: number | number[], min = 40) {
   const now = performance.now(); if (now - lastBuzz < min) return; lastBuzz = now;
   try { navigator.vibrate(p); } catch { /* ignored */ }
 }
-/** Detent and step feedback from the levers and dials. */
-export function uiTick(kind: 'step' | 'detent' | 'cardinal') {
-  if (kind === 'detent') { haptic(22, 0); if (ac) tone([1650], 0.05, 0.08, 'square'); }
-  else if (kind === 'cardinal') { haptic(14, 0); if (ac) tone([1250], 0.035, 0.05, 'square'); }
-  else { haptic(6, 25); if (ac) tone([2100], 0.02, 0.025, 'square'); }
+/** Detent and step feedback from the levers, dials and buttons. detent / zero: the firm neutral stop;
+ *  cardinal: dead ahead or astern on a dial, a double knock; step: a light tick. */
+export function uiTick(kind: 'step' | 'detent' | 'zero' | 'cardinal', vibrate = true) {
+  if (kind === 'detent' || kind === 'zero') { if (vibrate) haptic(24, 0); if (ac) tone([1650], 0.05, 0.08, 'square'); }
+  else if (kind === 'cardinal') { if (vibrate) haptic([16, 40, 16], 0); if (ac) { tone([1250], 0.035, 0.06, 'square'); tone([1250], 0.035, 0.05, 'square', 0, 1, 0.056); } }
+  else { if (vibrate) haptic(6, 25); if (ac) tone([2100], 0.02, 0.025, 'square'); }
 }
 
 // ---------------------------------------------------------------- per frame
