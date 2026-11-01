@@ -22,6 +22,8 @@ import { SCENARIOS, Scenario, berthFor, currentField, depthAt, fits } from './sc
 import { ensureScenario } from './scenes/loaders';
 import { loadEnc } from './ui/enc';
 import { haptic, suspendAudio, uiTick, unlockAudio, updateAudio } from './ui/audio';
+import { AngleDetent, LinearDetent, detentSlider, onFeel } from './ui/controls';
+onFeel(uiTick);
 import { S, SPEEDS, ghostInterval } from './ui/state';
 import * as D from './ui/draw';
 import { renderModel, renderPoster, renderTrials, renderValidation, drawPosterPlots } from './ui/sheet';
@@ -338,12 +340,14 @@ $('legend').onclick = () => { legendOpen = !legendOpen; updateLegend(); };
 class Dial {
   c: HTMLCanvasElement; g: CanvasRenderingContext2D; size = 120;
   dragging = false;
+  ang = new AngleDetent();                               // 5° detents, snap to dead ahead / astern
   constructor(public i: number) {
     this.c = $('dial-' + i) as HTMLCanvasElement;
     this.g = this.c.getContext('2d')!;
     this.c.addEventListener('pointerdown', e => {
       this.c.setPointerCapture(e.pointerId); this.dragging = true;
       if (S.rt.lever === 'joy') { if (this.i === 0) this.joyFrom(e); return; }
+      this.ang.begin(S.cmd.pods[this.i].alpha);
       this.fromEvent(e);
     });
     this.c.addEventListener('pointermove', e => {
@@ -351,7 +355,11 @@ class Dial {
       if (S.rt.lever === 'joy') { if (this.i === 0) this.joyFrom(e); return; }
       this.fromEvent(e);
     });
-    const end = () => { this.dragging = false; if (S.rt.lever === 'joy' && this.i === 0) { S.rt.joy.x = 0; S.rt.joy.y = 0; } };
+    const end = () => {
+      this.dragging = false;
+      if (S.rt.lever === 'joy') { if (this.i === 0) { S.rt.joy.x = 0; S.rt.joy.y = 0; } return; }
+      this.write(this.ang.release());                    // stays exactly where it was let go
+    };
     this.c.addEventListener('pointerup', end); this.c.addEventListener('pointercancel', end);
   }
   resize() { this.size = this.c.clientWidth; this.c.width = this.c.height = Math.round(this.size * D.DPR); }
@@ -369,12 +377,9 @@ class Dial {
   fromEvent(e: PointerEvent) {
     const { dx, dy, R } = this.geom(e);
     if (Math.hypot(dx, dy) < R * 0.18) return;          // centre: no direction, ignore
-    const a = wrap(Math.atan2(dx, -dy)), old = S.cmd.pods[this.i].alpha;
-    const step = (x: number) => Math.floor(((x / DEG) + 360.0001) % 360 / 15);
-    const sa = step(a), so = step(old);
-    if (sa !== so) { const edge = Math.abs(sa - so) > 12 ? 0 : Math.max(sa, so); uiTick(edge % 6 === 0 ? 'cardinal' : 'step'); }   // 15° steps, 90° marks
-    for (const j of S.rt.lever === 'twin' ? [0, 1] : [this.i]) S.cmd.pods[j].alpha = a;
+    this.write(this.ang.update(Math.atan2(dx, -dy)));     // raw drag angle → clean azimuth order
   }
+  write(a: number) { for (const j of S.rt.lever === 'twin' ? [0, 1] : [this.i]) S.cmd.pods[j].alpha = a; }
   draw() {
     const g = this.g, Sz = this.size, R = Sz / 2 - 14;
     if (R < 8) return;                                   // tray hidden / not laid out yet
@@ -456,6 +461,7 @@ class Dial {
 /** RPM lever, one per pod: ahead up, astern down, detent at zero. Linked pods move together. */
 class RpmLever {
   c: HTMLCanvasElement; g: CanvasRenderingContext2D; w = 34; h = 120; lastTap = 0;
+  lin = new LinearDetent(); raw = 0;                     // zero deadband and stop, a tick every 10 %
   constructor(public i: number) {
     this.c = $('rpm-' + i) as HTMLCanvasElement;
     this.g = this.c.getContext('2d')!;
@@ -463,11 +469,14 @@ class RpmLever {
       if (S.rt.lever === 'joy') return;
       this.c.setPointerCapture(e.pointerId);
       const now = performance.now();
-      if (now - this.lastTap < 300) { this.lastTap = 0; this.set(0); uiTick('detent'); return; }   // double tap: stop
+      if (now - this.lastTap < 300) { this.lastTap = 0; this.lin.begin(0); this.set(0); uiTick('zero'); return; }   // double tap: stop
       this.lastTap = now;
+      this.lin.begin(S.cmd.pods[this.i].rpm);
       this.fromEvent(e);
     });
     this.c.addEventListener('pointermove', e => { if (this.c.hasPointerCapture(e.pointerId) && S.rt.lever !== 'joy') this.fromEvent(e); });
+    const end = (e: PointerEvent) => { if (this.c.hasPointerCapture(e.pointerId) && S.rt.lever !== 'joy') this.set(this.lin.release(this.raw)); };
+    this.c.addEventListener('pointerup', end); this.c.addEventListener('pointercancel', end);
   }
   resize() {
     this.w = this.c.clientWidth; this.h = this.c.clientHeight;
@@ -477,15 +486,8 @@ class RpmLever {
   y(v: number) { const H = this.h - 2 * this.pad; return this.pad + H / 2 - v * H / 2; }
   fromEvent(e: PointerEvent) {
     const r = this.c.getBoundingClientRect(), H = r.height - 2 * this.pad;
-    let v = Math.max(-1, Math.min(1, (r.height / 2 - (e.clientY - r.top)) / (H / 2)));
-    if (Math.abs(v) < 0.05) v = 0;                      // zero detent
-    v = Math.round(v * 100) / 100;
-    const old = S.cmd.pods[this.i].rpm;
-    if (v !== old) {
-      if (v === 0) uiTick('detent');
-      else if (Math.floor(v * 10) !== Math.floor(old * 10)) uiTick('step');   // every 10 %
-    }
-    this.set(v);
+    this.raw = (r.height / 2 - (e.clientY - r.top)) / (H / 2);
+    this.set(this.lin.update(this.raw));               // raw drag → clean rpm order
   }
   set(v: number) { for (const j of S.rt.lever === 'twin' ? [0, 1] : [this.i]) S.cmd.pods[j].rpm = v; }
   draw() {
@@ -567,12 +569,10 @@ function setLever(m: LeverMode) {
   syncButtons();
 }
 const btIn = $('bt') as HTMLInputElement;
-btIn.oninput = () => {
-  if (S.rt.lever === 'joy') S.rt.joy.r = +btIn.value / 100; else S.cmd.bt = +btIn.value / 100;
-};
+// bow thruster (or yaw, on the joystick): zero deadband and stop; the yaw twist springs back to centre
+detentSlider(btIn, v => { if (S.rt.lever === 'joy') S.rt.joy.r = v; else S.cmd.bt = v; }, () => (S.rt.lever === 'joy' ? S.rt.joy.r : S.cmd.bt));
 const btRelease = () => { if (S.rt.lever === 'joy') { btIn.value = '0'; S.rt.joy.r = 0; } };
 btIn.addEventListener('pointerup', btRelease); btIn.addEventListener('change', btRelease);
-btIn.ondblclick = () => { btIn.value = '0'; S.cmd.bt = 0; };
 // ---------------------------------------------------------------- panels: lines & tugs
 const MODES: [WinchMode, string][] = [['heave', 'HEAVE'], ['brake', 'BRAKE'], ['slack', 'SLACK'], ['auto', 'AUTO-T']];
 let linesSig = '';

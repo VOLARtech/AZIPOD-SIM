@@ -40,8 +40,33 @@ export function dpForces(spec: ShipSpec, m: number, Iz: number, est: Est, dp: DP
 }
 const clamp = (x: number) => Math.max(-1, Math.min(1, x));
 
-/** Allocate normalised stick (−1..1 per axis) to a lever command. */
-export function allocate(spec: ShipSpec, st: ShipState, joy: JoyInput, btEff: number, cmd: Command) {
+/** Allocate normalised stick (−1..1 per axis) to a lever command. With `yawFirst`, sway is cut back until the
+ *  bow thruster can still balance the turning moment: under way the thruster loses half its push, and a
+ *  sideways order it cannot balance swings the bow the wrong way. */
+export function allocate(spec: ShipSpec, st: ShipState, joy: JoyInput, btEff: number, cmd: Command, yawFirst = false) {
+  if (yawFirst && Math.abs(joy.x) > 0.01 && btDemand(spec, joy, btEff) > 1) {
+    let lo = 0, hi = 1;
+    for (let k = 0; k < 8; k++) { const m = (lo + hi) / 2; if (btDemand(spec, { ...joy, x: joy.x * m }, btEff) > 1) hi = m; else lo = m; }
+    joy = { ...joy, x: joy.x * lo };
+  }
+  const f = solveForces(spec, joy, btEff);
+  const pods = spec.pods;
+  // inward bias: each pod pulls toward the centreline; equal and opposite, so no net force
+  const bias = 0.12 * pods[0].Tb;
+  const vec = [[f[0], f[1] - Math.sign(pods[0].y) * bias], [f[2], f[3] - Math.sign(pods[1].y) * bias]];
+  vec.forEach(([fx, fy], i) => {
+    const mag = Math.hypot(fx, fy), Tmax = pods[i].Tb * (1 - spec.tded);
+    cmd.pods[i].alpha = Math.atan2(fy, fx);
+    cmd.pods[i].rpm = Math.min(1, Math.sqrt(mag / Tmax));
+  });
+  const btMax = spec.bowThruster.Tmax * Math.max(0.05, btEff);
+  const b = Math.max(-1, Math.min(1, f[4] / btMax));
+  cmd.bt = Math.sign(b) * Math.sqrt(Math.abs(b));
+  void st;
+}
+
+/** Weighted minimum-norm forces for a stick order: [Fx1, Fy1, Fx2, Fy2, Fbow]. */
+function solveForces(spec: ShipSpec, joy: JoyInput, btEff: number) {
   const lim = joyLimits(spec, btEff);
   const tau = [joy.y * lim.X, joy.x * lim.Y, joy.r * lim.N];
   const pods = spec.pods;
@@ -57,18 +82,11 @@ export function allocate(spec: ShipSpec, st: ShipState, joy: JoyInput, btEff: nu
   for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) for (let k = 0; k < 5; k++) A[i][j] += B[i][k] * wInv[k] * B[j][k];
   const lam = solve3(A, tau);
   const f = [0, 1, 2, 3, 4].map(k => wInv[k] * (B[0][k] * lam[0] + B[1][k] * lam[1] + B[2][k] * lam[2]));
-  // inward bias: each pod pulls toward the centreline; equal and opposite, so no net force
-  const bias = 0.12 * pods[0].Tb;
-  const vec = [[f[0], f[1] - Math.sign(pods[0].y) * bias], [f[2], f[3] - Math.sign(pods[1].y) * bias]];
-  vec.forEach(([fx, fy], i) => {
-    const mag = Math.hypot(fx, fy), Tmax = pods[i].Tb * (1 - spec.tded);
-    cmd.pods[i].alpha = Math.atan2(fy, fx);
-    cmd.pods[i].rpm = Math.min(1, Math.sqrt(mag / Tmax));
-  });
-  const btMax = spec.bowThruster.Tmax * Math.max(0.05, btEff);
-  const b = Math.max(-1, Math.min(1, f[4] / btMax));
-  cmd.bt = Math.sign(b) * Math.sqrt(Math.abs(b));
-  void st;
+  return f;
+}
+/** Bow-thruster order the stick needs, as a fraction of what she can give at this speed (over 1: saturated). */
+function btDemand(spec: ShipSpec, joy: JoyInput, btEff: number) {
+  return Math.abs(solveForces(spec, joy, btEff)[4]) / (spec.bowThruster.Tmax * Math.max(0.05, btEff));
 }
 
 function solve3(A: number[][], b: number[]): number[] {

@@ -197,6 +197,87 @@ test('DP heading hold in 25 kn beam wind keeps heading within 3°', () => {
   assert.ok(worst < 3 && Math.hypot(rt.state.n, rt.state.e) < 15, `hdg err ${worst.toFixed(2)}°, pos err ${Math.hypot(rt.state.n, rt.state.e).toFixed(1)} m`);
 });
 
+test('joystick sideways under way in auto heading: she moves the way the stick points, bow held, every joystick ship', () => {
+  for (const sp of Object.values(SHIPS)) {
+    const st = makeState(sp, 0, 0, 0, 4), c0 = Math.min(1, 4 / sp.vmaxKn);
+    st.pods.forEach(p => (p.rpm = c0));
+    const rt = new Runtime(sp, st, { pods: sp.pods.map(() => ({ alpha: 0, rpm: c0 })), bt: 0 }, calm, OPEN);
+    if (!rt.canJoy) continue;
+    setHull(buildHull(sp.L, sp.B, sp.xg, sp.LOA));
+    rt.setLever('joy'); rt.joy = { x: 1, y: 0, r: 0 };
+    let worst = 0;
+    for (let i = 0; i < 400; i++) { rt.step(); worst = Math.max(worst, Math.abs(rt.state.r)); }
+    assert.ok(rt.state.v > 0.05 && rt.state.e > 0.3 && worst / DEG * 60 < 12, `${sp.id}: v ${rt.state.v.toFixed(2)} e ${rt.state.e.toFixed(1)} worst ROT ${(worst / DEG * 60).toFixed(1)}°/min`);
+  }
+  setHull(buildHull(SHIP.L, SHIP.B, SHIP.xg, SHIP.LOA));
+});
+test('joystick starts in auto heading; with HDG HOLD off it is the plain joystick and the hull swings her', () => {
+  const sp = SHIPS['paspaley-pearl'], st = makeState(sp, 0, 0, 0, 4); st.pods.forEach(p => (p.rpm = 0.3));
+  const rt = new Runtime(sp, st, { pods: sp.pods.map(() => ({ alpha: 0, rpm: 0.3 })), bt: 0 }, calm, OPEN);
+  rt.setLever('joy'); assert.ok(rt.dp.hdgHold, 'auto heading on by default');
+  rt.setHdgHold(false); rt.joy = { x: 1, y: 0, r: 0 };
+  let worst = 0;
+  for (let i = 0; i < 400; i++) { rt.step(); worst = Math.min(worst, rt.state.r); }
+  assert.ok(worst / DEG * 60 < -15, `plain joystick: bow swings against the push, worst ${(worst / DEG * 60).toFixed(1)}°/min`);
+});
+test('joystick twist turns her the way it is pushed in auto heading', () => {
+  const sp = SHIPS['paspaley-pearl'], rt = new Runtime(sp, makeState(sp, 0, 0, 0, 4), { pods: sp.pods.map(() => ({ alpha: 0, rpm: 0.3 })), bt: 0 }, calm, OPEN);
+  rt.setLever('joy'); rt.joy = { x: 0, y: 0, r: 1 };
+  for (let i = 0; i < 200; i++) rt.step();
+  assert.ok(rt.state.r > 1 * DEG, `r ${(rt.state.r / DEG).toFixed(2)}°/s`);
+});
+test('Paspaley Pearl tracks straight with her pods centred: < 0.5°/min swing', () => {
+  const sp = SHIPS['paspaley-pearl'], st = makeState(sp, 0, 0, 0, 9); st.pods.forEach(p => (p.rpm = 0.7));
+  const rt = new Runtime(sp, st, { pods: sp.pods.map(() => ({ alpha: 0, rpm: 0.7 })), bt: 0 }, calm, OPEN);
+  for (let i = 0; i < 3600; i++) rt.step();
+  assert.ok(Math.abs(rt.state.r / DEG * 60) < 0.5, `ROT ${(rt.state.r / DEG * 60).toFixed(2)}°/min`);
+});
+
+console.log('control feel');
+import { AngleDetent, LinearDetent, CONTROL, onFeel, type Feel } from '../src/ui/controls';
+{
+  const felt: [Feel, boolean][] = [];
+  onFeel((k, vib) => felt.push([k, vib]));
+  const kinds = () => felt.map(f => f[0]).join(',');
+  test('lever deadband: ±4 % reads exactly 0, one firm click on entering, none while resting on its edge', () => {
+    const d = new LinearDetent(); d.begin(0.5); felt.length = 0;
+    assert.equal(d.update(0.3), 0.3);
+    assert.equal(d.update(0.035), 0);
+    for (const x of [0.04, 0.05, 0.039, 0.055, 0.045]) assert.equal(d.update(x), 0, `${x}`);   // hysteresis: still in
+    assert.equal(kinds(), 'step,zero', kinds());
+    assert.equal(d.update(0.07), 0.07);
+    assert.equal(d.update(-0.02), 0); assert.equal(kinds(), 'step,zero,zero');
+  });
+  test('lever release: let go inside the deadband locks to 0; anywhere else it stays put', () => {
+    const d = new LinearDetent(); d.begin(0.2);
+    d.update(0.055); assert.equal(d.release(0.055), 0);
+    d.begin(0.2); d.update(0.37); assert.equal(d.release(0.37), 0.37);
+    const a = new LinearDetent({ min: 0.6 }); a.begin(0); assert.equal(a.update(-0.9), -0.6);   // astern limit
+  });
+  test('azimuth dial: snaps to 000° and 180° within 3° with a pronounced click, ticks every 5°, whole degrees between', () => {
+    const DEGR = Math.PI / 180, d = new AngleDetent(); d.begin(30 * DEGR); felt.length = 0;
+    assert.equal(d.update(2.5 * DEGR), 0);
+    assert.equal(d.update(4 * DEGR), 0, 'held through the hysteresis');
+    assert.ok(Math.abs(d.update(7.4 * DEGR) - 7 * DEGR) < 1e-9);
+    assert.ok(Math.abs(Math.abs(d.update(178.2 * DEGR)) - Math.PI) < 1e-9, 'astern');
+    assert.ok(Math.abs(Math.abs(d.update(-178.6 * DEGR)) - Math.PI) < 1e-9, 'astern from the other side, no click');
+    assert.equal(felt.filter(f => f[0] === 'cardinal').length, 2, kinds());
+    assert.ok(felt.some(f => f[0] === 'step'));
+    const v = d.update(93.6 * DEGR); assert.equal(d.release(), v, 'no drift on release');
+  });
+  test('helm: midships is the only snap, limits respected', () => {
+    const DEGR = Math.PI / 180, h = new AngleDetent({ cardinals: [0], min: -35 * DEGR, max: 35 * DEGR }); h.begin(0);
+    assert.ok(Math.abs(h.update(50 * DEGR) - 35 * DEGR) < 1e-9);
+    assert.equal(h.update(-1.5 * DEGR), 0);
+  });
+  test('enableHaptics off: the click still sounds, the vibration does not', () => {
+    CONTROL.enableHaptics = false; felt.length = 0;
+    const d = new LinearDetent(); d.begin(0.5); d.update(0);
+    assert.deepEqual(felt, [['zero', false]]);
+    CONTROL.enableHaptics = true;
+  });
+}
+
 console.log('predictor & validation');
 import { runPrediction } from '../src/physics/predict';
 import { scenarioWorld } from '../src/scenarios';

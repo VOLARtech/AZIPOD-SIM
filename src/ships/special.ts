@@ -41,8 +41,10 @@ export const ICEBREAKER: ShipSpec = {
  * speed, windage. Her stern thruster is left out: the Azipod joystick drives the pods and the bow thruster.
  */
 const PP_XG = -1;
+// No azimuth mis-set: on a 47 m hull 0.3° of it swings her 2.6°/min with the pods centred, more than a
+// helmsman can trim out against the dial's centre detent; yacht pods are zeroed at sea trials.
 const ppPod = (label: string, y: number, tol: number): PodSpec =>
-  ({ label, x: -0.5 * 47 - 0.2 * 6.5 - PP_XG + 3.45, y, Tb: 105e3, asternFrac: 0.78, strutArea: 4, D: 1.9, P: 0.85e6, slewMul: 1 + tol * 0.04, thrustMul: 1 - tol * 0.02, alphaOffset: tol * 0.3 * DEG });
+  ({ label, x: -0.5 * 47 - 0.2 * 6.5 - PP_XG + 3.45, y, Tb: 105e3, asternFrac: 0.78, strutArea: 4, D: 1.9, P: 0.85e6, slewMul: 1 + tol * 0.04, thrustMul: 1 - tol * 0.02, alphaOffset: 0 });
 export const PASPALEY_PEARL: ShipSpec = {
   ...POD_DEFAULTS,
   id: 'paspaley-pearl', name: 'Paspaley Pearl · 53.5 m expedition yacht', type: 'yacht', load: 'service draught',
