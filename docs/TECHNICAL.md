@@ -62,6 +62,30 @@ The physics, data sources, ship models and developer workflow behind the simulat
 
 Azipod ships: port pod `A` `D` azimuth, `W` `S` rpm · stbd pod `J` `L`, `I` `K` · bow thruster `Q` `E` · joystick arrows. Telegraph and lever ships: `W` `S` engine order, `A` `D` helm, `X` stop, `M` midships. Waterjets: `J` joystick mode. DP: `1` `2` `3` modes, `W` `A` `S` `D` `Q` `E` joystick, `I` `J` `K` `L` `U` `O` move the setpoint. Everywhere: `H` head-up · `V` chart / split / 3D · `C` 3D camera.
 
+## Random traffic and AIS
+
+`src/physics/aitraffic.ts` adds traffic to any scenario (menu, Traffic: Off / Light / Busy; New traffic draws another set). Scripted scenario traffic is unchanged.
+
+- **Where it can go:** a 6 × 6 km navigation grid (20 m cells) round own ship's start. It is built from the scenario's depth model and its land, quay and bank polygons, and keeps the distance from every cell to water too shallow for a given draught.
+- **The fleet:** ships come from the fleet in water that suits their draught (no barges outside the river), at most two of a kind. There are fewer in narrow water.
+- **Starting conditions:**
+  - About 30 % lie stopped: at anchor (cable 3 × depth + 20 m, up to 150 m), or holding station where it is deeper than 80 m.
+  - No ship starts on a collision course within ten minutes.
+- **Steering:** first-order Nomoto yaw (K′ 1.6, T′ 1.8) with a rudder moving at 2.5°/s.
+- **Speed:** a lag growing with length (20–150 s, slower to lose way than to gain it).
+- **Routes:**
+  - A* on the grid, cheaper mid-channel, string-pulled to straight legs, then shifted to the starboard side of the fairway (Rule 9).
+  - Steered with a correction for the current across the track; ships slow for turns and with shoal water inside their turning distance, and re-plan whenever the run to the next point is no longer clear.
+  - Ships lying stopped, and the whole swinging circle of an anchored ship, are planned round.
+- **Lookout, once a second (COLREG):**
+  - A ship gives way when the other is on her starboard side, head-on, or being overtaken. As stand-on she acts once a close-quarters situation develops.
+  - Her action is the first of 20° / 35° / 60° / 90° to starboard (speed kept) or slowing right down that clears every ship under way, with water to do it. Once taken it is held, and only ever made bigger.
+  - Inside about a minute: hard to starboard and stop.
+- **Safety nets:** a step that would put her bow, middle or stern on the ground, or her hull against another, is not taken. She stops short, and if stuck goes astern off the edge and re-plans.
+- **Validation:** traffic never hits own ship unless own ship runs into it. A sweep of 14 scenarios × 8 random sets × 10 minutes, with own ship blindly at 8 kn, has no grounding and no traffic-on-traffic contact. The only contacts were three where own ship ran into traffic that had stopped for her.
+- **AIS card** (`src/ui/ais.ts`): range and bearing, CPA and TCPA from own ship's sensed position and ground velocity. A target is dangerous at CPA < 0.2 nm (or the half-lengths + 100 m) within 10 minutes; it turns red here and on the chart. Tap a target for its MMSI, type, size, draught, heading, status and where she is bound.
+- **Chart:** an AIS triangle when the hull is too small to see, a course-over-ground vector as long as own ship's, an anchor mark, and a frame on the selected target.
+
 ## Control feel
 
 Every lever, slider and dial runs its raw drag position through `src/ui/controls.ts` before anything reaches the ship. Rendering is unchanged.

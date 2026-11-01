@@ -55,10 +55,16 @@
     <button id="b-follow" class="mb on" aria-pressed="true">FOLLOW</button>
     <button id="b-lines" class="mb" hidden>LINES</button>
     <button id="b-tugs" class="mb" hidden>TUGS</button>
+    <button id="b-ais" class="mb" hidden aria-label="AIS targets">AIS</button>
     <span class="zoom"><button id="b-zin" class="mb sq" aria-label="Zoom in">+</button><button id="b-zout" class="mb sq" aria-label="Zoom out">−</button></span>
   </nav>
 
   <aside class="legend" id="legend" hidden role="button" tabindex="0" aria-expanded="false"></aside>
+
+  <aside class="ais" id="ais" hidden aria-label="AIS targets">
+    <button class="ais-head" id="ais-head" aria-expanded="true"><span class="tag">AIS</span><span class="cnt" id="ais-count"></span><span class="chev" aria-hidden="true"></span></button>
+    <div class="ais-list" id="ais-list"></div>
+  </aside>
 
   <section class="panel" id="p-lines" hidden aria-label="Mooring lines">
     <div class="panel-head"><span class="tag">MOORING LINES · WINCHES</span><button class="x" data-close="p-lines" aria-label="Close">×</button></div>
@@ -138,6 +144,15 @@
         <label for="s-cd">Current sets to <output id="o-cd"></output></label><input type="range" id="s-cd" min="0" max="355" step="5" />
         <label class="chk"><input type="checkbox" id="s-gu" /> Gusts (σ 17 %, 12 s)</label>
       </div>
+      </details>
+      <details class="sec"><summary><h2>Traffic</h2></summary>
+      <div class="env-grid">
+        <span class="lbl">Other ships</span>
+        <div class="seg" id="seg-traffic"><button data-v="off">Off</button><button data-v="light">Light</button><button data-v="busy">Busy</button></div>
+        <span class="lbl">Shuffle</span>
+        <div class="seg"><button id="b-retraffic">New traffic</button></div>
+      </div>
+      <p class="note">Ships from the fleet go about their business round you: under way to somewhere of their own, steering and slowing like real ships, stopping and moving on; others lie at anchor and swing to the wind and current, or hold station where it is too deep to anchor. They keep clear of you and of each other as the collision regulations ask, so give way when it is yours to do. The AIS card in the corner lists them with range, bearing, CPA and time to CPA; tap one to see its details and mark it on the chart. Fewer ships come out in narrow water.</p>
       </details>
       <details class="sec"><summary><h2>Predictor</h2></summary>
       <div class="env-grid">

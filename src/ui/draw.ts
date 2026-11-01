@@ -7,6 +7,7 @@ import { unitAxis } from '../physics/units/kinds';
 import { nearestStructure } from '../physics/harbour';
 import { LINE, tugEngaged } from '../physics/mooring';
 import type { Alt, Track } from '../physics/predict';
+import type { Traffic } from '../physics/traffic';
 import { S, SPEEDS, full } from './state';
 import { drawEncBase, drawEncMarks } from './enc';
 
@@ -421,18 +422,45 @@ export function drawIce() {
   ctx.restore();
 }
 
-/** Other ships under way: hull, name, speed. */
+/** Other ships: hull (or an AIS triangle when she is too small to see), course and speed vector, name and speed.
+ *  Dangerous targets (CPA and TCPA inside the limits) in the warning colour; the selected one framed. */
 export function drawTraffic() {
+  const vecS = S.disp.vecMin * 60;
   for (const tr of S.rt.traffic) {
-    const st = tr.st;
-    ctx.save(); bodyTransform(st as Parameters<typeof bodyTransform>[0]);
-    ctx.beginPath(); tr.hull.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath();
-    ctx.fillStyle = C.hull; ctx.fill(); ctx.strokeStyle = C.ink; ctx.lineWidth = px(1.6); ctx.stroke();
-    ctx.restore();
+    const st = tr.st, a = tr.ais, col = a.danger ? C.warn : C.ink, sel = S.traffic.sel === tr;
+    const ai = tr as Traffic & { name?: string; anchor?: [number, number] | null; status?: string };
+    const small = tr.spec.L * S.view.scale < 18;
+    if (!small) {
+      ctx.save(); bodyTransform(st as Parameters<typeof bodyTransform>[0]);
+      ctx.beginPath(); tr.hull.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath();
+      ctx.fillStyle = C.hull; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = px(a.danger ? 2.4 : 1.6); ctx.stroke();
+      ctx.restore();
+    }
     ctx.save(); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     const [sx, sy] = toScr(st.n, st.e);
-    ctx.font = `600 11px ${C.fontLabel}`; ctx.fillStyle = C.ink; ctx.textAlign = 'left';
-    ctx.fillText(`${tr.setup.label} · ${(st.u / 0.514444).toFixed(0)} kn`, sx + 12, sy - 8);
+    // course and speed over the ground, as long as the own ship's vector setting
+    if (a.sog > 0.2) {
+      const [vx, vy] = toScr(st.n + Math.cos(a.cog) * a.sog * vecS, st.e + Math.sin(a.cog) * a.sog * vecS);
+      ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.setLineDash([6, 4]);
+      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(vx, vy); ctx.stroke(); ctx.setLineDash([]);
+    }
+    if (small) {
+      // AIS target: a triangle along her heading
+      const th = st.psi - S.view.rot, ux = Math.sin(th), uy = -Math.cos(th);
+      ctx.beginPath(); ctx.moveTo(sx + ux * 10, sy + uy * 10); ctx.lineTo(sx - ux * 6 - uy * 6, sy - uy * 6 + ux * 6); ctx.lineTo(sx - ux * 6 + uy * 6, sy - uy * 6 - ux * 6); ctx.closePath();
+      ctx.fillStyle = C['panel-solid']; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 1.8; ctx.stroke();
+    }
+    if (ai.anchor) {
+      // anchored: a small anchor mark where her cable goes down
+      const [ax, ay] = toScr(ai.anchor[0], ai.anchor[1]);
+      ctx.strokeStyle = C.muted; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(ax, ay - 6); ctx.lineTo(ax, ay + 5); ctx.moveTo(ax - 4, ay - 3); ctx.lineTo(ax + 4, ay - 3);
+      ctx.moveTo(ax - 5, ay + 2); ctx.quadraticCurveTo(ax, ay + 8, ax + 5, ay + 2); ctx.stroke();
+    }
+    if (sel) { ctx.strokeStyle = C.own; ctx.lineWidth = 2; const r = small ? 14 : Math.max(14, tr.spec.L * S.view.scale / 2 + 6); ctx.strokeRect(sx - r, sy - r, 2 * r, 2 * r); }
+    ctx.font = `600 11px ${C.fontLabel}`; ctx.fillStyle = col; ctx.textAlign = 'left';
+    const name = ai.name ?? tr.setup.label;
+    ctx.fillText(ai.anchor ? `${name} · at anchor` : `${name} · ${(a.sog / KN).toFixed(0)} kn`, sx + 12, sy - 8);
     ctx.restore();
   }
 }

@@ -217,7 +217,10 @@ export class Runtime {
       if (!(Math.abs(hEff - this.hydroDepth) < 0.02 * (hEff || 1))) { this.model.setDepth(hEff); this.hydroDepth = hEff; }
     }
 
-    for (const tr of this.traffic) tr.step(dt);
+    if (this.traffic.length) {
+      const tw = { current: this.env.current, wind: this.wind(), own: { st, spec }, traffic: this.traffic };
+      for (const tr of this.traffic) tr.step(dt, tw);
+    }
     const esc = this.escort;
     // towline tension with both ends at the same instant (end of the last step): the ship takes it
     // as her reaction over this step, as the tug takes the line force inside its own integrator
