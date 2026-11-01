@@ -905,6 +905,7 @@ function frame(now: number) {
     D.drawChart();
     D.drawIce();
     D.drawParticles(dtReal);
+    D.drawWindStreaks(dtReal);
     D.drawStructures();
     D.drawChartMarks();
     D.drawTrail();
@@ -917,6 +918,7 @@ function frame(now: number) {
     D.drawTraffic();
     D.drawShip();
     D.drawOverlay();
+    D.drawEnvGauge();
   }
   if (v3 && S.disp.view !== '2d') { v3.setTime(timeOfDay()); v3.render(); }
   if (station) station.draw();

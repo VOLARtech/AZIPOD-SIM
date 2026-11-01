@@ -488,7 +488,7 @@ details.sec[open] { display: flex; flex-direction: column; gap: 10px; padding-bo
   --panel: rgba(20, 26, 32, 0.86); --panel-solid: #171e25; --rule: #303b45;
   --ink: #eef3f5; --muted: #8d9aa4; --own: #f39a2b; --port: #ef4452; --stbd: #33c46a;
   --warn: #ff6b3d; --ok: #33c46a; --predict: #d65aad; --alt-crash: #e7b54b; --alt-coast: #a3b1bc;
-  --face: #2a333c; --face-2: #12181d;
+  --face: #2a333c; --face-2: #12181d; --cur: #3cc8d8;
   --tile: linear-gradient(180deg, #2c353e 0%, #1c2329 100%);
   --tile-on: linear-gradient(180deg, #3a2a17 0%, #23190e 100%);
   --edge: rgba(255, 255, 255, 0.08);

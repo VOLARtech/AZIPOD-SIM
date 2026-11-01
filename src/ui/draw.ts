@@ -28,7 +28,7 @@ export let kPod = ['#ef4452', '#33c46a'];
 function readConsole() {
   const el = document.querySelector('.tray'); if (!el) return;
   const cs = getComputedStyle(el);
-  for (const k of ['ink', 'muted', 'own', 'port', 'stbd', 'warn', 'ok', 'rule', 'panel-solid', 'face', 'face-2'])
+  for (const k of ['ink', 'muted', 'own', 'port', 'stbd', 'warn', 'ok', 'rule', 'panel-solid', 'face', 'face-2', 'cur'])
     K[k] = cs.getPropertyValue('--' + k).trim();
   K.fontNum = C.fontNum; K.fontLabel = C.fontLabel;
   kPod = [K.port, K.stbd];
@@ -55,9 +55,13 @@ export function refreshLayout() {
   document.getElementById('app')!.style.setProperty('--trayH', `${Math.max(0, innerHeight - tray.getBoundingClientRect().top)}px`);
   LAY.chipsBottom = chips.getBoundingClientRect().bottom;
   const tcs = getComputedStyle(tray);
-  LAY.overlayTray = tcs.backgroundColor === 'rgba(0, 0, 0, 0)' || tcs.backgroundColor === 'transparent';
-  const kids = [...tray.children].map(c => c.getBoundingClientRect().top);
-  LAY.trayTop = LAY.overlayTray ? Math.min(...kids) : tray.getBoundingClientRect().top;
+  // the tray floats over the chart when it has no backdrop of its own (phone held sideways); a gradient
+  // backdrop leaves background-color transparent, so look at the image too
+  LAY.overlayTray = (tcs.backgroundColor === 'rgba(0, 0, 0, 0)' || tcs.backgroundColor === 'transparent') && tcs.backgroundImage === 'none';
+  // its visible boxes: a display:contents wrapper has none of its own, so look through it
+  const boxes = (el: Element): Element[] => (getComputedStyle(el).display === 'contents' ? [...el.children].flatMap(boxes) : [el]);
+  const kids = [...tray.children].flatMap(boxes).map(c => c.getBoundingClientRect()).filter(r => r.height > 0).map(r => r.top);
+  LAY.trayTop = LAY.overlayTray && kids.length ? Math.min(...kids) : tray.getBoundingClientRect().top;
   LAY.padL = parseFloat(tcs.paddingLeft); LAY.padR = parseFloat(tcs.paddingRight);
 }
 export function chartCentre() {
@@ -193,6 +197,85 @@ export function drawParticles(dtReal: number) {
     if (x < -20 || y < -20 || x > W + 20 || y > H + 20) parts[i] = spawn();
   }
   ctx.stroke(); ctx.globalAlpha = 1;
+}
+
+// ---------------------------------------------------------------- wind streaks
+// Screen-space streaks blowing downwind at a pace that follows the wind (gusts and shifts included), so the
+// wind reads at a glance without covering the chart. The current keeps its own streaks on the water.
+type Gust = { x: number; y: number; age: number; life: number };
+let gusts: Gust[] = [];
+const respawn = (age = 0): Gust => ({ x: Math.random() * W, y: Math.random() * H, age, life: 2.5 + Math.random() * 2.5 });
+export function drawWindStreaks(dtReal: number) {
+  const w = S.rt.wind();
+  if (w.V < 0.5) { gusts = []; return; }
+  if (!gusts.length) gusts = Array.from({ length: COARSE ? 45 : 80 }, () => respawn(Math.random() * 4));
+  const th = w.from + Math.PI - S.view.rot, ux = Math.sin(th), uy = -Math.cos(th);   // downwind on screen
+  const run = S.paused ? 0 : Math.min(3, SPEEDS[S.speedIdx]);
+  const pace = (14 + w.V * 5) * run * dtReal, len = 8 + w.V * 2.2;
+  ctx.save(); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.strokeStyle = C.ink; ctx.lineWidth = 1.2; ctx.lineCap = 'round';
+  const a0 = (full() ? 0.3 : 0.22) * Math.min(1, 0.35 + w.V / 12);
+  for (let i = 0; i < gusts.length; i++) {
+    const g = gusts[i];
+    g.age += dtReal * (run ? 1 : 0); g.x += ux * pace; g.y += uy * pace;
+    if (g.age > g.life || g.x < -40 || g.y < -40 || g.x > W + 40 || g.y > H + 40) { gusts[i] = respawn(); continue; }
+    const f = Math.min(1, g.age / 0.6, (g.life - g.age) / 0.6);                    // fade in and out
+    ctx.globalAlpha = a0 * f;
+    ctx.beginPath(); ctx.moveTo(g.x, g.y); ctx.lineTo(g.x - ux * len, g.y - uy * len); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------- wind and current instrument
+// A small console dial in the chart's corner: wind arrow from where it blows, current arrow where it sets,
+// own heading and north, turning with the chart in head-up. Reads the bridge sensors, like the readouts.
+const ENV = { from: 0, wV: 0, peak: 0, set: 0, cV: 0, t: 0 };
+const smoothAng = (a: number, b: number, k: number) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * k;
+export function drawEnvGauge() {
+  const now = performance.now() / 1000, dt = Math.min(0.2, ENV.t ? now - ENV.t : 0); ENV.t = now;
+  const r = S.rt.sensors.out, k = Math.min(1, dt * 3);
+  ENV.from = smoothAng(ENV.from, r.windTrueFrom, k); ENV.wV += (r.windTrueSpeed - ENV.wV) * k;
+  ENV.peak = Math.max(r.windTrueSpeed, ENV.peak * Math.exp(-dt / 12));             // gust: the recent peak
+  const cN = r.curEst[0], cE = r.curEst[1], cs = Math.hypot(cN, cE);
+  if (cs > 0.02) ENV.set = smoothAng(ENV.set, Math.atan2(cE, cN), k); ENV.cV += (cs - ENV.cV) * k;
+  const Rg = 34, cw = 116, ch = 2 * Rg + 48, cx0 = W - LAY.padR - cw, cy0 = LAY.trayTop - 52 - ch;
+  if (cy0 < LAY.chipsBottom + 8 || W < 300) return;                                  // no room: the readouts still show it
+  const cx = cx0 + cw / 2, cy = cy0 + Rg + 8, rot = S.view.rot;
+  const g = ctx; g.save(); g.setTransform(DPR, 0, 0, DPR, 0, 0);
+  // card
+  g.fillStyle = 'rgba(18, 24, 30, 0.86)'; g.strokeStyle = 'rgba(255, 255, 255, 0.08)'; g.lineWidth = 1;
+  g.beginPath(); g.roundRect(cx0, cy0, cw, ch, 12); g.fill(); g.stroke();
+  // face, ticks every 30°, north
+  const gr = g.createRadialGradient(cx, cy - Rg * 0.4, Rg * 0.1, cx, cy, Rg); gr.addColorStop(0, K.face); gr.addColorStop(1, K['face-2']);
+  g.fillStyle = gr; g.beginPath(); g.arc(cx, cy, Rg, 0, Math.PI * 2); g.fill();
+  const at = (b: number, rr: number): [number, number] => [cx + Math.sin(b - rot) * rr, cy - Math.cos(b - rot) * rr];
+  g.strokeStyle = K.muted; g.lineWidth = 1;
+  for (let d = 0; d < 360; d += 30) { const [x0, y0] = at(d * DEG, Rg - 1), [x1, y1] = at(d * DEG, Rg - (d % 90 ? 4 : 7)); g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); }
+  const [nx, ny] = at(0, Rg + 7);
+  g.font = `700 9px ${K.fontLabel}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = K.own; g.fillText('N', nx, ny);
+  // own ship, by heading
+  g.save(); g.translate(cx, cy); g.rotate(r.hdg - rot); g.fillStyle = K.muted; g.globalAlpha = 0.8;
+  g.beginPath(); g.moveTo(0, -10); g.lineTo(4, -4); g.lineTo(4, 9); g.lineTo(-4, 9); g.lineTo(-4, -4); g.closePath(); g.fill(); g.restore();
+  const head = (x0: number, y0: number, x1: number, y1: number, col: string, wdt: number) => {
+    const a = Math.atan2(y1 - y0, x1 - x0);
+    g.strokeStyle = g.fillStyle = col; g.lineWidth = wdt; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1 - Math.cos(a) * 4, y1 - Math.sin(a) * 4); g.stroke();
+    g.beginPath(); g.moveTo(x1, y1); g.lineTo(x1 - 8 * Math.cos(a - 0.45), y1 - 8 * Math.sin(a - 0.45)); g.lineTo(x1 - 8 * Math.cos(a + 0.45), y1 - 8 * Math.sin(a + 0.45)); g.closePath(); g.fill();
+  };
+  // current: from the centre toward where it sets, longer when stronger
+  if (ENV.cV > 0.03) { const [x1, y1] = at(ENV.set, Rg * (0.35 + 0.55 * Math.min(1, ENV.cV / 1.5))); head(cx, cy, x1, y1, K.cur, 2.5); }
+  // wind: in from the rim on the side it blows from
+  if (ENV.wV > 0.5) { const [x0, y0] = at(ENV.from, Rg + 2), [x1, y1] = at(ENV.from, Rg * 0.3); head(x0, y0, x1, y1, K.ink, 3); }
+  // figures
+  g.font = `600 11px ${K.fontNum}`; g.textAlign = 'left'; g.textBaseline = 'middle';
+  const p3 = (b: number) => String(Math.round(((b / DEG) % 360 + 360) % 360)).padStart(3, '0');
+  const ty = cy + Rg + 14, tx = cx0 + 10;
+  g.fillStyle = K.muted; g.fillText('W', tx, ty); g.fillText('C', tx, ty + 15);
+  g.fillStyle = K.ink;
+  const kn = ENV.wV / KN, gk = ENV.peak / KN;
+  g.fillText(ENV.wV > 0.5 ? `${p3(ENV.from)}° ${kn.toFixed(0)}${gk > kn + 3 ? ` G${gk.toFixed(0)}` : ' kn'}` : 'calm', tx + 12, ty);
+  g.fillStyle = K.cur; g.fillText(ENV.cV > 0.03 ? `${p3(ENV.set)}° ${(ENV.cV / KN).toFixed(1)} kn` : 'nil', tx + 12, ty + 15);
+  g.restore();
 }
 
 export function drawTrail() {
