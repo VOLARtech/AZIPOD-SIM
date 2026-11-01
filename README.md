@@ -20,7 +20,7 @@ It started as a trainer for cruise ships with *Azipods* (propellers in pods unde
 - **Sail in real places.** PortMiami, built from the official sea chart, with around 13,000 real buildings, the causeway bridges and the container cranes. The passenger terminal in Amsterdam. Practice harbours, a river, an oil terminal, an ice field and the open sea.
 - **Look out of the window in 3D.** See the view from the wheelhouse or either bridge wing, follow the ship from behind, or go underwater and watch the propellers turn. Day, dusk and night, with ship lights and lit-up windows after dark.
 - **See where you're heading.** A forecast line on the water shows where your ship will be in the next few minutes, so you can correct early.
-- **Handle real situations.** Tie up with mooring lines, call tugs to push and pull, cope with gusty wind and strong current, pass another ship in a narrow channel, share any harbour with random traffic, break a path through ice, escort a loaded tanker, or hold a supply ship perfectly still next to an oil platform.
+- **Handle real situations (and their consequences).** Tie up with mooring lines, call tugs to push and pull, cope with gusty wind and strong current, pass another ship in a narrow channel, share any harbour with random traffic, break a path through ice, escort a loaded tanker, or hold a supply ship perfectly still next to an oil platform.
 - **Hear and feel it.** Engines and propellers that sound the way they're working, the bow thruster roar, fenders squeaking against the quay, mooring lines creaking. On Android phones you also feel the controls click and the bumps.
 - **Run sea trials.** Measure turning circles and stopping distances, the way shipyards test new ships.
 
@@ -84,6 +84,7 @@ On a phone or tablet, just use the levers and wheels on screen. On a computer yo
 - **A new look for the controls.** The readouts, buttons and levers sit in a dark console that stays the same day and night; only the chart changes with the time of day.
 - **See the wind and current.** Wind streaks drift across the chart with every gust and shift, and a small dial in the corner shows where the wind comes from, where the current sets and how strong both are.
 - **Other ships around you.** Switch on traffic in any scenario (Light or Busy) and ships from the fleet go about their business: sailing to places of their own, steering and slowing like real ships, keeping to the right in channels, lying at anchor and swinging to the wind and current, and keeping out of your way as the rules of the road ask. A small AIS mini map in the corner shows them all round you, with the coastline, and turns a ship red when she is getting too close; tap one to see her distance, closest approach and how soon.
+- **Damage that matters.** Hit a quay, a bank or another ship too hard, or run aground, and she pays for it: dented plating, a breached hull letting the sea in, a ship that settles, trims and lists, propellers and thrusters that lose their push, and, if it gets bad enough, a capsize. A damage control panel shows what is flooding and how she is floating. It can be switched off for practice.
 - **Fixes.** Ships now face the right way, with their propellers at the stern, and each bridge camera sits where the real wheelhouse is.
 
 ## Thanks and credits

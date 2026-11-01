@@ -57,18 +57,20 @@ export function keelPoints(spec: ShipSpec): number[] {
 }
 
 /** Grounding: soft-bottom penetration → large friction against motion at aground points. */
-export function groundingForces(spec: ShipSpec, st: ShipState, depthAt: DepthField, sq: number) {
+export function groundingForces(spec: ShipSpec, st: ShipState, depthAt: DepthField, sq: number,
+  extra?: (x: number) => number, out?: { x: number; F: number; v: number }[]) {
   const c = Math.cos(st.psi), s = Math.sin(st.psi);
   let X = 0, Y = 0, N = 0, maxPen = 0;
   const kg = RHO * G * spec.L * spec.B / 5; // N per m penetration per point (≈ lost buoyancy)
   for (const x of keelPoints(spec)) {
     const pn = st.n + x * c, pe = st.e + x * s;
-    const draught = spec.T + sq * (x > 0 ? 1.15 : 0.85);   // fine-ish hull squats by the head
+    const draught = spec.T + sq * (x > 0 ? 1.15 : 0.85) + (extra ? extra(x) : 0);   // fine-ish hull squats by the head; flooding sinks and trims her
     const pen = draught - depthAt(pn, pe);
     if (pen <= 0) continue;
     maxPen = Math.max(maxPen, pen);
     const vx = st.u, vy = st.v + st.r * x, vm = Math.hypot(vx, vy);
     const F = 0.45 * kg * pen;
+    if (out) out.push({ x, F, v: vm });
     const fx = -F * vx / (vm + 0.05), fy = -F * vy / (vm + 0.05);
     X += fx; Y += fy; N += x * fy;
   }

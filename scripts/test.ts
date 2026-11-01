@@ -348,6 +348,65 @@ import { hullsTouch } from '../src/physics/traffic';
   });
 }
 
+console.log('damage');
+{
+  const calmD: Env = { windSpeed: 0, windFrom: 0, gusts: false, current: () => [0, 0], depth: 30 };
+  const rect4 = (n0: number, n1: number, e0: number, e1: number): [number, number][] => [[n0, e0], [n0, e1], [n1, e1], [n1, e0]];
+  const quay = { obstacles: [{ poly: rect4(1, 400, -600, 600), k: 6e6, c: 1.5e6, mu: 0.45, unload: 0.04, kind: 'quay' as const }], fenders: [], bollards: [], depthAt: () => 20 };
+  const go = (id: string, harbour: ConstructorParameters<typeof Runtime>[4], n: number, e: number, psi: number, kn: number, rpm: number, secs: number, on = true) => {
+    const sp = SHIPS[id]; setShip(id); setHull(buildHull(sp.L, sp.B, sp.xg, sp.LOA));
+    const st = makeState(sp, n, e, psi, kn); st.pods.forEach(p => (p.rpm = rpm));
+    const rt = new Runtime(sp, st, { pods: sp.pods.map(() => ({ alpha: 0, rpm })), bt: 0 }, calmD, harbour);
+    rt.damageOn = on;
+    for (let k = 0; k < secs / 0.05; k++) rt.step();
+    return rt;
+  };
+  const restore = () => { setShip('spirit'); setHull(buildHull(SHIP.L, SHIP.B, SHIP.xg, SHIP.LOA)); };
+  test('a gentle touch on a quay (0.3 kn) leaves no mark', () => {
+    const rt = go('spirit', quay, 1 - SHIPS.spirit.LOA / 2 - 20 + SHIPS.spirit.xg, 0, 0, 0.3, 0, 300);
+    assert.ok(!rt.damage.any, rt.damage.events.map(e => e.text).join(' | '));
+  });
+  test('square onto a quay at 4 kn: the bow is breached and floods, she settles by the head and stays afloat', () => {
+    const rt = go('spirit', quay, 1 - SHIPS.spirit.LOA / 2 - 30 + SHIPS.spirit.xg, 0, 0, 4, 0, 900), d = rt.damage;
+    assert.ok(d.zones.some(z => z.section === 0 && z.hole > 0), 'bow breached');
+    assert.ok(d.water > 1000 && d.sink > 0.2 && d.trim > 0, `water ${d.water.toFixed(0)} m³, sink ${d.sink.toFixed(2)} m, trim ${(d.trim / DEG).toFixed(2)}°`);
+    assert.equal(d.lost, '', 'one compartment: she survives');
+    assert.ok(rt.ukc < 20 - SHIPS.spirit.T - 0.2, 'under-keel clearance takes the extra draught');
+  });
+  test('raking along a rock wall at 12 kn opens compartment after compartment, and she capsizes', () => {
+    const wall = { ...quay, depthAt: () => 30, obstacles: [{ poly: rect4(-2000, 2000, 20, 300), k: 6e6, c: 1.5e6, mu: 0.45, unload: 0.04, kind: 'bank' as const }] };   // fresh: obstacles cache their bounding box
+    const rt = go('spirit', wall, -800, 0, 6, 12, 0.8, 300), d = rt.damage;
+    assert.ok(d.zones.filter(z => z.hole > 0).length >= 3, `${d.zones.filter(z => z.hole > 0).length} breaches`);
+    assert.equal(d.lost, 'capsized', `list ${(d.list / DEG).toFixed(1)}°, GM ${d.GMeff.toFixed(2)} m, water ${d.water.toFixed(0)} m³`);
+  });
+  test('running aground at 6 kn tears the bottom; resting on it she cannot founder', () => {
+    const shelf = { ...quay, obstacles: [], depthAt: (n: number) => (n > 200 ? 6 : 20) };
+    const rt = go('spirit', shelf, 0, 0, 0, 6, 0.5, 300), d = rt.damage;
+    assert.ok(d.zones.some(z => z.side === 0 && z.hole > 0) && d.water > 0, 'bottom breached and flooding');
+    assert.ok(d.aground && d.lost !== 'foundered', `aground ${d.aground}, lost '${d.lost}'`);
+  });
+  test('going astern into a quay at 3 kn damages the pods: they lose thrust', () => {
+    const sp = SHIPS.spirit, rt = go('spirit', quay, 1 - sp.LOA / 2 - 20 - sp.xg, 0, 180, -3, 0, 200);
+    assert.ok(rt.damage.health.some(h => h < 1), `units ${rt.damage.health.join(', ')}`);
+    assert.ok(rt.model.health!.some(h => h < 1), 'the model sees it');
+  });
+  test('damage off: the same hit leaves the hull as it was', () => {
+    const rt = go('spirit', quay, 1 - SHIPS.spirit.LOA / 2 - 30 + SHIPS.spirit.xg, 0, 0, 4, 0, 300, false);
+    assert.ok(!rt.damage.any && rt.damage.water === 0);
+  });
+  test('another ship is solid: ramming one lying stopped stops you, and dents you', () => {
+    const sp = SHIPS.becancour; setShip('becancour'); setHull(buildHull(sp.L, sp.B, sp.xg, sp.LOA));
+    const rt = new Runtime(sp, makeState(sp, -400, 0, 0, 5), { pods: sp.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0 }, calmD, { ...quay, obstacles: [] });
+    rt.damageOn = true;
+    rt.traffic = [new Traffic(SHIPS.kcs, { ship: 'kcs', label: 'TARGET', start: { n: 0, e: 0, psi: 90, kn: 0 } })];
+    let minN = Infinity;
+    for (let k = 0; k < 300 / 0.05; k++) { rt.step(); minN = Math.min(minN, -rt.state.n); }
+    assert.ok(rt.state.n < -SHIPS.kcs.B / 2 && rt.state.u < 0.2, `stopped at n ${rt.state.n.toFixed(1)}, u ${rt.state.u.toFixed(2)}`);
+    assert.ok(rt.damage.any && rt.damage.events.some(e => /collision with TARGET/.test(e.text)), rt.damage.events.map(e => e.text).join(' | '));
+  });
+  restore();
+}
+
 console.log('predictor & validation');
 import { runPrediction } from '../src/physics/predict';
 import { scenarioWorld } from '../src/scenarios';

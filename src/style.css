@@ -594,3 +594,17 @@ details.sec[open] { display: flex; flex-direction: column; gap: 10px; padding-bo
 .ais-info .hint { opacity: 0.75; }
 @media (max-width: 600px) { .ais { width: clamp(150px, 42vw, 190px); } .ais-info { font-size: 10px; } .ais-info .xt { display: none; } }
 @media (orientation: landscape) and (max-height: 520px) { .ais { width: clamp(140px, 22vw, 180px); } }
+
+/* ---------- damage control ---------- */
+.mb.alarm { color: var(--warn); border-color: var(--warn); animation: alarm 1s steps(2, start) infinite; }
+@keyframes alarm { 50% { background: rgba(255, 90, 61, 0.22); } }
+@media (prefers-reduced-motion: reduce) { .mb.alarm { animation: none; } }
+.dmg-plan { width: 100%; aspect-ratio: 4.2 / 1; max-height: 120px; display: block; }
+.dmg-stat { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; font: 500 12px var(--font-num); align-items: baseline; }
+.dmg-stat .k { font: 600 10.5px var(--font-label); letter-spacing: 0.08em; color: var(--muted); white-space: nowrap; }
+.dmg-stat .v { color: var(--ink); }
+.dmg-stat .v.warn { color: var(--warn); }
+.dmg-log { display: flex; flex-direction: column; gap: 2px; font: 500 11px var(--font-num); color: var(--muted); max-height: 110px; overflow-y: auto; }
+.dmg-log span { color: var(--muted); margin-right: 8px; }
+.dmg-log .heavy { color: var(--warn); }
+.dmg-log .warn { color: #e8a33a; }

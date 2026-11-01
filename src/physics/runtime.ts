@@ -3,7 +3,8 @@ import {
   ActStatus, Command, Env, Gust, Model, ShipState, World, Breakdown, emptyBreakdown, emptyStatus, rk4, updateActuators, thrusterEff,
 } from './sim';
 import { ContactInfo, Fender, Obstacle, Pt } from './contact';
-import { DepthField, bankEffect, squat, washReflection } from './harbour';
+import { DepthField, bankEffect, groundingForces, squat, washReflection } from './harbour';
+import { Damage, Hit } from './damage';
 import { MooringLine, Tug, LINE, makeLines, makeTugs, passLine, tugForces, updateTugs, updateWinches } from './mooring';
 import { DPState, JoyInput, allocate, dpForces, joyLimits } from './allocation';
 import { Sensors } from './sensors';
@@ -57,6 +58,10 @@ export class Runtime {
   sq = 0; depthHere = Infinity; ukc = Infinity;
   wasInContact = false; wasAground = false;
   contactLog: ContactEvent[] = [];
+  /** Hull and propulsion damage, flooding and its consequences (off in the test harness and the regression runs). */
+  damage: Damage;
+  damageOn = false;
+  private hits: Hit[] = []; private gpts: { x: number; F: number; v: number }[] = [];
   alerts: Alert[] = [];
   trail: [number, number][] = [];
   escort: Escort | null = null;            // the ship this tug is working, with the towline
@@ -79,6 +84,7 @@ export class Runtime {
     this.sensors = new Sensors(spec);
     if (harbour.mooringSide) this.lines = makeLines(spec.L, spec.B, spec.xg, harbour.mooringSide);
     if (harbour.tugSide) this.tugs = makeTugs(spec.L, spec.xg, harbour.tugSide, harbour.tugBP);
+    this.damage = new Damage(spec);
     this.world = {
       obstacles: harbour.obstacles, fenders: harbour.fenders, lines: this.lines, bollards: harbour.bollards,
       lineT: this.lines.map(() => 0), ext: { X: 0, Y: 0, N: 0 }, depthAt: harbour.depthAt, squat: 0, aground: 0,
@@ -191,7 +197,8 @@ export class Runtime {
     this.bank = bankEffect(spec, st, this.harbour.obstacles, this.depthHere);
     const confined = this.bank.clear < 2 * spec.B ? 1 : 0;
     this.sq = squat(spec, stw, this.depthHere, confined);
-    this.ukc = this.depthHere - spec.T - this.sq;
+    const dmgT = this.damageOn ? Math.max(this.damage.draughtAt(spec.L / 2), this.damage.draughtAt(-spec.L / 2)) : 0;
+    this.ukc = this.depthHere - spec.T - this.sq - dmgT;
     this.wash = washReflection(spec, st, this.bd.pods.map(p => p.T), this.harbour.obstacles);
     const ext = this.world.ext!;
     // passing ships
@@ -205,7 +212,17 @@ export class Runtime {
     }
     const ice = this.ice ? this.ice.force(spec, st) : this.iceF;
     this.iceF = ice;
-    ext.X = tug.X + this.bank.X + this.wash.X + it.X + ice.X;
+    // other ships are hard: their hulls are obstacles moving with them, so a collision pushes, stops and damages
+    const near = this.traffic.filter(t => Math.hypot(t.st.n - st.n, t.st.e - st.e) < (spec.LOA + t.spec.LOA) / 2 + 30);
+    this.world.obstacles = near.length ? this.harbour.obstacles.concat(near.map(t => {
+      const c = Math.cos(t.st.psi), sn = Math.sin(t.st.psi);
+      return { poly: t.hull.map(([x, y]) => [t.st.n + x * c - y * sn, t.st.e + x * sn + y * c] as Pt), k: 4e6, c: 1.2e6, mu: 0.3, unload: 0.05, kind: 'ship' as const,
+        vel: [t.st.u * c, t.st.u * sn] as Pt, name: `collision with ${t.setup.label}` };
+    })) : this.harbour.obstacles;
+    // damage: thrust lost on hit units, flooding sinks and trims her (grounding sees it), and drags
+    const dmg = this.damage, dmgX = this.damageOn ? dmg.resistance(st.u) : 0;
+    if (this.damageOn) { this.model.health = dmg.health; this.model.btHealth = dmg.btHealth; this.world.dmgDraught = dmg.water > 0 ? (x: number) => dmg.draughtAt(x) : undefined; }
+    ext.X = tug.X + this.bank.X + this.wash.X + it.X + ice.X + dmgX;
     ext.Y = tug.Y + this.bank.Y + this.wash.Y + it.Y + ice.Y;
     ext.N = tug.N + this.bank.N + this.wash.N + it.N + ice.N;
     this.world.squat = this.sq;
@@ -252,6 +269,7 @@ export class Runtime {
     for (const l of this.lines) if (l.state === 'fast' && l.T > 0.8 * LINE.MBL && st.t % 2 < dt) this.alert(`${l.name} ${(l.T / 9.81e3).toFixed(0)} t — near breaking`, 'heavy');
 
     this.logContact(dt);
+    if (this.damageOn) this.stepDamage(dt);
     const ag = (this.world.aground ?? 0) > 0.02;
     if (ag && !this.wasAground) this.alert(`AGROUND · ${(st.u / KN).toFixed(1)} kn`, 'heavy');
     this.wasAground = ag;
@@ -262,6 +280,27 @@ export class Runtime {
       this.trail.push([st.n, st.e]);
       if (this.trail.length > 900) this.trail.shift();
     }
+  }
+
+  /** Hard contact and grounding this step → hull and unit damage, then flooding and its settling. */
+  private stepDamage(dt: number) {
+    const st = this.state, spec = this.spec, c = Math.cos(st.psi), s = Math.sin(st.psi), hits = this.hits;
+    hits.length = 0;
+    if (this.ci.active) for (const p of this.ci.points) {
+      // fenders doing their job, the hull moving off, or just lying (or pushing) against it: only an impact damages
+      // (and raking: sliding along it under load tears the plating, the friction work counts too)
+      const dE = (p.vn < -0.05 ? p.F * -p.vn : 0) + (p.slide ?? 0);
+      if (!p.with || dE <= 0) continue;
+      const dn = p.n - st.n, de = p.e - st.e;
+      hits.push({ x: c * dn + s * de, y: -s * dn + c * de, dE: dE * dt, bottom: false, with: p.with });
+    }
+    if ((this.world.aground ?? 0) > 0) {
+      this.gpts.length = 0;
+      groundingForces(spec, st, this.harbour.depthAt, this.sq, this.world.dmgDraught, this.gpts);
+      for (const g of this.gpts) if (g.v > 0.05) hits.push({ x: g.x, y: 0, dE: g.F * g.v * dt, bottom: true, with: 'grounding' });   // sliding over the bottom tears it
+    }
+    this.damage.aground = (this.world.aground ?? 0) > 0.05;
+    for (const e of this.damage.step(dt, st, hits)) this.alert(e.text, e.level === 'heavy' ? 'heavy' : '');
   }
 
   private logContact(dt: number) {

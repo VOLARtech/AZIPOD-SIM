@@ -1008,9 +1008,12 @@ export class View3D {
     const c = Math.cos(psi), s = Math.sin(psi);
     const w2 = (x: number, y: number, z = 0) => tp(st.n + x * c - y * s, st.e + x * s + y * c, z);
     // own ship: true pose (out of the window is reality, not the sensor estimate); squat as sinkage
-    this.ship.position.set(st.e, -(rt.world.squat ?? 0), -st.n);
+    // flooding: she settles, trims (bow down = −x rotation, the bow lies along −z) and lists
+    const dm = rt.damageOn ? rt.damage : null;
+    this.ship.position.set(st.e, -(rt.world.squat ?? 0) - (dm?.sink ?? 0), -st.n);
     this.ship.rotation.y = -psi;
-    this.ship.rotation.z = -(rt.roll?.phi ?? 0);
+    this.ship.rotation.x = -(dm?.trim ?? 0);
+    this.ship.rotation.z = -(rt.roll?.phi ?? 0) - (dm?.list ?? 0);
     rt.traffic.forEach((tr, k) => { const g = this.trafficG[k]; if (!g) return; g.position.set(tr.st.e, 0, -tr.st.n); g.rotation.y = -tr.st.psi; });
     const esc = rt.escort;
     this.other.visible = !!esc;

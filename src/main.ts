@@ -13,6 +13,7 @@ import { DEG, KN, SHIP, SHIPS, propulsionSummary, setShip, type ShipSpec } from 
 import { Traffic } from './physics/traffic';
 import { TrafficAI, groundVel, makeTraffic } from './physics/aitraffic';
 import { AisMap, computeAis } from './ui/ais';
+import { drawDamagePlan, renderDamage } from './ui/dmgpanel';
 import { IceState } from './physics/ice';
 import { buildDpStation, buildJetStation, buildStation, buildTugStation, initialOrders, Station } from './ui/stations';
 import { buildHull, setHull } from './physics/contact';
@@ -75,6 +76,7 @@ function loadScenario(sc: Scenario) {
   if (sc.traffic) S.rt.traffic = sc.traffic.map(t => new Traffic(SHIPS[t.ship], t));
   S.traffic.seed = (Math.random() * 2 ** 31) >>> 0;
   setRandomTraffic(false);
+  S.rt.damageOn = S.disp.damage === 'on'; lostShown = false;
   if (sc.ice) S.rt.ice = new IceState(sc.ice);
   applyEnv();
   S.rt.sensors.reset();
@@ -83,7 +85,7 @@ function loadScenario(sc: Scenario) {
   S.pred.tracks = [];
   S.quay.forEach(q => { q.d = Infinity; q.rate = 0; });
   $('b-lines').hidden = !sc.mooringSide; $('b-tugs').hidden = !S.rt.tugs.length;     // a tug as own ship does not call tugs
-  $('p-lines').hidden = $('p-tugs').hidden = true;
+  $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = true;
   ($('bt') as HTMLInputElement).value = '0';
   setLever('twin');
   mountStation();
@@ -637,14 +639,14 @@ function updateTugsPanel() {
   });
 }
 function placePanels() {
-  for (const id of ['p-lines', 'p-tugs']) {
+  for (const id of ['p-lines', 'p-tugs', 'p-dmg']) {
     const el = $(id);
     el.style.bottom = `${innerHeight - D.LAY.trayTop + 8}px`;
     el.style.maxHeight = `${Math.max(140, D.LAY.trayTop - D.LAY.chipsBottom - 16)}px`;
   }
 }
 document.querySelectorAll<HTMLButtonElement>('[data-close]').forEach(b => (b.onclick = () => ($(b.dataset.close!).hidden = true)));
-$('b-lines').onclick = () => { const p = $('p-lines'); p.hidden = !p.hidden; $('p-tugs').hidden = true; buildLines(); placePanels(); };
+$('b-lines').onclick = () => { const p = $('p-lines'); p.hidden = !p.hidden; $('p-tugs').hidden = $('p-dmg').hidden = true; buildLines(); placePanels(); };
 // ---------------------------------------------------------------- random traffic and the AIS card
 /** (Re)draw the random traffic for this scenario round own ship; scripted scenario traffic stays. */
 function setRandomTraffic(rebuild3d = true) {
@@ -674,7 +676,21 @@ $('b-retraffic').onclick = () => {
   if (S.traffic.level === 'off') { S.traffic.level = 'light'; uiSyncs.forEach(f => f()); }
   S.traffic.seed = (Math.random() * 2 ** 31) >>> 0; setRandomTraffic(); toast('New traffic.');
 };
-$('b-tugs').onclick = () => { const p = $('p-tugs'); p.hidden = !p.hidden; $('p-lines').hidden = true; placePanels(); };
+// ---------------------------------------------------------------- damage control
+let lostShown = false;
+$('b-dmg').onclick = () => { const p = $('p-dmg'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-tugs').hidden = true; placePanels(); updateDamage(); };
+function updateDamage() {
+  const d = S.rt.damage;
+  $('b-dmg').hidden = !S.rt.damageOn || !d.any;
+  $('b-dmg').classList.toggle('alarm', d.inflow > d.pumping + 1e-3 || !!d.lost);
+  if (!$('p-dmg').hidden) { drawDamagePlan($('dmg-plan') as HTMLCanvasElement); renderDamage($('dmg-stat'), $('dmg-log')); }
+  if (d.lost && !lostShown) {
+    lostShown = true; S.paused = true; syncButtons();
+    toast(`Ship lost: ${d.lost === 'capsized' ? 'she capsized' : 'she foundered'}. Damage control has the story.`, { label: 'RESTART', run: () => { openScenario(S.sc).then(() => { S.paused = false; syncButtons(); }); } }, 30000);
+    $('p-dmg').hidden = false; placePanels();
+  }
+}
+$('b-tugs').onclick = () => { const p = $('p-tugs'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-dmg').hidden = true; placePanels(); };
 
 // ---------------------------------------------------------------- map gestures
 const ptrs = new Map<number, { x: number; y: number }>();
@@ -861,6 +877,7 @@ function seg(id: string, get: () => string, set: (v: string) => void) {
 seg('seg-src', () => S.pred.source, v => (S.pred.source = v as 'ideal' | 'onboard'));
 seg('seg-sens', () => S.sensMode, v => { S.sensMode = v as typeof S.sensMode; S.rt.sensors.mode = S.sensMode; });
 seg('seg-detail', () => S.disp.detail, v => (S.disp.detail = v as 'clean' | 'full'));
+seg('seg-dmg', () => S.disp.damage, v => { S.disp.damage = v as 'on' | 'off'; S.rt.damageOn = v === 'on'; });
 seg('seg-traffic', () => S.traffic.level, v => { S.traffic.level = v as typeof S.traffic.level; setRandomTraffic(); });
 seg('seg-unit', () => S.disp.unit, v => (S.disp.unit = v as typeof S.disp.unit));
 seg('seg-gfx', () => S.disp.gfx, v => { S.disp.gfx = v as typeof S.disp.gfx; v3?.setQuality(gfxQuality(v3.backend)); });
@@ -958,7 +975,7 @@ function frame(now: number) {
   if (station) station.draw();
   else { for (const d of dials) d.draw(); for (const l of levers) l.draw(); }
   slowT -= dtReal;
-  if (slowT <= 0) { slowT = 0.1; updateHud(); updateLinesPanel(); updateTugsPanel(); if (S.rt.traffic.length) computeAis(); }
+  if (slowT <= 0) { slowT = 0.1; updateHud(); updateLinesPanel(); updateTugsPanel(); updateDamage(); if (S.rt.traffic.length) computeAis(); }
   if (S.rt.traffic.length && !$('ais').hidden && $('ais-head').getAttribute('aria-expanded') === 'true') aisMap.draw();
   // adaptive resolution: if frames run long for 2 s, render at a lower pixel density
   frameEma += (performance.now() - t0 - frameEma) * 0.05;

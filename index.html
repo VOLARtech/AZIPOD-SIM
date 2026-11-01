@@ -56,6 +56,7 @@
     <button id="b-lines" class="mb" hidden>LINES</button>
     <button id="b-tugs" class="mb" hidden>TUGS</button>
     <button id="b-ais" class="mb" hidden aria-label="AIS targets">AIS</button>
+    <button id="b-dmg" class="mb" hidden aria-label="Damage control">DAMAGE</button>
     <span class="zoom"><button id="b-zin" class="mb sq" aria-label="Zoom in">+</button><button id="b-zout" class="mb sq" aria-label="Zoom out">−</button></span>
   </nav>
 
@@ -70,6 +71,12 @@
     <div class="panel-head"><span class="tag">MOORING LINES · WINCHES</span><button class="x" data-close="p-lines" aria-label="Close">×</button></div>
     <div id="lines"></div>
     <p class="hint">Lines go ashore when the fairlead is within 60 m of a bollard. HEAVE stalls at 16 t, the brake renders above 61 t, lines part at 100 t.</p>
+  </section>
+  <section class="panel" id="p-dmg" hidden aria-label="Damage control">
+    <div class="panel-head"><span class="tag">DAMAGE CONTROL</span><button class="x" data-close="p-dmg" aria-label="Close">×</button></div>
+    <canvas class="dmg-plan" id="dmg-plan" aria-label="Hull plan: damage by section, flooding, propulsion"></canvas>
+    <div class="stat dmg-stat" id="dmg-stat"></div>
+    <div class="dmg-log" id="dmg-log"></div>
   </section>
   <section class="panel" id="p-tugs" hidden aria-label="Tugs">
     <div class="panel-head"><span class="tag" id="tug-head">TUGS</span><button class="x" data-close="p-tugs" aria-label="Close">×</button></div>
@@ -144,6 +151,13 @@
         <label for="s-cd">Current sets to <output id="o-cd"></output></label><input type="range" id="s-cd" min="0" max="355" step="5" />
         <label class="chk"><input type="checkbox" id="s-gu" /> Gusts (σ 17 %, 12 s)</label>
       </div>
+      </details>
+      <details class="sec"><summary><h2>Damage</h2></summary>
+      <div class="env-grid">
+        <span class="lbl">Hull and machinery damage</span>
+        <div class="seg" id="seg-dmg"><button data-v="on">Realistic</button><button data-v="off">Off (practice)</button></div>
+      </div>
+      <p class="note">With damage on, hard contact (a quay, a bank, a fender crushed flat, another ship) and running aground cost what they would. A light touch dents the plating; a harder one breaches it and the sea comes in, sinking, trimming and listing her and slowing her down. A hit at the stern or bow can cost a propeller, pod, rudder or the bow thruster. Flood too much and she can capsize or founder. The DAMAGE button opens damage control. Off, she bounces off like a training ship.</p>
       </details>
       <details class="sec"><summary><h2>Traffic</h2></summary>
       <div class="env-grid">

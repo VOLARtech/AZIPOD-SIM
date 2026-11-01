@@ -62,6 +62,31 @@ The physics, data sources, ship models and developer workflow behind the simulat
 
 Azipod ships: port pod `A` `D` azimuth, `W` `S` rpm · stbd pod `J` `L`, `I` `K` · bow thruster `Q` `E` · joystick arrows. Telegraph and lever ships: `W` `S` engine order, `A` `D` helm, `X` stop, `M` midships. Waterjets: `J` joystick mode. DP: `1` `2` `3` modes, `W` `A` `S` `D` `Q` `E` joystick, `I` `J` `K` `L` `U` `O` move the setpoint. Everywhere: `H` head-up · `V` chart / split / 3D · `C` 3D camera.
 
+## Damage
+
+`src/physics/damage.ts`, on in the app (Menu → Damage: Realistic / Off), off in the test harness and the regression runs.
+
+- **Impact energy.** Every hard contact point (quay, bank, pier, a fender crushed past 110 % of its rated deflection, another ship) adds its contact force × closing speed, counted only for impacts faster than 5 cm/s, plus friction × sliding speed above 0.2 m/s (raking). Every grounded keel point adds its grounding force × speed over the bottom. Contact energy matches the kinetic energy taken off: about 24 MJ for the Spirit square onto a quay at 2 kn.
+- **Hull zones.** Five sections (stern, aft, midships, forward, bow, at 0.15/0.35/0.6/0.8 L), each port, starboard and bottom.
+  - The plating dents at 8 % of the rupture energy, and breaches at E_b = max(0.4 MJ, 4 MJ × (Δ/10 000 t)^(2/3)). That is a calibration, not a single-source value; it scales with structural size.
+  - Hole area grows as (E − E_b) / 47.2 MJ m⁻³ / 0.25 m (Minorsky's energy–volume slope over a smeared plating thickness), capped at a quarter of the section's side.
+- **Flooding.**
+  - Orifice flow, 0.6 A √(2 g h), with head from the waterline to the hole (T/3 for the side, T for the bottom) less the water inside.
+  - Compartments are the five sections at permeability 0.85 up to the main deck. The bilge pumps take 0.05 m³/s per 100 m of length from the wettest compartment.
+  - A side hole's water stays on that side until cross-flooding spreads it (time constant 3 min).
+- **Floating position.**
+  - Sinkage: water / (0.85 L B).
+  - Trim: Σ w x / (Δ · GM_L), with GM_L ≈ 0.06 L² / T.
+  - List: Σ w · asym · B/4 / (Δ · GM_eff), where GM_eff = GM − free surface (15 % of the full-width value for partly full compartments).
+- **Consequences.**
+  - Extra draught along the hull feeds the grounding check and the under-keel clearance.
+  - Added resistance from the extra displacement (as (1 + w/Δ)^(2/3)) and from the holes.
+  - A unit within 0.08 L of a hit (or two diameters) loses thrust: 85 % for a heavy side hit or 70 % for a propeller strike on the bottom, 40 % past rupture. The bow thruster within 0.06 L: 80 % / 30 %.
+- **Lost.** Capsized when the list passes 25° or GM is gone; foundered when the deck at an end (the bow with 1.5 × the midship freeboard for sheer) stays under for a minute. A ship resting on the bottom cannot founder. When she is lost the simulation pauses and offers a restart.
+- **Other ships** are solid: near traffic hulls are moving obstacles in the contact model (steel on steel, closing speed relative to the other ship).
+- **Interface.** A DAMAGE button (red and flashing while flooding beats the pumps) opens damage control: a hull plan with the sections, damage and flooding, the units by thrust left, draught fore and aft, trim, list, GM, water in, inflow and pumps, and the log. Dents and breaches show on the chart's own-ship outline, and in 3D she settles, trims and lists.
+- **Tests:** a 0.3 kn touch leaves no mark; 4 kn square on breaches the bow and floods one compartment, and she survives by the head; raking a rock wall at 12 kn opens five and capsizes her; running onto a 6 m shelf at 6 kn tears the bottom, and she does not founder while resting on it; going astern into a quay damages the pods; damage off leaves her untouched; ramming a stopped ship stops you and dents you.
+
 ## Random traffic and AIS
 
 `src/physics/aitraffic.ts` adds traffic to any scenario (menu, Traffic: Off / Light / Busy; New traffic draws another set). Scripted scenario traffic is unchanged.

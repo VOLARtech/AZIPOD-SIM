@@ -49,6 +49,7 @@ export interface World {
   tow?: { line: Towline; anchor: [number, number, number, number] };   // towline to a moving fairlead
   depthAt?: DepthField; squat?: number;       // grounding
   aground?: number;                           // out: max keel penetration [m]
+  dmgDraught?: (x: number) => number;         // extra draught from flooding at body x (sinkage + trim) [m]
 }
 export type CurrentField = (n: number, e: number) => [number, number]; // [vN, vE] m/s
 export interface Env {
@@ -91,6 +92,8 @@ export class Model {
   private mm = { X: 0, Y: 0, N: 0, w: 0 };
   private jf: JetForce = { X: 0, Y: 0, N: 0, T: 0, Vj: 0, mdot: 0 };
   rotorsOn = true;                            // rotor sails spinning (engine-room switch)
+  /** Damage: thrust left on each unit and the bow thruster (1 = intact). */
+  health: number[] | null = null; btHealth = 1;
   constructor(public spec: ShipSpec, depth: number) { this.h = deriveHydro(spec, depth); }
   setDepth(d: number) { this.h = deriveHydro(this.spec, d); }
 
@@ -152,19 +155,22 @@ export class Model {
     for (let i = 0; i < np; i++) {
       const p = s.pods[i], ps = st.pods[i];
       if (p.kind === 'vsp') {
-        const f = vspForce(p, ps, ur, vr, r, s.Vzero);
+        const f = vspForce(p, ps, ur, vr, r, s.Vzero), hp = this.health?.[i] ?? 1;
+        f.X *= hp; f.Y *= hp; f.N *= hp; f.T *= hp;
         X += f.X; Y += f.Y; N += f.N;
         if (bd) { const b = bd.pods[i]; b.X = f.X; b.Y = f.Y; b.N = f.N; b.T = f.T; b.eff = 1; }
         continue;
       }
       if (p.kind === 'waterjet') {
-        const f = jetForce(p, ps, ur, vr, r, s.wake, s.tded, this.jf);
+        const f = jetForce(p, ps, ur, vr, r, s.wake, s.tded, this.jf), hp = this.health?.[i] ?? 1;
+        if (hp < 1) { f.X *= hp; f.Y *= hp; f.N *= hp; f.T *= hp; }
         X += f.X; Y += f.Y; N += f.N;
         if (bd) { const b = bd.pods[i]; b.X = f.X; b.Y = f.Y; b.N = f.N; b.T = f.T; b.eff = 1; }
         continue;
       }
       if (p.kind === 'shaft') {
-        const f = shaftForces(s, p, ps.rpm, ps.alpha, ps.pitch ?? 1, ur, vr, r, s.mmg ? 0 : -s.xg, this.sf);
+        const f = shaftForces(s, p, ps.rpm, ps.alpha, ps.pitch ?? 1, ur, vr, r, s.mmg ? 0 : -s.xg, this.sf), hp = this.health?.[i] ?? 1;
+        if (hp < 1) { f.X *= hp; f.Y *= hp; f.N *= hp; f.T *= hp; }
         X += f.X; Y += f.Y; N += f.N;
         if (bd) { const b = bd.pods[i]; b.X = f.X; b.Y = f.Y; b.N = f.N; b.T = f.T; b.eff = 1; b.FN = f.FN; b.TT = f.TT; b.uR = f.uR; b.Q = f.Q; }
         continue;
@@ -173,7 +179,7 @@ export class Model {
       const ca = Math.cos(pa), sa = Math.sin(pa);
       const up = ur - p.y * r, vp = vr + p.x * r;
       const Va = (up * ca + vp * sa) * (1 - s.wake);
-      let T = podThrust(p.Tb * p.thrustMul, p.asternFrac, s.Vzero, ps.rpm, Va);
+      let T = podThrust(p.Tb * p.thrustMul, p.asternFrac, s.Vzero, ps.rpm, Va) * (this.health?.[i] ?? 1);
       // Wash direction (opposite to thrust)
       const wx = -ca * (Math.sign(T) || 1);
       let eff = 1;
@@ -233,7 +239,7 @@ export class Model {
     {
       const bt = s.bowThruster;
       const eff = thrusterEff(ur);
-      const Fy = bt.Tmax * st.bt * Math.abs(st.bt) * eff;
+      const Fy = bt.Tmax * st.bt * Math.abs(st.bt) * eff * this.btHealth;
       Y += Fy; N += bt.x * Fy;
       if (bd) { bd.bt.X = 0; bd.bt.Y = Fy; bd.bt.N = bt.x * Fy; bd.bt.eff = eff; }
     }
@@ -290,7 +296,7 @@ export class Model {
       if (w.ext) { X += w.ext.X; Y += w.ext.Y; N += w.ext.N; }
       if (w.tow) { const t = towForce(st, w.tow.line, w.tow.anchor); X += t.X; Y += t.Y; N += t.N; w.tow.line.T = t.T; }
       if (w.depthAt) {
-        const g = groundingForces(s, st, w.depthAt, w.squat ?? 0);
+        const g = groundingForces(s, st, w.depthAt, w.squat ?? 0, w.dmgDraught);
         X += g.X; Y += g.Y; N += g.N; w.aground = g.maxPen;
       }
     }
