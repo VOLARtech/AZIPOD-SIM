@@ -17,8 +17,8 @@ import { IceState } from './ice';
 import { HULL } from './contact';
 
 export const DT = 0.05;
-/** Joystick gyro assist with the twist centred, as rate gain × length (m/s): 1.7 /s on the 47 m yacht, 0.32 /s
- *  on a 250 m cruise ship, whose slower pods and thruster would otherwise chase the swing round and round. */
+/** Joystick auto heading (HDG HOLD), rate gain × ship length in m/s: 1.7 /s on the 47 m yacht, 0.32 /s on a
+ *  250 m cruise ship, whose slower pods and thruster would otherwise chase the swing round and round. */
 export const JOY_RATE_GAIN = 80;
 /** …and its heading stiffness, rad/s: soft, as the bow thruster takes seconds to spin up. */
 export const JOY_HDG_W = 0.12;
@@ -50,7 +50,7 @@ export class Runtime {
   tugs: Tug[] = [];
   lever: LeverMode = 'twin';
   joy: JoyInput = { x: 0, y: 0, r: 0 };
-  private joyPsi: number | null = null;           // heading when the twist was last let go, for the gyro assist
+  private hdgLatched = false;                     // auto heading: the heading to keep has been taken
   dp: DPState = { hdgHold: false, posHold: false, psiRef: 0, nRef: 0, eRef: 0 };
   bank = { X: 0, Y: 0, N: 0, side: 0, clear: Infinity };
   wash: ReturnType<typeof washReflection> = { X: 0, Y: 0, N: 0, hits: [] };
@@ -116,9 +116,10 @@ export class Runtime {
   setLever(m: LeverMode) {
     this.lever = m;
     if (m !== 'joy') { this.dp.hdgHold = this.dp.posHold = false; this.joy = { x: 0, y: 0, r: 0 }; }
-    this.joyPsi = null;
+    else if (!this.dp.hdgHold) this.setHdgHold(true);   // joystick starts in auto heading; HDG HOLD off is the plain joystick
   }
-  setHdgHold(on: boolean) { this.dp.hdgHold = on; this.dp.psiRef = this.sensors.out.est.psi; }
+  /** Auto heading: stops any swing, then keeps the heading she settles on (the twist still turns her). */
+  setHdgHold(on: boolean) { this.dp.hdgHold = on; this.dp.psiRef = this.sensors.out.est.psi; this.hdgLatched = false; }
   setPosHold(on: boolean) { const e = this.sensors.out.est; this.dp.posHold = on; this.dp.nRef = e.n; this.dp.eRef = e.e; }
 
   passLine(i: number) {
@@ -139,20 +140,26 @@ export class Runtime {
       const uc = Math.cos(st.psi) * cur[0] + Math.sin(st.psi) * cur[1];
       const btEff = thrusterEff(st.u - uc);
       const lim = joyLimits(spec, btEff);
-      const d = dpForces(spec, this.model.h.M[0], this.model.h.M[8], this.sensors.out.est, this.dp, lim);
+      const d = dpForces(spec, this.model.h.M[0], this.model.h.M[8], this.sensors.out.est, { ...this.dp, hdgHold: false }, lim);   // position; heading below
       const j = this.joy;
       // touching the stick moves the DP reference: the operator is in charge
       if (this.dp.posHold && (Math.abs(j.x) > 0.05 || Math.abs(j.y) > 0.05)) this.setPosHold(true);
-      if (this.dp.hdgHold && Math.abs(j.r) > 0.05) this.dp.psiRef = this.sensors.out.est.psi;
       const c = (a: number) => Math.max(-1, Math.min(1, a));
-      // gyro assist: with the twist centred the system stops any swing the stick or the hull causes (pushing
-      // sideways under way turns the bow against the push) and, once she has steadied, keeps that heading
-      const est = this.sensors.out.est, twist = Math.abs(j.r) > 0.05 || this.dp.hdgHold;
-      if (twist) this.joyPsi = null; else if (this.joyPsi === null && Math.abs(est.r) < 0.2 * DEG) this.joyPsi = est.psi;
-      const k = JOY_RATE_GAIN / spec.L, dPsi = this.joyPsi === null ? 0 : wrapAngle(est.psi - this.joyPsi);
-      const yaw = twist ? j.r : -this.model.h.M[8] * (k * est.r + JOY_HDG_W * JOY_HDG_W * dPsi) / lim.N;
-      // heading before sway: the sideways push gives way when the bow thruster cannot balance it
-      allocate(spec, st, { x: c(j.x + d.Y), y: c(j.y + d.X), r: c(yaw + d.N) }, btEff, this.cmd, true);
+      // auto heading (HDG HOLD): with the twist centred the gyro stops any swing the stick or the hull causes
+      // (pushing sideways under way turns the bow against the push), then keeps the heading she settles on.
+      // Off, the stick is a plain force order and she swings as the hull and thrusters dictate.
+      let yaw = j.r;
+      if (this.dp.hdgHold) {
+        const est = this.sensors.out.est;
+        if (Math.abs(j.r) > 0.05) this.hdgLatched = false;
+        else {
+          if (!this.hdgLatched && Math.abs(est.r) < 0.2 * DEG) { this.dp.psiRef = est.psi; this.hdgLatched = true; }
+          const k = JOY_RATE_GAIN / spec.L, dPsi = this.hdgLatched ? wrapAngle(est.psi - this.dp.psiRef) : 0;
+          yaw = -this.model.h.M[8] * (k * est.r + JOY_HDG_W * JOY_HDG_W * dPsi) / lim.N;
+        }
+      }
+      // in auto heading, heading comes before sway: the sideways push gives way when the bow thruster cannot balance it
+      allocate(spec, st, { x: c(j.x + d.Y), y: c(j.y + d.X), r: c(yaw) }, btEff, this.cmd, this.dp.hdgHold);
       this.cmd.mode = 'twin';
     } else this.cmd.mode = this.lever === 'joy' ? 'twin' : this.lever;
     if (this.dps) {

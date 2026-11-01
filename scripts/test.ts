@@ -197,7 +197,7 @@ test('DP heading hold in 25 kn beam wind keeps heading within 3°', () => {
   assert.ok(worst < 3 && Math.hypot(rt.state.n, rt.state.e) < 15, `hdg err ${worst.toFixed(2)}°, pos err ${Math.hypot(rt.state.n, rt.state.e).toFixed(1)} m`);
 });
 
-test('joystick sideways under way: she moves the way the stick points, bow held (gyro assist), every joystick ship', () => {
+test('joystick sideways under way in auto heading: she moves the way the stick points, bow held, every joystick ship', () => {
   for (const sp of Object.values(SHIPS)) {
     const st = makeState(sp, 0, 0, 0, 4), c0 = Math.min(1, 4 / sp.vmaxKn);
     st.pods.forEach(p => (p.rpm = c0));
@@ -211,7 +211,16 @@ test('joystick sideways under way: she moves the way the stick points, bow held 
   }
   setHull(buildHull(SHIP.L, SHIP.B, SHIP.xg, SHIP.LOA));
 });
-test('joystick twist still turns her the way it is pushed, assist or not', () => {
+test('joystick starts in auto heading; with HDG HOLD off it is the plain joystick and the hull swings her', () => {
+  const sp = SHIPS['paspaley-pearl'], st = makeState(sp, 0, 0, 0, 4); st.pods.forEach(p => (p.rpm = 0.3));
+  const rt = new Runtime(sp, st, { pods: sp.pods.map(() => ({ alpha: 0, rpm: 0.3 })), bt: 0 }, calm, OPEN);
+  rt.setLever('joy'); assert.ok(rt.dp.hdgHold, 'auto heading on by default');
+  rt.setHdgHold(false); rt.joy = { x: 1, y: 0, r: 0 };
+  let worst = 0;
+  for (let i = 0; i < 400; i++) { rt.step(); worst = Math.min(worst, rt.state.r); }
+  assert.ok(worst / DEG * 60 < -15, `plain joystick: bow swings against the push, worst ${(worst / DEG * 60).toFixed(1)}°/min`);
+});
+test('joystick twist turns her the way it is pushed in auto heading', () => {
   const sp = SHIPS['paspaley-pearl'], rt = new Runtime(sp, makeState(sp, 0, 0, 0, 4), { pods: sp.pods.map(() => ({ alpha: 0, rpm: 0.3 })), bt: 0 }, calm, OPEN);
   rt.setLever('joy'); rt.joy = { x: 0, y: 0, r: 1 };
   for (let i = 0; i < 200; i++) rt.step();
