@@ -15,7 +15,10 @@ import type { Wrench } from './sim';
 
 export interface TrafficSetup { ship: string; label: string; start: { n: number; e: number; psi: number; kn: number } }
 
+/** What own ship's AIS display shows for a target (filled by the display, read by the chart). */
+export interface AisView { range: number; brg: number; cpa: number; tcpa: number; sog: number; cog: number; danger: boolean }
 export class Traffic {
+  ais: AisView = { range: 0, brg: 0, cpa: Infinity, tcpa: Infinity, sog: 0, cog: 0, danger: false };
   st: { n: number; e: number; psi: number; u: number; v: number; r: number; t: number; pods: { alpha: number; rpm: number }[] };
   hull: [number, number][];
   constructor(public spec: ShipSpec, public setup: TrafficSetup) {
@@ -23,7 +26,8 @@ export class Traffic {
     this.st = { n: s.n, e: s.e, psi: s.psi * Math.PI / 180, u: s.kn * 0.514444, v: 0, r: 0, t: 0, pods: spec.pods.map(() => ({ alpha: 0, rpm: 0.6 })) };
     this.hull = buildHull(spec.L, spec.B, spec.xg, spec.LOA);
   }
-  step(dt: number) {
+  /** Scripted traffic holds her track and speed; the world is for ships that think (TrafficAI). */
+  step(dt: number, _w?: unknown) {
     const s = this.st;
     s.n += s.u * Math.cos(s.psi) * dt; s.e += s.u * Math.sin(s.psi) * dt; s.t += dt;
   }

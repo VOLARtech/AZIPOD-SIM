@@ -278,6 +278,76 @@ import { AngleDetent, LinearDetent, CONTROL, onFeel, type Feel } from '../src/ui
   });
 }
 
+console.log('random traffic');
+import { makeTraffic, NavGrid, TrafficAI, cpa as cpaOf, groundVel as gv } from '../src/physics/aitraffic';
+import { hullsTouch } from '../src/physics/traffic';
+{
+  const worldOf = (sc: Scenario) => ({ obstacles: sc.obstacles, depthAt: depthAt(sc) });
+  const run = (sc: Scenario, seed: number, secs: number) => {
+    const own = SHIPS[sc.ship ?? 'becancour'], st = { n: sc.start.n, e: sc.start.e, psi: sc.start.psi * DEG, u: 0, v: 0 };
+    const tr = makeTraffic(`test|${sc.id}`, worldOf(sc), { n: st.n, e: st.e, spec: own }, 'busy', seed);
+    const w = { current: () => [0, 0] as [number, number], wind: { V: 5, from: 0 }, own: { st, spec: own }, traffic: tr };
+    const ownHull = buildHull(own.L, own.B, own.xg, own.LOA), dA = depthAt(sc);
+    let aground = 0, hits = 0;
+    for (let k = 0; k < secs / 0.05; k++) {
+      for (const t of tr) t.step(0.05, w);
+      if (k % 20) continue;
+      for (const t of tr) {
+        if (!(dA(t.st.n, t.st.e) > t.spec.T)) aground++;
+        if (hullsTouch(ownHull, st, t.spec, t.st)) hits++;
+        for (const o of tr) if (o !== t && hullsTouch(t.hull, t.st, o.spec, o.st)) hits++;
+      }
+    }
+    return { tr, aground, hits };
+  };
+  const sc = (id: string) => SCENARIOS.find(s => s.id === id)!;
+  test('route through a harbour keeps clear of the quays and shallows all the way', () => {
+    const q = sc('quai27'), G = new NavGrid(worldOf(q), q.start.n, q.start.e);
+    const r = G.route([q.start.n, q.start.e], [q.start.n + 1500, q.start.e + 900], 9, 40);
+    assert.ok(r && r.length >= 2, 'a route exists');
+    for (let i = 1; i < r!.length; i++) assert.ok(G.lineClear(r![i - 1], r![i], 9, 40), `leg ${i} clear`);
+  });
+  test('busy traffic: ships of the fleet, in water deep enough, none starting on a collision course', () => {
+    const t = sc('trials'), tr = makeTraffic('test|t0', worldOf(t), { n: 0, e: 0, spec: SHIP }, 'busy', 3);
+    assert.ok(tr.length >= 6, `${tr.length} ships`);
+    assert.ok(tr.some(x => x.mode === 'transit') && tr.some(x => x.mode !== 'transit'), 'some under way, some stopped');
+    for (const a of tr) for (const b of tr) if (a !== b) {
+      const c = cpaOf({ n: a.st.n, e: a.st.e, ...gv(a.st) }, { n: b.st.n, e: b.st.e, ...gv(b.st) });
+      assert.ok(!(c.tcpa > 0 && c.tcpa < 600 && c.cpa < (a.spec.L + b.spec.L) / 2 + 300), `${a.name} and ${b.name} start on a collision course`);
+    }
+  });
+  test('five minutes of busy traffic in open water and in a harbour: nobody aground, nobody touches', () => {
+    for (const [id, seed] of [['trials', 2], ['swing', 4], ['quai27', 7]] as const) {
+      const r = run(sc(id), seed, 300);
+      assert.ok(r.aground === 0 && r.hits === 0, `${id}: aground ${r.aground}, contacts ${r.hits}`);
+      assert.ok(r.tr.filter(t => t.mode === 'transit').some(t => Math.abs(t.st.u) > 1), `${id}: ships under way`);
+    }
+  });
+  test('at anchor: she lies astern of her anchor on her cable and swings head to the current', () => {
+    const t = sc('terminal'), G = new NavGrid(worldOf(t), t.start.n, t.start.e);
+    const spec = SHIPS.panamax, a = new TrafficAI(spec, { n: t.start.n, e: t.start.e, psi: 90, kn: 0 }, 'anchor', G, new (class { next() { return 0.5; } range(x: number, y: number) { return (x + y) / 2; } pick<T>(v: T[]) { return v[0]; } })() as never, spec.T + 1, 100);
+    const w = { current: () => [0.5, 0] as [number, number], wind: { V: 0, from: 0 }, own: { st: { n: 1e6, e: 0, psi: 0, u: 0, v: 0 }, spec: SHIP }, traffic: [a] };
+    for (let k = 0; k < 3600 / 0.05; k++) a.step(0.05, w);
+    const lead = Math.hypot(a.anchor![0] - a.st.n, a.anchor![1] - a.st.e);
+    assert.ok(Math.abs(lead - (100 + spec.LOA / 2 - spec.xg)) < 1, `cable lead ${lead.toFixed(1)} m`);
+    const hd = ((a.st.psi / DEG) % 360 + 360) % 360;
+    assert.ok(hd > 150 && hd < 210, `heads into a current setting north: ${hd.toFixed(0)}°`);
+  });
+  test('a ship under way goes round own ship lying stopped across her track', () => {
+    const t = sc('trials'), G = new NavGrid(worldOf(t), 0, 0), spec = SHIPS.kcs;
+    const rng = { s: 1, next() { this.s = (this.s * 1664525 + 1013904223) >>> 0; return this.s / 4294967296; }, range(x: number, y: number) { return x + (y - x) * this.next(); }, pick<T>(v: T[]) { return v[0]; } };
+    const a = new TrafficAI(spec, { n: -1800, e: 0, psi: 0, kn: 10 }, 'transit', G, rng as never, spec.T + 1);
+    (a as unknown as { path: [number, number][]; wp: number; goal: [number, number] }).path = [[-1800, 0], [1800, 0]];
+    (a as unknown as { goal: [number, number] }).goal = [1800, 0]; a.st.u = 10 * KN;
+    const own = { n: 0, e: 0, psi: Math.PI / 2, u: 0, v: 0 }, ownHull = buildHull(SHIP.L, SHIP.B, SHIP.xg, SHIP.LOA);
+    const w = { current: () => [0, 0] as [number, number], wind: { V: 0, from: 0 }, own: { st: own, spec: SHIP }, traffic: [a] };
+    let minD = Infinity;
+    for (let k = 0; k < 600 / 0.05; k++) { a.step(0.05, w); if (k % 20 === 0) { minD = Math.min(minD, Math.hypot(a.st.n, a.st.e)); assert.ok(!hullsTouch(ownHull, own, spec, a.st), 'touched own ship'); } }
+    // she lies across the track: going round her end clears it by more than half her length from her middle
+    assert.ok(minD > SHIP.LOA / 2 && a.st.n > 500, `closest ${minD.toFixed(0)} m to her middle, got past to ${a.st.n.toFixed(0)} m`);
+  });
+}
+
 console.log('predictor & validation');
 import { runPrediction } from '../src/physics/predict';
 import { scenarioWorld } from '../src/scenarios';

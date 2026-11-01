@@ -11,6 +11,8 @@ import { initApp, persist, toast } from './app';
 import type { View3D } from './view3d/view';
 import { DEG, KN, SHIP, SHIPS, propulsionSummary, setShip, type ShipSpec } from './physics/ship';
 import { Traffic } from './physics/traffic';
+import { TrafficAI, groundVel, makeTraffic } from './physics/aitraffic';
+import { AisMap, computeAis } from './ui/ais';
 import { IceState } from './physics/ice';
 import { buildDpStation, buildJetStation, buildStation, buildTugStation, initialOrders, Station } from './ui/stations';
 import { buildHull, setHull } from './physics/contact';
@@ -71,6 +73,8 @@ function loadScenario(sc: Scenario) {
   if (sc.escort) S.rt.attachEscort(sc.escort, SHIPS[sc.escort.ship]);
   if (sc.dpScript) S.rt.dpScript = sc.dpScript.map(x => ({ ...x }));
   if (sc.traffic) S.rt.traffic = sc.traffic.map(t => new Traffic(SHIPS[t.ship], t));
+  S.traffic.seed = (Math.random() * 2 ** 31) >>> 0;
+  setRandomTraffic(false);
   if (sc.ice) S.rt.ice = new IceState(sc.ice);
   applyEnv();
   S.rt.sensors.reset();
@@ -641,6 +645,35 @@ function placePanels() {
 }
 document.querySelectorAll<HTMLButtonElement>('[data-close]').forEach(b => (b.onclick = () => ($(b.dataset.close!).hidden = true)));
 $('b-lines').onclick = () => { const p = $('p-lines'); p.hidden = !p.hidden; $('p-tugs').hidden = true; buildLines(); placePanels(); };
+// ---------------------------------------------------------------- random traffic and the AIS card
+/** (Re)draw the random traffic for this scenario round own ship; scripted scenario traffic stays. */
+function setRandomTraffic(rebuild3d = true) {
+  const rt = S.rt, st = rt.state, g = groundVel(st);
+  rt.traffic = rt.traffic.filter(t => !(t instanceof TrafficAI));
+  if (S.traffic.level !== 'off')
+    rt.traffic.push(...makeTraffic(S.sc.id, { obstacles: S.sc.obstacles, depthAt: depthAt(S.sc) }, { n: st.n, e: st.e, vn: g.vn, ve: g.ve, spec: SHIP }, S.traffic.level, S.traffic.seed));
+  if (S.traffic.sel && !rt.traffic.includes(S.traffic.sel)) S.traffic.sel = null;
+  syncAis();
+  if (rebuild3d) v3?.build();
+}
+function syncAis() {
+  const any = S.rt.traffic.length > 0;
+  $('b-ais').hidden = !any;
+  $('b-ais').classList.toggle('on', S.traffic.open);
+  $('ais').hidden = !any || !S.traffic.open;
+}
+$('b-ais').onclick = () => { S.traffic.open = !S.traffic.open; syncAis(); uiTick('detent'); };
+const aisMap = new AisMap($('ais-map') as HTMLCanvasElement, $('ais-info'), $('ais-rng'));
+$('ais-head').onclick = () => { const h = $('ais-head'); h.setAttribute('aria-expanded', String(h.getAttribute('aria-expanded') !== 'true')); };
+$('ais-rng').onclick = () => { aisMap.cycle(); uiTick('step'); };
+$('ais-map').addEventListener('pointerdown', e => {
+  const r = (e.target as HTMLElement).getBoundingClientRect(), t = aisMap.pick(e.clientX - r.left, e.clientY - r.top);
+  S.traffic.sel = t && S.traffic.sel !== t ? t : null; uiTick('step');
+});
+$('b-retraffic').onclick = () => {
+  if (S.traffic.level === 'off') { S.traffic.level = 'light'; uiSyncs.forEach(f => f()); }
+  S.traffic.seed = (Math.random() * 2 ** 31) >>> 0; setRandomTraffic(); toast('New traffic.');
+};
 $('b-tugs').onclick = () => { const p = $('p-tugs'); p.hidden = !p.hidden; $('p-lines').hidden = true; placePanels(); };
 
 // ---------------------------------------------------------------- map gestures
@@ -828,6 +861,7 @@ function seg(id: string, get: () => string, set: (v: string) => void) {
 seg('seg-src', () => S.pred.source, v => (S.pred.source = v as 'ideal' | 'onboard'));
 seg('seg-sens', () => S.sensMode, v => { S.sensMode = v as typeof S.sensMode; S.rt.sensors.mode = S.sensMode; });
 seg('seg-detail', () => S.disp.detail, v => (S.disp.detail = v as 'clean' | 'full'));
+seg('seg-traffic', () => S.traffic.level, v => { S.traffic.level = v as typeof S.traffic.level; setRandomTraffic(); });
 seg('seg-unit', () => S.disp.unit, v => (S.disp.unit = v as typeof S.disp.unit));
 seg('seg-gfx', () => S.disp.gfx, v => { S.disp.gfx = v as typeof S.disp.gfx; v3?.setQuality(gfxQuality(v3.backend)); });
 seg('seg-pal', () => S.disp.palette, v => {
@@ -905,6 +939,7 @@ function frame(now: number) {
     D.drawChart();
     D.drawIce();
     D.drawParticles(dtReal);
+    D.drawWindStreaks(dtReal);
     D.drawStructures();
     D.drawChartMarks();
     D.drawTrail();
@@ -917,12 +952,14 @@ function frame(now: number) {
     D.drawTraffic();
     D.drawShip();
     D.drawOverlay();
+    D.drawEnvGauge();
   }
   if (v3 && S.disp.view !== '2d') { v3.setTime(timeOfDay()); v3.render(); }
   if (station) station.draw();
   else { for (const d of dials) d.draw(); for (const l of levers) l.draw(); }
   slowT -= dtReal;
-  if (slowT <= 0) { slowT = 0.1; updateHud(); updateLinesPanel(); updateTugsPanel(); }
+  if (slowT <= 0) { slowT = 0.1; updateHud(); updateLinesPanel(); updateTugsPanel(); if (S.rt.traffic.length) computeAis(); }
+  if (S.rt.traffic.length && !$('ais').hidden && $('ais-head').getAttribute('aria-expanded') === 'true') aisMap.draw();
   // adaptive resolution: if frames run long for 2 s, render at a lower pixel density
   frameEma += (performance.now() - t0 - frameEma) * 0.05;
   slowFor = frameEma > 14 ? slowFor + dtReal : 0;
@@ -953,9 +990,11 @@ new MutationObserver(() => setTimeout(() => { D.readTheme(); drawPosterPlots(); 
 document.addEventListener('visibilitychange', () => { if (document.hidden) { last = performance.now(); suspendAudio(); } syncWakeLock(); });
 addEventListener('resize', resize);
 persist('azb-settings',
-  () => ({ ship: S.shipId, disp: { ...S.disp }, sens: S.sensMode, pred: { mode: S.pred.mode, count: S.pred.count, intervalIdx: S.pred.intervalIdx, source: S.pred.source, staticArc: S.pred.staticArc, alts: [...S.pred.alts] }, speedIdx: S.speedIdx }),
+  () => ({ ship: S.shipId, traffic: S.traffic.level, aisOpen: S.traffic.open, disp: { ...S.disp }, sens: S.sensMode, pred: { mode: S.pred.mode, count: S.pred.count, intervalIdx: S.pred.intervalIdx, source: S.pred.source, staticArc: S.pred.staticArc, alts: [...S.pred.alts] }, speedIdx: S.speedIdx }),
   v => {
     if (typeof v.ship === 'string' && SHIPS[v.ship]) S.shipId = v.ship;
+    if (v.traffic === 'off' || v.traffic === 'light' || v.traffic === 'busy') S.traffic.level = v.traffic;
+    if (typeof v.aisOpen === 'boolean') S.traffic.open = v.aisOpen;
     if (v.disp) Object.assign(S.disp, v.disp);
     if (v.sens) S.sensMode = v.sens;
     if (v.pred) { const { alts, ...rest } = v.pred; Object.assign(S.pred, rest); if (alts) S.pred.alts = new Set(alts); }

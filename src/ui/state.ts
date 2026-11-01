@@ -1,3 +1,4 @@
+import type { Traffic } from '../physics/traffic';
 import type { Scenario } from '../scenarios';
 import type { Runtime } from '../physics/runtime';
 import type { Command } from '../physics/sim';
@@ -14,6 +15,8 @@ export const S = {
   cmd: { pods: [{ alpha: 0, rpm: 0 }, { alpha: 0, rpm: 0 }], bt: 0, mode: 'twin' } as Command,
   env: { windKn: 0, windFrom: 0, curKn: 0, curSet: 0, gusts: false },
   view: { cN: 0, cE: 0, scale: 1, headUp: false, follow: true, rot: 0 },
+  /** Random traffic: how much, the seed it was drawn with, the AIS target picked, and whether the AIS card is open. */
+  traffic: { level: 'off' as 'off' | 'light' | 'busy', seed: 1, sel: null as Traffic | null, open: true },
   pred: {
     mode: 1 as 0 | 1 | 2,                 // off / track / track + what-if
     count: 2, intervalIdx: 0,             // 0 = auto, else ×10 s
