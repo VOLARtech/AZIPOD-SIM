@@ -10,13 +10,16 @@ export interface Obstacle {
   c: number;             // damping per point [N·s/m]
   mu: number;            // friction
   unload: number;        // unloading/loading force ratio (hysteresis); e ≈ √unload
-  kind: 'quay' | 'fendered' | 'bank' | 'pier';
+  kind: 'quay' | 'fendered' | 'bank' | 'pier' | 'ship';
   bbox?: [number, number, number, number];
+  /** A moving obstacle (another ship): its velocity [n, e], so the contact sees the closing speed between the two. */
+  vel?: Pt;
+  name?: string;
 }
 
 export interface ContactInfo {
   active: boolean;
-  points: { n: number; e: number; vn: number; F: number }[];
+  points: { n: number; e: number; vn: number; F: number; with?: string; slide?: number }[];   // with: what was hit (none: a fender doing its job); slide: friction force × sliding speed [W]
   fenders: { i: number; defl: number; F: number }[];    // loaded fenders this step
 }
 
@@ -121,7 +124,7 @@ export function contactForces(st: ShipState, obs: Obstacle[], fenders: Fender[] 
   };
   const resolve = (pn: number, pe: number, nN: number, nE: number, d: number, o: Obstacle) => {
     // n = unit normal pushing the hull out; d = penetration
-    const [vN, vE] = vel(pn, pe);
+    const [vN0, vE0] = vel(pn, pe), vN = vN0 - (o.vel?.[0] ?? 0), vE = vE0 - (o.vel?.[1] ?? 0);
     const vn = vN * nN + vE * nE;              // >0 separating
     // loading (vn<0): full stiffness; unloading: reduced → energy lost (crushing, rubber hysteresis)
     const load = 1 / (1 + Math.exp(vn / 0.01));
@@ -131,7 +134,7 @@ export function contactForces(st: ShipState, obs: Obstacle[], fenders: Fender[] 
     const tN = vN - vn * nN, tE = vE - vn * nE, tm = Math.hypot(tN, tE);
     const fr = o.mu * Fn / (tm + 0.03);
     apply(pn, pe, Fn * nN - fr * tN, Fn * nE - fr * tE);
-    if (ci) { ci.active = true; ci.points.push({ n: pn, e: pe, vn, F: Fn }); }
+    if (ci) { ci.active = true; ci.points.push({ n: pn, e: pe, vn, F: Fn, with: o.name ?? (o.kind === 'bank' ? 'bank' : o.kind === 'ship' ? 'ship' : 'quay'), slide: tm > 0.2 ? fr * tm * tm : 0 }); }
   };
   for (const o of obs) {
     const b = o.bbox ?? (o.bbox = bboxOf(o.poly));
@@ -174,7 +177,8 @@ export function contactForces(st: ShipState, obs: Obstacle[], fenders: Fender[] 
       const tvN = vN - vn * f.nn, tvE = vE - vn * f.ne, tm = Math.hypot(tvN, tvE);
       const fr = f.mu * Fn / (tm + 0.03);
       apply(bn, be, Fn * f.nn - fr * tvN, Fn * f.ne - fr * tvE);
-      if (ci) { ci.active = true; ci.points.push({ n: bn, e: be, vn, F: Fn }); ci.fenders.push({ i, defl: best, F: Fn }); }
+      // a fender crushed past its rated deflection no longer protects the hull
+      if (ci) { ci.active = true; ci.points.push({ n: bn, e: be, vn, F: Fn, with: best > 1.1 * f.dRated * f.height ? 'fender bottomed out' : undefined }); ci.fenders.push({ i, defl: best, F: Fn }); }
     }
   }
   return { X, Y, N };

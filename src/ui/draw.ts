@@ -504,6 +504,18 @@ export function drawShip() {
   ctx.beginPath(); ctx.arc(SHIP.bridgeX, 0, px(3), 0, Math.PI * 2); ctx.stroke(); // CCRP
   ctx.beginPath(); ctx.moveTo(-SHIP.L / 2 - SHIP.xg, 0); ctx.lineTo(SHIP.L / 2 + 4 - SHIP.xg, 0);
   ctx.setLineDash([px(4), px(4)]); ctx.stroke(); ctx.setLineDash([]);
+  // damage: dented plating amber, breaches red along the side (or the keel line for the bottom)
+  if (rt.damageOn && rt.damage.any) {
+    const B = SHIP.B;
+    for (const z of rt.damage.zones) {
+      if (!z.dent) continue;
+      const c = rt.damage.comp[z.section], x0 = c.x - c.len / 2 + 1, x1 = c.x + c.len / 2 - 1;
+      ctx.strokeStyle = z.hole > 0 ? C.warn : '#d89a2a'; ctx.lineWidth = px(z.hole > 0 ? 5 : 3);
+      if (z.side === 0) ctx.setLineDash([px(5), px(4)]);
+      const y = z.side * B * 0.44;
+      ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
   // fairleads
   if (full()) for (const l of rt.lines) { ctx.fillStyle = C.muted; ctx.fillRect(l.fair[0] - 0.8, l.fair[1] - 0.8, 1.6, 1.6); }
   const btx = SHIP.bowThruster.x;
