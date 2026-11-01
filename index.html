@@ -62,8 +62,8 @@
   <aside class="legend" id="legend" hidden role="button" tabindex="0" aria-expanded="false"></aside>
 
   <aside class="ais" id="ais" hidden aria-label="AIS targets">
-    <button class="ais-head" id="ais-head" aria-expanded="true"><span class="tag">AIS</span><span class="cnt" id="ais-count"></span><span class="chev" aria-hidden="true"></span></button>
-    <div class="ais-list" id="ais-list"></div>
+    <div class="ais-head"><span class="tag">AIS</span><button class="ais-rng" id="ais-rng" aria-label="Mini map range">AUTO</button><button class="ais-fold" id="ais-head" aria-expanded="true" aria-label="Show or hide the mini map"><span class="chev" aria-hidden="true"></span></button></div>
+    <div class="ais-body"><canvas class="ais-map" id="ais-map" aria-label="AIS mini map: own ship in the middle, tap a ship for its details"></canvas><div class="ais-info" id="ais-info"></div></div>
   </aside>
 
   <section class="panel" id="p-lines" hidden aria-label="Mooring lines">
@@ -152,7 +152,7 @@
         <span class="lbl">Shuffle</span>
         <div class="seg"><button id="b-retraffic">New traffic</button></div>
       </div>
-      <p class="note">Ships from the fleet go about their business round you: under way to somewhere of their own, steering and slowing like real ships, stopping and moving on; others lie at anchor and swing to the wind and current, or hold station where it is too deep to anchor. They keep clear of you and of each other as the collision regulations ask, so give way when it is yours to do. The AIS card in the corner lists them with range, bearing, CPA and time to CPA; tap one to see its details and mark it on the chart. Fewer ships come out in narrow water.</p>
+      <p class="note">Ships from the fleet go about their business round you: under way to somewhere of their own, steering and slowing like real ships, stopping and moving on; others lie at anchor and swing to the wind and current, or hold station where it is too deep to anchor. They keep clear of you and of each other as the collision regulations ask, so give way when it is yours to do. The AIS mini map in the corner shows them round you, turning with the chart, with red for any that will pass too close; tap one for its range, bearing, CPA and time to CPA, and to mark it on the chart. Tap the range to change it. Fewer ships come out in narrow water.</p>
       </details>
       <details class="sec"><summary><h2>Predictor</h2></summary>
       <div class="env-grid">

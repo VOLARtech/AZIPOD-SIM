@@ -239,7 +239,11 @@ export function drawEnvGauge() {
   ENV.peak = Math.max(r.windTrueSpeed, ENV.peak * Math.exp(-dt / 12));             // gust: the recent peak
   const cN = r.curEst[0], cE = r.curEst[1], cs = Math.hypot(cN, cE);
   if (cs > 0.02) ENV.set = smoothAng(ENV.set, Math.atan2(cE, cN), k); ENV.cV += (cs - ENV.cV) * k;
-  const Rg = 34, cw = 116, ch = 2 * Rg + 48, cx0 = W - LAY.padR - cw, cy0 = LAY.trayTop - 52 - ch;
+  const Rg = 34, cw = 116, ch = 2 * Rg + 48;
+  let cx0 = W - LAY.padR - cw; const cy0 = LAY.trayTop - 52 - ch;
+  // the AIS mini map hangs down the same side: step left of it when they would overlap
+  const ais = document.getElementById('ais');
+  if (ais && !ais.hidden) { const r = ais.getBoundingClientRect(); if (r.bottom > cy0 - 6) cx0 = Math.min(cx0, r.left - 8 - cw); }
   if (cy0 < LAY.chipsBottom + 8 || W < 300) return;                                  // no room: the readouts still show it
   const cx = cx0 + cw / 2, cy = cy0 + Rg + 8, rot = S.view.rot;
   const g = ctx; g.save(); g.setTransform(DPR, 0, 0, DPR, 0, 0);

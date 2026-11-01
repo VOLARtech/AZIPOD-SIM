@@ -570,33 +570,27 @@ details.sec[open] { display: flex; flex-direction: column; gap: 10px; padding-bo
 .gate-card { background: var(--panel-solid); border-color: var(--edge); border-radius: 14px; box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45); }
 .st-gen .btns { background: none; }
 
-/* ---------- AIS viewer: a console card under the chart buttons, right-hand side ---------- */
+/* ---------- AIS mini map: a console card under the chart buttons, right-hand side ---------- */
 .ais {
   position: absolute; z-index: 2; right: var(--gutR); top: calc(var(--hudH, 120px) + 52px);
-  width: min(270px, calc(100% - 2 * 16px)); display: flex; flex-direction: column;
-  /* down to just above the wind / current dial in the corner; the list scrolls */
-  max-height: max(110px, calc(100% - var(--hudH, 120px) - var(--trayH, 200px) - 52px - 190px));
+  width: clamp(170px, 26vw, 236px); display: flex; flex-direction: column;
   background: var(--panel); border: 1px solid var(--edge); border-radius: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); overflow: hidden; touch-action: pan-y;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); overflow: hidden;
 }
-.ais-head { display: flex; align-items: center; gap: 8px; padding: 7px 10px; background: transparent; border: 0; cursor: pointer; text-align: left; box-shadow: none; }
-.ais-head .cnt { font: 500 11px var(--font-num); color: var(--muted); flex: 1; }
-.ais-head .cnt.warn { color: var(--warn); }
-.ais-head .chev { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid var(--muted); }
-.ais-head[aria-expanded="false"] .chev { border-top: 0; border-bottom: 6px solid var(--muted); }
-.ais-head[aria-expanded="false"] + .ais-list { display: none; }
-.ais-list { overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 0 6px 6px; overscroll-behavior: contain; }
-.ais-row {
-  display: flex; flex-direction: column; gap: 1px; text-align: left; padding: 5px 8px; border-radius: 8px; cursor: pointer;
-  background: rgba(255, 255, 255, 0.03); border: 1px solid transparent; box-shadow: none; color: var(--ink);
-}
-.ais-row .l1 { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
-.ais-row b { font: 600 13px var(--font-label); letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ais-row .rb { font: 500 11.5px var(--font-num); white-space: nowrap; }
-.ais-row .l2, .ais-row .det { font: 500 10.5px var(--font-num); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ais-row .det { white-space: normal; color: var(--ink); opacity: 0.85; }
-.ais-row.sel { border-color: var(--own); background: var(--tile-on); }
-.ais-row.danger b, .ais-row.danger .l2 { color: var(--warn); }
-.ais .none { font: 500 11px var(--font-num); color: var(--muted); padding: 4px 8px; }
-@media (max-width: 600px) { .ais { width: min(230px, calc(100% - 2 * 16px)); } .ais-row .l2 { font-size: 10px; } }
-@media (orientation: landscape) and (max-height: 520px) { .ais { width: 220px; } }
+.ais-head { display: flex; align-items: center; gap: 6px; padding: 5px 6px 5px 10px; }
+.ais-head .tag { flex: 1; }
+.ais-head button { box-shadow: none; }
+.ais-rng { font: 600 10.5px var(--font-num); letter-spacing: 0.04em; height: 24px; padding: 0 8px; border-radius: 6px; cursor: pointer; color: var(--own); white-space: nowrap; }
+.ais-rng.auto { color: var(--ink); }
+.ais-fold { width: 26px; height: 24px; padding: 0; border-radius: 6px; cursor: pointer; display: grid; place-items: center; }
+.ais-fold .chev { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid var(--muted); }
+.ais-fold[aria-expanded="false"] .chev { border-top: 0; border-bottom: 6px solid var(--muted); }
+.ais-head:has(.ais-fold[aria-expanded="false"]) + .ais-body { display: none; }
+.ais-body { padding: 0 8px 8px; display: flex; flex-direction: column; gap: 6px; }
+.ais-map { width: 100%; aspect-ratio: 1 / 1; display: block; touch-action: none; cursor: pointer; }
+.ais-info { display: flex; flex-direction: column; gap: 1px; font: 500 10.5px var(--font-num); color: var(--muted); min-height: 28px; }
+.ais-info b { font: 600 13px var(--font-label); letter-spacing: 0.04em; color: var(--ink); }
+.ais-info .warn { color: var(--warn); }
+.ais-info .hint { opacity: 0.75; }
+@media (max-width: 600px) { .ais { width: clamp(150px, 42vw, 190px); } .ais-info { font-size: 10px; } .ais-info .xt { display: none; } }
+@media (orientation: landscape) and (max-height: 520px) { .ais { width: clamp(140px, 22vw, 180px); } }

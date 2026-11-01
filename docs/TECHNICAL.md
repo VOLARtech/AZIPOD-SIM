@@ -83,7 +83,13 @@ Azipod ships: port pod `A` `D` azimuth, `W` `S` rpm · stbd pod `J` `L`, `I` `K`
   - Inside about a minute: hard to starboard and stop.
 - **Safety nets:** a step that would put her bow, middle or stern on the ground, or her hull against another, is not taken. She stops short, and if stuck goes astern off the edge and re-plans.
 - **Validation:** traffic never hits own ship unless own ship runs into it. A sweep of 14 scenarios × 8 random sets × 10 minutes, with own ship blindly at 8 kn, has no grounding and no traffic-on-traffic contact. The only contacts were three where own ship ran into traffic that had stopped for her.
-- **AIS card** (`src/ui/ais.ts`): range and bearing, CPA and TCPA from own ship's sensed position and ground velocity. A target is dangerous at CPA < 0.2 nm (or the half-lengths + 100 m) within 10 minutes; it turns red here and on the chart. Tap a target for its MMSI, type, size, draught, heading, status and where she is bound.
+- **AIS mini map** (`src/ui/ais.ts`):
+  - A plot round own ship that turns with the chart. It shows the coastline and shallows from the traffic's navigation grid, range rings, and targets as AIS triangles with COG vectors (anchored targets as a ringed dot).
+  - The range fits the targets (up to 6 nm) or is fixed by tapping the range button: 0.25–6 nm, then back to auto.
+  - Range and bearing, CPA and TCPA come from own ship's sensed position and ground velocity.
+  - A target is dangerous at CPA < 0.2 nm (or the half-lengths + 100 m) within 10 minutes. It turns red and is named, here and on the chart.
+  - Tap a target for its type, size, draught, MMSI, range, bearing, speed, course, status and where she is bound.
+  - The wind and current dial steps left of the card when they would overlap.
 - **Chart:** an AIS triangle when the hull is too small to see, a course-over-ground vector as long as own ship's, an anchor mark, and a frame on the selected target.
 
 ## Control feel

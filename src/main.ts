@@ -12,7 +12,7 @@ import type { View3D } from './view3d/view';
 import { DEG, KN, SHIP, SHIPS, propulsionSummary, setShip, type ShipSpec } from './physics/ship';
 import { Traffic } from './physics/traffic';
 import { TrafficAI, groundVel, makeTraffic } from './physics/aitraffic';
-import { computeAis, renderAis } from './ui/ais';
+import { AisMap, computeAis } from './ui/ais';
 import { IceState } from './physics/ice';
 import { buildDpStation, buildJetStation, buildStation, buildTugStation, initialOrders, Station } from './ui/stations';
 import { buildHull, setHull } from './physics/contact';
@@ -663,12 +663,12 @@ function syncAis() {
   $('ais').hidden = !any || !S.traffic.open;
 }
 $('b-ais').onclick = () => { S.traffic.open = !S.traffic.open; syncAis(); uiTick('detent'); };
+const aisMap = new AisMap($('ais-map') as HTMLCanvasElement, $('ais-info'), $('ais-rng'));
 $('ais-head').onclick = () => { const h = $('ais-head'); h.setAttribute('aria-expanded', String(h.getAttribute('aria-expanded') !== 'true')); };
-$('ais-list').addEventListener('pointerdown', e => {
-  const b = (e.target as HTMLElement).closest<HTMLElement>('.ais-row'); if (!b) return;
-  const t = S.rt.traffic[+b.dataset.i!];
-  S.traffic.sel = S.traffic.sel === t ? null : t; uiTick('step');
-  computeAis(); renderAis($('ais-list'), $('ais-count'));
+$('ais-rng').onclick = () => { aisMap.cycle(); uiTick('step'); };
+$('ais-map').addEventListener('pointerdown', e => {
+  const r = (e.target as HTMLElement).getBoundingClientRect(), t = aisMap.pick(e.clientX - r.left, e.clientY - r.top);
+  S.traffic.sel = t && S.traffic.sel !== t ? t : null; uiTick('step');
 });
 $('b-retraffic').onclick = () => {
   if (S.traffic.level === 'off') { S.traffic.level = 'light'; uiSyncs.forEach(f => f()); }
@@ -958,7 +958,8 @@ function frame(now: number) {
   if (station) station.draw();
   else { for (const d of dials) d.draw(); for (const l of levers) l.draw(); }
   slowT -= dtReal;
-  if (slowT <= 0) { slowT = 0.1; updateHud(); updateLinesPanel(); updateTugsPanel(); if (S.rt.traffic.length) { computeAis(); if (!$('ais').hidden) renderAis($('ais-list'), $('ais-count')); } }
+  if (slowT <= 0) { slowT = 0.1; updateHud(); updateLinesPanel(); updateTugsPanel(); if (S.rt.traffic.length) computeAis(); }
+  if (S.rt.traffic.length && !$('ais').hidden && $('ais-head').getAttribute('aria-expanded') === 'true') aisMap.draw();
   // adaptive resolution: if frames run long for 2 s, render at a lower pixel density
   frameEma += (performance.now() - t0 - frameEma) * 0.05;
   slowFor = frameEma > 14 ? slowFor + dtReal : 0;

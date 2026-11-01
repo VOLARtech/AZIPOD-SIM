@@ -426,6 +426,8 @@ export class TrafficAI extends Traffic {
 
 // ---------------------------------------------------------------- generation
 const grids = new Map<string, NavGrid>();
+/** The navigation grid built for a scenario's traffic, if any (the AIS mini map draws its coastline from it). */
+export const navGridFor = (key: string) => grids.get(key);
 export type TrafficLevel = 'off' | 'light' | 'busy';
 /**
  * Random traffic round own ship: a mix of ships under way on their own business and ships at anchor
