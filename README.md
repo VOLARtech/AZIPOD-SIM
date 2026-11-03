@@ -85,6 +85,8 @@ On a phone or tablet, just use the levers and wheels on screen. On a computer yo
 - **See the wind and current.** Wind streaks drift across the chart with every gust and shift, and a small dial in the corner shows where the wind comes from, where the current sets and how strong both are.
 - **Other ships around you.** Switch on traffic in any scenario (Light or Busy) and ships from the fleet go about their business: sailing to places of their own, steering and slowing like real ships, keeping to the right in channels, lying at anchor and swinging to the wind and current, and keeping out of your way as the rules of the road ask. A small AIS mini map in the corner shows them all round you, with the coastline, and turns a ship red when she is getting too close; tap one to see her distance, closest approach and how soon.
 - **Damage that matters.** Hit a quay, a bank or another ship too hard, or run aground, and she pays for it: dented plating, a breached hull letting the sea in, a ship that settles, trims and lists, propellers and thrusters that lose their push, and, if it gets bad enough, a capsize. A damage control panel shows what is flooding and how she is floating. It can be switched off for practice.
+- **Your own berth.** Put fenders and bollards wherever you want them on any quay (Menu → Berth → Edit on the chart); your layout is remembered for each scenario.
+- **Engines that feel heavier.** Big ships' direct-drive engines now ease their rpm down slowly, and going from ahead to astern takes the 15–30 seconds a real engine needs to reverse.
 - **Fixes.** Ships now face the right way, with their propellers at the stern, and each bridge camera sits where the real wheelhouse is.
 
 ## Thanks and credits

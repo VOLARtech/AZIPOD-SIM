@@ -14,6 +14,7 @@ import { Traffic } from './physics/traffic';
 import { TrafficAI, groundVel, makeTraffic } from './physics/aitraffic';
 import { AisMap, computeAis } from './ui/ais';
 import { drawDamagePlan, renderDamage } from './ui/dmgpanel';
+import { EditMode, editAt, loadBerth, resetBerth } from './ui/berthedit';
 import { IceState } from './physics/ice';
 import { buildDpStation, buildJetStation, buildStation, buildTugStation, initialOrders, Station } from './ui/stations';
 import { buildHull, setHull } from './physics/contact';
@@ -21,7 +22,7 @@ import { makeState, wrap } from './physics/sim';
 import { DT, LeverMode, Runtime } from './physics/runtime';
 import { LINE, WinchMode } from './physics/mooring';
 import type { Alt, PredictJob, Track } from './physics/predict';
-import { SCENARIOS, Scenario, berthFor, currentField, depthAt, fits } from './scenarios';
+import { SCENARIOS, safeStart, Scenario, berthFor, currentField, depthAt, fits } from './scenarios';
 import { ensureScenario } from './scenes/loaders';
 import { loadEnc } from './ui/enc';
 import { haptic, suspendAudio, uiTick, unlockAudio, updateAudio } from './ui/audio';
@@ -50,13 +51,18 @@ function applyEnv() {
 
 function loadScenario(sc: Scenario) {
   S.sc = sc;
+  loadBerth();                                            // this device's own fenders and bollards, if any
+  setEdit(null);
   const shipChanged = setShip(S.shipId ?? sc.ship ?? 'becancour') !== S.rt?.spec;
   if (sc.berthFace) sc.berth = berthFor(sc, SHIP.B, 0);
   if (shipChanged) {
     setHull(buildHull(SHIP.L, SHIP.B, SHIP.xg, SHIP.LOA));
     sheetStarted = false;                 // pilot card, trials: recompute for this ship
   }
-  const st = makeState(SHIP, sc.start.n, sc.start.e, sc.start.psi, sc.start.kn);
+  // a ship that draws too much for the start spot starts on the nearest deep-enough water instead
+  const s0 = safeStart(sc, SHIP.LOA, SHIP.B, SHIP.T);
+  if (s0.moved > 1) setTimeout(() => toast(`Too shallow for the ${SHIP.name} at the usual start: she starts ${s0.moved.toFixed(0)} m away, in deeper water.`), 300);
+  const st = makeState(SHIP, s0.n, s0.e, s0.psi, s0.kn);
   const rpm0 = Math.min(1, sc.start.kn / SHIP.vmaxKn);
   st.pods.forEach(p => (p.rpm = rpm0));
   S.cmd = { pods: SHIP.pods.map(() => ({ alpha: 0, rpm: rpm0 })), bt: 0, mode: 'twin' };
@@ -676,6 +682,21 @@ $('b-retraffic').onclick = () => {
   if (S.traffic.level === 'off') { S.traffic.level = 'light'; uiSyncs.forEach(f => f()); }
   S.traffic.seed = (Math.random() * 2 ** 31) >>> 0; setRandomTraffic(); toast('New traffic.');
 };
+// ---------------------------------------------------------------- berth editor
+let editMode: EditMode | null = null;
+function setEdit(m: EditMode | null) {
+  const was = editMode; editMode = m; D.setEditing(!!m);
+  if (m) $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = true;   // the chart clear to tap on
+  $('edit-bar').hidden = !m;
+  document.querySelectorAll<HTMLButtonElement>('[data-em]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.em === m)));
+  if (m) $('edit-hint').textContent = m === 'remove' ? 'Tap a bollard or fender to take it away.' : `Tap near a quay edge to put a ${m} there.`;
+  if (was && !m) v3?.harbourChanged();
+}
+document.querySelectorAll<HTMLButtonElement>('[data-em]').forEach(b => (b.onclick = () => setEdit(b.dataset.em as EditMode)));
+$('edit-done').onclick = () => setEdit(null);
+$('edit-reset').onclick = () => { resetBerth(); $('edit-hint').textContent = "The scenario's own fenders and bollards are back."; };
+$('b-editberth').onclick = () => { $('b-close').click(); setEdit('bollard'); };
+
 // ---------------------------------------------------------------- damage control
 let lostShown = false;
 $('b-dmg').onclick = () => { const p = $('p-dmg'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-tugs').hidden = true; placePanels(); updateDamage(); };
@@ -709,7 +730,16 @@ D.cv.addEventListener('pointermove', e => {
   p.x = e.clientX; p.y = e.clientY;
   if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; zoomTo(scale0 * Math.hypot(a.x - b.x, a.y - b.y) / pinch0); }
 });
-const up = (e: PointerEvent) => ptrs.delete(e.pointerId);
+// berth editor: a tap (not a drag) on the chart adds or removes a fender or bollard there
+let downAt: { x: number; y: number } | null = null;
+D.cv.addEventListener('pointerdown', e => { downAt = ptrs.size === 1 ? { x: e.clientX, y: e.clientY } : null; });
+const up = (e: PointerEvent) => {
+  if (editMode && downAt && ptrs.size === 1 && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) < 6) {
+    const [n, ee] = D.fromScr(e.clientX, e.clientY);
+    $('edit-hint').textContent = editAt(editMode, n, ee); uiTick('step');
+  }
+  ptrs.delete(e.pointerId);
+};
 D.cv.addEventListener('pointerup', up); D.cv.addEventListener('pointercancel', up);
 D.cv.addEventListener('wheel', e => { e.preventDefault(); zoomTo(S.view.scale * Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
 function zoomTo(s: number) { S.view.scale = Math.max(0.1, Math.min(8, s)); }

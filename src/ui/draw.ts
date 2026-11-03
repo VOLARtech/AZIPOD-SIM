@@ -12,6 +12,9 @@ import { S, SPEEDS, full } from './state';
 import { drawEncBase, drawEncMarks } from './enc';
 
 export const C: Record<string, string> = {};
+/** The berth editor is open: fenders and bollards are ringed on the chart. */
+export let editing = false;
+export function setEditing(v: boolean) { editing = v; }
 export let podColors = ['#c00', '#0a0'];
 export function readTheme() {
   const cs = getComputedStyle(document.documentElement);
@@ -168,6 +171,14 @@ export function drawStructures() {
   });
   ctx.strokeStyle = C['land-edge']; ctx.lineWidth = px(1.2);
   for (const [n, e] of S.sc.bollards) { ctx.beginPath(); ctx.arc(e, n, 0.9, 0, Math.PI * 2); ctx.stroke(); }
+  if (editing) {
+    // berth editor: every bollard and fender ringed, so they can be found and tapped at any zoom
+    ctx.strokeStyle = C.own; ctx.lineWidth = px(2);
+    for (const [n, e] of S.sc.bollards) { ctx.beginPath(); ctx.arc(e, n, px(7), 0, Math.PI * 2); ctx.stroke(); }
+    ctx.setLineDash([px(3), px(3)]);
+    for (const f of S.sc.fenders) { ctx.beginPath(); ctx.arc(f.e, f.n, px(9), 0, Math.PI * 2); ctx.stroke(); }
+    ctx.setLineDash([]);
+  }
   if (S.sc.berth) {
     ctx.save(); bodyTransform({ ...S.sc.berth, psi: S.sc.berth.psi * DEG });
     hullPath(); ctx.setLineDash([px(6), px(5)]); ctx.strokeStyle = C.muted; ctx.lineWidth = px(1.3); ctx.stroke(); ctx.setLineDash([]);

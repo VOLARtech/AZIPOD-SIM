@@ -76,6 +76,9 @@ export interface EngineSpec {
   nMin: number;               // minimum stable running speed, fraction of n (dead slow)
   barred?: [number, number];  // barred speed range, fractions of n
   loadTime: number;           // s from dead slow to MCR (load programme)
+  /** Direct-reversing: time to reverse the camshaft (fuel pumps and starting-air distributor) before a
+   *  start the other way [s]; default 20. */
+  reverseTime?: number;
   I: number;                  // shaft line + engine rotating inertia incl. entrained water [kg m²]
   air?: AirStart;             // direct-reversing engines start (and reverse) on compressed air
   clutch?: boolean;           // geared: clutch in / out instead of reversing

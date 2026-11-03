@@ -172,8 +172,10 @@ export function stepEngine(e: EngineSpec, es: EngineState, rpm: number, demand: 
     // electric motors reverse through zero; geared diesels and turbines (CPP) hold their speed.
     // The setpoint ramps at the drive's rate: loadTime from zero to full.
     es.mode = Math.abs(demand) > 0.005 || Math.abs(n) > 0.005 ? 'run' : 'stop';
+    // speeding up at the drive's rate; easing down half as fast again (load-down programme, shaft inertia)
     const goal = Math.max(-limit, Math.min(limit, demand)), rate = dt / e.loadTime;
-    es.target += Math.max(-rate, Math.min(rate, goal - es.target));
+    const easing = Math.abs(goal) < Math.abs(es.target) && goal * es.target >= 0;
+    es.target += Math.max(-rate / (easing ? 1.5 : 1), Math.min(rate / (easing ? 1.5 : 1), goal - es.target));
     const err = es.target - n;
     qEng = Math.max(-torqueCap(e, Math.abs(n)), Math.min(torqueCap(e, Math.abs(n)), (Qh / Qm) + 8 * err));
     // a diesel cannot brake; with a reversing gearbox (clutch) the astern clutch takes the windmilling shaft
@@ -194,10 +196,11 @@ export function stepEngine(e: EngineSpec, es: EngineState, rpm: number, demand: 
           const [lo, hi] = e.barred;
           if (tgt > lo && tgt < hi) tgt = lo - 0.005;           // never settle inside the barred range
         }
-        // manoeuvring range answers in seconds; above it the load-up programme takes loadTime to MCR
+        // manoeuvring range answers in tens of seconds; above it the load-up programme takes loadTime to MCR.
+        // Easing down follows a load-down programme too (0.7 of the range in a minute, slower above 80 %).
         const cur = es.target * es.dir;
-        const rate = cur < 0.8 ? 0.7 / 40 : 0.2 / e.loadTime;
-        es.target = es.dir * (cur + Math.max(-0.05 * dt, Math.min(rate * dt, tgt - cur)));
+        const rate = cur < 0.8 ? 0.7 / 40 : 0.2 / e.loadTime, down = cur > 0.8 ? 0.2 / (0.5 * e.loadTime) : 0.7 / 60;
+        es.target = es.dir * (cur + Math.max(-down * dt, Math.min(rate * dt, tgt - cur)));
         const err = es.target - n;
         qEng = es.dir * Math.max(0, Math.min(torqueCap(e, Math.abs(n)), es.dir * (Qh / Qm) + 6 * es.dir * err));
         // overloaded: the shaft is dragged below firing speed (astern against heavy headway) → stalls
@@ -212,7 +215,11 @@ export function stepEngine(e: EngineSpec, es: EngineState, rpm: number, demand: 
         qEng = 0;
         if (ord === 0) { es.msg = Math.abs(n) > 0.05 ? 'STOP · SHAFT TURNING' : 'STOP'; es.tries = 0; break; }
         if (es.mode === 'wait' && es.t < 4) break;            // after a failed start: purge, re-try
-        if (Math.abs(n) > 0.32 && Math.sign(n) !== ord) { es.msg = 'WAITING · SHAFT TOO FAST'; break; }
+        // starting air can brake a windmilling shaft from about 40 % of MCR rpm (it windmills at 30–35 % at full
+        // manoeuvring speed, so a crash stop is not held up until the ship has slowed)
+        if (Math.abs(n) > 0.4 && Math.sign(n) !== ord) { es.msg = 'WAITING · SHAFT TOO FAST'; break; }
+        // reversing: the camshaft (fuel pumps, starting-air distributor) is shifted before the start the other way
+        if (es.dir !== 0 && ord !== es.dir && es.t < (e.reverseTime ?? 20)) { es.msg = 'REVERSING · CAMSHAFT'; break; }
         if (es.tries >= 3) { es.msg = 'START BLOCKED · 3 FAILED'; break; }
         if (es.air < air.pMin) { es.msg = 'NO STARTING AIR'; break; }
         es.mode = 'start'; es.t = 0; es.dir = ord; es.tries++; es.starts++;

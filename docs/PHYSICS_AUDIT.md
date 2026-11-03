@@ -119,13 +119,14 @@ IMO MSC.137(76) limits, where they apply: advance < 4.5 L, tactical diameter < 5
 
 These were looked into but could not be settled from published data. They are listed rather than tuned to a guess.
 
-- **Two-stroke crash stops (VLCC, Panamax, LNG, container ships).**
-  - **What happens now:** after the stop order the propeller keeps the engine turning (windmilling) at 32–42 % rpm for minutes. The engine waits for 32 % before an astern start, so the Panamax travels 9.7 L before astern power is applied and stops in 16 L.
+- **Two-stroke crash stops (VLCC, Panamax, LNG, container ships).** *Since changed, see below.*
+  - **What happened:** after the stop order the propeller kept the engine turning (windmilling) at 32–42 % rpm for minutes. The engine waited for 32 % before an astern start, so the Panamax travelled 9.7 L before astern power was applied and stopped in 16 L. At harbour speeds, with the shaft already slow, it reversed almost at once.
   - **What sources say:** braking air is applied below about 40 % rpm (MAN B&W reversing descriptions). One source puts reversal at 15–30 s after the order.
-  - **Why not changed:**
-    - A 40 % threshold shortens the stops to 9–11 L, for example the VLCC in 13.8 minutes.
-    - A training text puts a laden 200 000 t tanker at about 25 minutes from 16 kn, which argues the other way.
-    - No trial data for these ships was found, so the threshold was left at 32 %.
+  - **Changed (user request, then the sources):**
+    - The astern start now waits for 40 % rpm and for the camshaft (fuel pumps and starting-air distributor) to be reversed, taking 20 s (`reverseTime`). That gives a reversal 15–30 s after the order at any speed.
+    - Easing the rpm down now follows a load-down programme: 0.7 of the range in a minute, and slower above 80 %. It used to be 5 % a second. Geared and electric drives ease down 1.5 times more slowly than they speed up.
+    - Panamax crash stop from sea speed: 11.6 L (it was 16 L).
+    - The training-text figure for a laden 200 000 t tanker (about 25 minutes from 16 kn) still argues for longer stops; no trial data for these ships has been found.
 - **Azipod stopping methods "pods 90°, rpm kept".** Against the six published model-test methods for a 277 m twin-Azipod ship, four agree within ±22 %; these two come out 56–64 % long. This predates the audit.
 - **Voith tractor free-running turns.** With the hull and fin corrected she is very course-stable and turns about her fin: tactical diameter about 15 L at full speed and 45° steering. No published free-running turning data for these tugs was found; Voith publishes steering forces and simulator models built from captive tests, not turning circles.
 - **3D bridge positions.** On seven ships the 3D model's bridge (where the bridge camera stands) is more than 8 % of the length away from the ship's conning position used for the GNSS antenna and the chart's reference point:
