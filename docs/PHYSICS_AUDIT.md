@@ -112,8 +112,27 @@ Deep, calm water, from full speed. Turning at hard over (35°; 45° for the Voit
 | Superyacht | 80 | 20.4 kn | 2.57 L | 2.60 L | 4.7° | 4.29 L | 0.17 L |
 | Bulk carrier · rotor sails | 222 | 15.7 kn | 4.01 L | 4.47 L | 3.5° | 16.08 L | 0.14 L |
 | Paspaley Pearl | 47 | 12.6 kn | 2.41 L | 2.73 L | 2.9° | 1.89 L | 0.18 L |
+| CB Baltic, laden | 177.4 | 13.5 kn | 3.63 L | 3.80 L | 3.4° | 8.84 L | 0.11 L |
+| CB Baltic, ballast | 177.4 | 13.9 kn | 3.51 L | 3.49 L | 3.2° | 5.72 L | 0.08 L |
 
 IMO MSC.137(76) limits, where they apply: advance < 4.5 L, tactical diameter < 5 L, 10/10 first overshoot 10–20° depending on L/V, crash stop < 15 L.
+
+### CB Baltic against her own papers
+
+She is set up from her pilot card, wheelhouse poster, particulars and loading computer, corrected where her officers say the papers are wrong.
+
+| | Her papers | Her officers | Simulator |
+| --- | --- | --- | --- |
+| Full speed, laden | 13.7 kn | about 14 kn flat out | 13.5 kn |
+| Full speed, ballast | 15.2 kn | about 14 kn | 13.9 kn |
+| Astern | "75 % of ahead" (power) | about 30 % of ahead (thrust) | 30 % of the ahead bollard thrust |
+| Ballast draughts | 7.8 m (particulars) | 7.5 m aft, 5.5 m forward | 7.53 / 5.57 m (loading computer), 6.55 m mean |
+| Advance, laden (35°) | 648–699 m | | 644 m (stbd), 669 m (port) |
+| Tactical diameter, laden | 542–578 m | | 674 m (stbd), 720 m (port) |
+| Tactical diameter, ballast | 618–659 m | | 620 m (stbd), 674 m (port) |
+| Crash stop, laden, head reach | 1 428 m (pilot card), 1 821 m (poster) | | 1 496 m |
+
+The lever is her bridge programme: each order sets shaft speed and pitch as on the pilot card (dead slow 56.3 rpm and 40 % pitch up to navigation full 89.3 rpm and 100 %; astern −28 % to −100 % pitch). Clarke's regression gives her a tactical diameter about 15 % larger than the poster's in the laden condition, even with a large rudder; the advance and the ballast circle match. The propeller curves, the rudder area and type (taken as a high-lift rudder, since a plain one stalls before her 45°) are assumed.
 
 ## Open questions
 

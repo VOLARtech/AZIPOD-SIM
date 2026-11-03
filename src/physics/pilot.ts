@@ -2,6 +2,7 @@
 // "helm 35° to starboard", "full ahead", "crash stop" mean different lever movements
 // on a pod ship, a shaft-and-rudder ship or a CPP ship.
 import type { ShipSpec } from './ship';
+import { cppProgram } from './units/shaft';
 import type { Command, ShipState } from './sim';
 
 /** Turning order, + = turn to starboard [rad]. Pods push the stern the other way; rudders follow the helm. */
@@ -37,7 +38,9 @@ export function fullAstern(spec: ShipSpec) {
 export function primeRunning(spec: ShipSpec, st: ShipState, f: number) {
   spec.pods.forEach((p, i) => {
     const ps = st.pods[i];
-    if (p.shaft?.prop.cpp) { ps.rpm = 1; ps.pitch = f; }
+    const pg = p.shaft?.prop.cpp?.program;
+    if (pg) { const o = cppProgram(pg, f); ps.rpm = o.rpm; ps.pitch = o.pitch; }
+    else if (p.shaft?.prop.cpp) { ps.rpm = 1; ps.pitch = f; }
     else if (p.kind === 'waterjet') { ps.rpm = Math.max(p.jet!.idle, Math.abs(f)); ps.bucket = f >= 0 ? 1 : -1; }
     else ps.rpm = f;
     delete ps.eng;

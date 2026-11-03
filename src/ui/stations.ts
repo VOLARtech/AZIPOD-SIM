@@ -120,6 +120,8 @@ class PitchLever extends Canvas {
     this.c.addEventListener('pointerup', end); this.c.addEventListener('pointercancel', end);
   }
   get() { const c = S.cmd.pods[this.units[0]]; return this.mode === 'pitch' ? c.pitch ?? 0 : c.rpm; }
+  /** The ship's own bridge programme: the lever is the order (pitch and rpm follow it). */
+  get program() { return this.mode === 'pitch' ? SHIP.pods[this.units[0]].shaft?.prop.cpp?.program : undefined; }
   set(v: number) { for (const i of this.units) { const c = S.cmd.pods[i]; if (this.mode === 'pitch') { c.pitch = v; c.rpm = combinatorRpm(v); } else c.rpm = v; } }
   y(v: number) { return 14 + (this.h - 28) / 2 * (1 - v); }
   draw() {
@@ -133,12 +135,17 @@ class PitchLever extends Canvas {
       g.beginPath(); g.moveTo(x + 7, yy); g.lineTo(x + (big ? 16 : 12), yy); g.stroke();
     }
     this.font(9); g.fillStyle = D.K.muted; g.textAlign = 'left'; g.textBaseline = 'middle';
-    for (const [v, t] of [[1, '100'], [0.5, '50'], [-0.5, '50'], [-1, '100']] as [number, string][]) g.fillText(t, x + 19, this.y(v));
+    const marks: [number, string][] = this.program ? [[1, 'NAV'], [0.8, 'FULL'], [0.6, 'HALF'], [0.4, 'SLOW'], [0.2, 'D.SL'], [-0.2, 'D.SL'], [-0.4, 'SLOW'], [-0.6, 'HALF'], [-0.8, 'FULL'], [-1, 'EMCY']]
+      : [[1, '100'], [0.5, '50'], [-0.5, '50'], [-1, '100']];
+    if (this.program) this.font(8);
+    for (const [v, t] of marks) g.fillText(t, x + 19, this.y(v));
+    if (this.program) this.font(9);
     g.textAlign = 'center'; g.textBaseline = 'top'; g.fillText('AH', x, 0); g.textBaseline = 'bottom'; g.fillText('AS', x, this.h);
     // astern pitch limit and power-management cap
     g.strokeStyle = D.K.warn; g.setLineDash([3, 2]); g.lineWidth = 1.5;
     for (const v of [-this.astern, S.rt.status.rpmLimit[i] < 0.999 ? S.rt.status.rpmLimit[i] : NaN]) if (isFinite(v) && v > -1) { const yy = this.y(v); g.beginPath(); g.moveTo(x - 10, yy); g.lineTo(x + 10, yy); g.stroke(); }
     g.setLineDash([]);
+    // the bar is the pitch the blades have (with a programme, it lags and differs from the order)
     const a = this.mode === 'pitch' ? ps.pitch ?? 0 : ps.rpm, y0 = this.y(0);
     g.fillStyle = col; g.globalAlpha = 0.85; g.fillRect(x - 3, Math.min(y0, this.y(a)), 6, Math.abs(this.y(a) - y0)); g.globalAlpha = 1;
     const o = this.get(), yo = this.y(o);
@@ -259,7 +266,7 @@ export function buildStation(host: HTMLElement): Station {
   let linked = true;
   const levers: (Telegraph | PitchLever)[] = [];
   // engines: telegraph (direct) or pitch lever (CPP) per shaft, linked by default
-  const engCell = cell(cpp ? 'Pitch' : telegraph ? 'Telegraph' : 'Propulsion', units.length > 1 ? 'LINKED' : telegraph ? 'BRIDGE CONTROL' : '', 'eng');
+  const engCell = cell(cpp ? (units.some(([p]) => p.shaft!.prop.cpp?.program) ? 'Bridge control' : 'Pitch') : telegraph ? 'Telegraph' : 'Propulsion', units.length > 1 ? 'LINKED' : telegraph ? 'BRIDGE CONTROL' : '', 'eng');
   const engRow = document.createElement('div'); engRow.className = 'row'; engCell.appendChild(engRow);
   const linkB = engCell.querySelector('b')!;
   for (const [p, i] of units) {
@@ -276,7 +283,7 @@ export function buildStation(host: HTMLElement): Station {
   if (units.length > 1) { linkB.style.cursor = 'pointer'; linkB.onclick = () => { linked = !linked; relink(); }; }
   // shaft gauges
   const eType = units[0][0].shaft!.engine.type;
-  const gCell = cell('Shaft', cpp ? (eType === 'turbine' ? 'GAS TURBINE · CPP' : 'GEARED DIESEL') : telegraph ? '2-STROKE · DIRECT' : eType === 'electric' ? 'ELECTRIC DRIVE' : 'DIESEL · REVERSING GEAR', 'gauges');
+  const gCell = cell('Shaft', cpp ? (eType === 'turbine' ? 'GAS TURBINE · CPP' : eType === 'direct2s' ? '2-STROKE · CPP' : 'GEARED DIESEL') : telegraph ? '2-STROKE · DIRECT' : eType === 'electric' ? 'ELECTRIC DRIVE' : 'DIESEL · REVERSING GEAR', 'gauges');
   const gRow = document.createElement('div'); gRow.className = 'row'; gCell.appendChild(gRow);
   const gauges = units.map(([, i]) => new ShaftGauge(i));
   gauges.forEach(g => { gRow.appendChild(g.c); canvases.push(g); });
@@ -304,7 +311,8 @@ export function buildStation(host: HTMLElement): Station {
   if (SHIP.sternThruster) addThr('sbt', 'STERN');
   // buttons
   const bc = cell('', '', 'btns');
-  bc.innerHTML = `<button class="cb warn" data-a="stop">${cpp ? 'ZERO PITCH' : 'STOP'}</button><button class="cb" data-a="mid">MIDSHIPS</button>${cpp ? '<button class="cb" data-a="comb">CONST RPM</button>' : ''}${SHIP.rotors ? '<button class="cb on" data-a="rotor">ROTORS ON</button>' : ''}`;
+  const programme = units.some(([p]) => p.shaft!.prop.cpp?.program);
+  bc.innerHTML = `<button class="cb warn" data-a="stop">${cpp ? 'ZERO PITCH' : 'STOP'}</button><button class="cb" data-a="mid">MIDSHIPS</button>${cpp && !programme ? '<button class="cb" data-a="comb">CONST RPM</button>' : ''}${SHIP.rotors ? '<button class="cb on" data-a="rotor">ROTORS ON</button>' : ''}`;
   const rotB = bc.querySelector('[data-a=rotor]') as HTMLButtonElement | null;
   if (rotB) rotB.onclick = () => { const m = S.rt.model; m.rotorsOn = !m.rotorsOn; rotB.textContent = m.rotorsOn ? 'ROTORS ON' : 'ROTORS OFF'; rotB.classList.toggle('on', m.rotorsOn); uiTick('detent'); };
   const combB = bc.querySelector('[data-a=comb]') as HTMLButtonElement | null;

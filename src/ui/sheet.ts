@@ -15,25 +15,25 @@ export function renderPoster(p: Poster) {
   lastPoster = p;
   const turn = p.turning.map(t => `<tr><td>${t.label}</td><td>${f(t.adv / SHIP.L, 2)} L</td><td>${f(t.tr / SHIP.L, 2)} L</td><td>${f(t.td / SHIP.L, 2)} L</td><td>${f(t.t90)} / ${f(t.t180)} / ${f(t.t360)} s</td></tr>`).join('');
   const stop = p.stopping.map(s => `<tr><td>${s.label}</td><td>${f(s.track / SHIP.L, 2)} L</td><td>${f(s.head / SHIP.L, 2)} L</td><td>${f(Math.abs(s.side) / SHIP.L, 2)} L ${s.side < 0 ? 'P' : 'S'}</td><td>${f(s.time)} s</td></tr>`).join('');
-  const sh = SHIP.pods[0].shaft, tel = sh && !sh.prop.cpp ? ['Dead slow', 'Slow', 'Half', 'Full', 'Nav full'] : null;
-  const spd = p.speedTable.map((s, i) => `<tr><td>${tel ? `${tel[i]} · ${f(s.rpm * sh!.engine.n * 60)} rpm` : `${f(s.rpm * 100)} %`}</td><td>${f(s.kn, 1)} kn</td></tr>`).join('');
+  const sh = SHIP.pods[0].shaft, pg = sh?.prop.cpp?.program, tel = sh && (!sh.prop.cpp || pg) ? ['Dead slow', 'Slow', 'Half', 'Full', 'Nav full'] : null;
+  const spd = p.speedTable.map((s, i) => `<tr><td>${pg ? `${tel![i]} · ${f(pg.ahead[i][0] * sh!.engine.n * 60)} rpm / ${f(pg.ahead[i][1] * 100)} %` : tel ? `${tel[i]} · ${f(s.rpm * sh!.engine.n * 60)} rpm` : `${f(s.rpm * 100)} %`}</td><td>${f(s.kn, 1)} kn</td></tr>`).join('');
   const thr = SHIP.bowThruster.Tmax > 0 ? p.thruster.map(t => `<tr><td>${t.kn} kn</td><td>${f(t.eff * 100)} %</td></tr>`).join('') : '';
   const helmWord = sh ? (sh.rudder ? `rudder ${f((sh.rudder.max * 180 / Math.PI))}°` : 'helm') : 'pods 35°';
   const pods = (SHIP.station ?? 'azipod') === 'azipod';
   const detail = pods
     ? ` · ${f(SHIP.pods[0].Tb / 9.81e3)} t bollard each · switchboard ${f(SHIP.powerAvail / 1e6, 1)} MW for propulsion · azimuth ${f(SHIP.podSlew / DEG, 1)}°/s · full ahead → full astern ${f(2 * SHIP.podRpmTime)} s · astern max ${f(SHIP.asternMax * 100)} % · reversal blocked above ${f(SHIP.revInterlock * 100)} % rpm`
-    : sh ? ` · ${sh.engine.type === 'direct2s' ? `direct-reversing, ${f(sh.engine.n * 60)} rpm MCR, minimum ${f(sh.engine.nMin * sh.engine.n * 60)} rpm${sh.engine.barred ? `, barred ${f(sh.engine.barred[0] * sh.engine.n * 60)}–${f(sh.engine.barred[1] * sh.engine.n * 60)} rpm` : ''}` : ''}${sh.rudder ? ` · rudder ${f(sh.rudder.A, 1)} m², ±${f(sh.rudder.max * 180 / Math.PI)}° at ${f(sh.rudder.rate * 180 / Math.PI, 1)} °/s` : ''}` : '';
+    : sh ? ` · ${sh.engine.type === 'direct2s' ? `${sh.prop.cpp ? 'two-stroke on a controllable-pitch propeller' : 'direct-reversing'}, ${f(sh.engine.n * 60)} rpm MCR, minimum ${f(sh.engine.nMin * sh.engine.n * 60)} rpm${sh.engine.barred ? `, barred ${f(sh.engine.barred[0] * sh.engine.n * 60)}–${f(sh.engine.barred[1] * sh.engine.n * 60)} rpm` : ''}` : ''}${sh.rudder ? ` · rudder ${f(sh.rudder.A, 1)} m², ±${f(sh.rudder.max * 180 / Math.PI)}° at ${f(sh.rudder.rate * 180 / Math.PI, 1)} °/s` : ''}` : '';
   const sq12 = p.squatTable.filter(s => s.hT === 0), sq15 = p.squatTable.filter(s => s.hT === 1);
   const sq = sq12.map((s, i) => `<tr><td>${s.kn} kn</td><td>${f(s.sq, 2)} m</td><td>${f(sq15[i].sq, 2)} m</td></tr>`).join('');
   const wind = p.windDrift.map(w => `<tr><td>${w.kn} kn</td><td>${f(w.drift, 2)} kn</td></tr>`).join('');
   $('poster').innerHTML = `
-    <p class="note">${SHIP.name} · LOA ${SHIP.LOA} m · Lpp ${SHIP.L} m · B ${SHIP.B} m · T ${SHIP.T} m even keel${SHIP.load ? ` (${SHIP.load})` : ''} · ${propulsionSummary(SHIP)}${detail}.</p>
+    <p class="note">${SHIP.name} · LOA ${SHIP.LOA} m · Lpp ${SHIP.L} m · B ${SHIP.B} m · T ${SHIP.T} m ${/aft|trim/i.test(SHIP.load ?? '') ? 'mean' : 'even keel'}${SHIP.load ? ` (${SHIP.load})` : ''} · ${propulsionSummary(SHIP)}${detail}.</p>
     <div class="poster-grid">
       <div><h3>Turning circles · ${helmWord}</h3><canvas class="pcanvas" id="pc-turn"></canvas>
         <div class="tw"><table class="ptable"><tr><th></th><th>Advance</th><th>Transfer</th><th>Tactical Ø</th><th>90/180/360°</th></tr>${turn}</table></div></div>
       <div><h3>Stopping · track reach</h3><canvas class="pcanvas" id="pc-stop"></canvas>
         <div class="tw"><table class="ptable"><tr><th></th><th>Track</th><th>Head</th><th>Side</th><th>Time</th></tr>${stop}</table></div></div>
-      <div><h3>Speed by ${tel ? 'telegraph' : 'lever'}</h3><table class="ptable"><tr><th>${tel ? 'Order' : sh?.prop.cpp ? 'Pitch' : 'rpm'}</th><th>Speed, deep</th></tr>${spd}</table>
+      <div><h3>Speed by ${pg ? 'bridge order' : tel ? 'telegraph' : 'lever'}</h3><table class="ptable"><tr><th>${tel ? 'Order' : sh?.prop.cpp ? 'Pitch' : 'rpm'}</th><th>Speed, deep</th></tr>${spd}</table>
         ${thr ? `<h3>Bow thruster vs speed</h3><table class="ptable"><tr><th>Ahead</th><th>Effect</th></tr>${thr}</table>` : ''}</div>
       <div><h3>Squat at h/T 1.2 (Barrass)</h3><table class="ptable"><tr><th>Speed</th><th>Open water</th><th>Confined channel</th></tr>${sq}</table>
         <h3>Dead-ship drift, beam wind</h3><table class="ptable"><tr><th>Wind</th><th>Drift</th></tr>${wind}</table></div>

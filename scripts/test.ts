@@ -977,4 +977,26 @@ test('harbour tugs stand by out of sight until called, and leave once stood down
   assert.ok(!tugEngaged(tugs[0]), 'stood down');
 });
 
+console.log('CB Baltic');
+import { cppProgram, propThrust } from '../src/physics/units/shaft';
+import { CB_BALTIC, CB_BALTIC_BALLAST } from '../src/ships/cbbaltic';
+import { runShaftTrials } from '../src/physics/trials';
+test('CB Baltic: the lever runs her pilot-card programme (rpm and pitch per order)', () => {
+  const pg = CB_BALTIC.pods[0].shaft!.prop.cpp!.program!, rpm = (f: number) => cppProgram(pg, f).rpm * 89.3, pit = (f: number) => cppProgram(pg, f).pitch;
+  assert.ok(Math.abs(rpm(0.2) - 56.3) < 0.05 && Math.abs(pit(0.2) - 0.4) < 1e-9, 'dead slow 56.3 rpm / 40 %');
+  assert.ok(Math.abs(rpm(0.6) - 69.2) < 0.05 && pit(0.6) === 1, 'half 69.2 rpm / 100 %');
+  assert.ok(Math.abs(rpm(1) - 89.3) < 0.05 && pit(1) === 1, 'navigation full');
+  assert.ok(Math.abs(rpm(-0.8) - 89) < 0.05 && Math.abs(pit(-0.8) + 0.912) < 1e-9, 'full astern 89 rpm / −91.2 %');
+  assert.ok(pit(0) === 0 && Math.abs(rpm(0) - 56.3) < 0.05, 'zero: blades at zero, shaft at dead-slow speed');
+  assert.ok(pit(0.1) > 0 && pit(0.1) < 0.4, 'in between orders pitch is interpolated');
+});
+test('CB Baltic: astern thrust about 30 % of ahead (her officers\' figure, not the poster\'s 75 %)', () => {
+  const pr = CB_BALTIC.pods[0].shaft!.prop, n = 89.3 / 60, a = propThrust(pr, n, 0, 1), b = -propThrust(pr, n, 0, -1);
+  assert.ok(Math.abs(b / a - 0.3) < 0.02, `${(100 * b / a).toFixed(0)} %`);
+});
+test('CB Baltic: about 14 kn flat out, laden a little slower than in ballast', () => {
+  const l = runShaftTrials(CB_BALTIC).Vs / KN, b = runShaftTrials(CB_BALTIC_BALLAST).Vs / KN;
+  assert.ok(l > 13 && l < 14 && b > 13.5 && b < 14.5 && b > l, `laden ${l.toFixed(1)} kn, ballast ${b.toFixed(1)} kn`);
+});
+
 console.log(`\n${pass} passed${process.exitCode ? ', some failed' : ''}`);
