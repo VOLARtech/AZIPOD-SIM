@@ -181,7 +181,13 @@ export interface ShipLook {
   hull: string; topsides: string; super: string; glass: string; accent: string;
   /** Livery for a detailed model that has no colours of its own: painted by where each surface sits
    *  (boot-top and bottom, hull sides, cargo deck and its piping, forecastle, accommodation). */
-  paint?: { boot: string; hull: string; deck: string; fcle: string; house: string };
+  paint?: {
+    boot: string; hull: string; deck: string; fcle: string; house: string;
+    bootH?: number;           // boot-top line above this waterline [m] (the summer mark, so it shows in ballast); default 0.6
+    houseDeck?: string;       // the decks and roofs of the accommodation
+    funnel?: string; funnelTop?: string;   // a funnel casing drawn on the house at look.funnel (models without one)
+    lifeboat?: string;        // where the model's zone marks it (models.json)
+  };
   /** Detailed mesh (tools/ship/stl_to_ship.py) used instead of the procedural blocks. */
   model?: { id: string; mast: [number, number]; stern: [number, number] };
 }

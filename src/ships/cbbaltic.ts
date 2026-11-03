@@ -25,15 +25,16 @@ const ENGINE = { type: 'direct2s' as const, P: 6.502e6, n: 89.3 / 60, nMin: 23.4
 const rud = (xg: number, H: number) => rudder({ type: 'flap', A: 42 * H / 8.6, H, xR: -0.5 * L - xg, max: 45 * DEG, rate: 2.25 * DEG, aH: 0.25, tR: 0.3, gammaP: 0.5, gammaM: 0.4, lR: -0.9, eps: 0.95, kappa: 0.55 });
 // stem and bridge: the bridge front is 146.7 m abaft the stem
 const stemX = L / 2 + 0.8 * (LOA - L);
-const look = (xg: number, fb: number): ShipLook => {
+const look = (xg: number, fb: number, T: number): ShipLook => {
   const up = fb - 5.5;                                        // the house stands on the poop deck, 16 m above the keel
   return {
     freeboard: fb, bridgeH: 24.6 + up, bridgeLen: 9, wingOut: 0.5,
     decks: [{ x0: -0.5 * L - xg, x1: stemX - 146.7 - xg - 3, h: 3 + up, inset: 0.5 }, { x0: stemX - 166 - xg, x1: stemX - 146.7 - xg, h: 15 + up, inset: 2 }, { x0: stemX - 163 - xg, x1: stemX - 146.7 - xg, h: 24.6 + up, inset: 4 }],
-    funnel: { x: stemX - 170 - xg, h: 30 + up, w: 5, l: 6 },
-    hull: '#16181a', topsides: '#16181a', super: '#f2f2ee', glass: '#20282f', accent: '#c8201c',
-    // as she is: black hull over a red boot-top, red tank deck, piping and crane, white forecastle and house
-    paint: { boot: '#a3170f', hull: '#0d0e0f', deck: '#b0150e', fcle: '#f2f2ee', house: '#f2f2ee' },
+    funnel: { x: stemX - 165 - xg, h: 30.5 + up, w: 7, l: 6.5 },   // the casing aft of the wheelhouse
+    hull: '#2f3336', topsides: '#2f3336', super: '#efefea', glass: '#20282f', accent: '#6b2422',
+    // the class livery (sister Baltic Sun II): red bottom up to the summer mark, charcoal topsides, maroon decks,
+    // piping and crane, white house with maroon decks, yellow funnel with a black top, orange free-fall lifeboat
+    paint: { boot: '#a81f1a', bootH: 10.5 - T + 0.2, hull: '#1f2224', deck: '#4e1716', fcle: '#4e1716', house: '#efefea', houseDeck: '#4e1716', funnel: '#f2a516', funnelTop: '#1b1b1b', lifeboat: '#f0821e' },
   };
 };
 
@@ -51,7 +52,7 @@ export const CB_BALTIC: ShipSpec = {
   btRpmTime: 8, powerAvail: 2.2e6,
   bridgeX: stemX - 146.7 - LA_XG + 4,
   roll: { GM: 3.53, KG: 10.69, kxx: 0.38 * B, zWind: 16.98 - 10.5, vanish: 56.6 * DEG },
-  look: look(LA_XG, 5.5),
+  look: look(LA_XG, 5.5, 10.5),
 };
 
 /** Normal ballast: 7.53 m aft, 5.57 m forward (28 400 t). Mean draught for the hull; the rudder works with about three quarters of its area. */
@@ -67,5 +68,5 @@ export const CB_BALTIC_BALLAST: ShipSpec = {
   windage: { AF: 760, AL: 2286, cx: 0.8, cy: 0.9, cn: 0.08, xw: -14 },
   bridgeX: stemX - 146.7 - BA_XG + 4,
   roll: { GM: 9.23, KG: 7.85, kxx: 0.4 * B, zWind: 14.44 - 6.55, vanish: 69.8 * DEG },
-  look: look(BA_XG, 15.99 - 6.55),
+  look: look(BA_XG, 15.99 - 6.55, 6.55),
 };

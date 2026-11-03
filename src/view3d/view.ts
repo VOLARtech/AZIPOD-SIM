@@ -452,7 +452,7 @@ export class View3D {
     this.pods = [];
     const T = SHIP.T;
     const steel = new THREE.MeshStandardNodeMaterial({ color: '#3b4046', roughness: 0.55, metalness: 0.35 });
-    const anti = new THREE.MeshStandardNodeMaterial({ color: '#7a1a1c', roughness: 0.7 });
+    const anti = new THREE.MeshStandardNodeMaterial({ color: SHIP.look.paint?.boot ?? '#7a1a1c', roughness: 0.7 });
     const bronze = new THREE.MeshStandardNodeMaterial({ color: '#a8834c', roughness: 0.3, metalness: 0.85, side: THREE.DoubleSide });
     for (const p of SHIP.pods) {
       if (p.kind === 'shaft') { this.pods.push(this.buildShaftUnit(g, p, steel, anti, bronze)); continue; }
@@ -643,7 +643,7 @@ export class View3D {
     if (sh.rudder) {
       const rd = sh.rudder, chord = rd.A / rd.H;
       rudder = new THREE.Group(); rudder.position.set(p.y, 0, -rd.xR);
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(Math.max(0.4, chord * 0.16), rd.H, chord), steel);
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(Math.max(0.4, chord * 0.16), rd.H, chord), SHIP.look.paint ? anti : steel);
       blade.position.set(0, -T + rd.H / 2 + 0.3, chord * 0.25);
       rudder.add(blade);
       if (rd.type === 'flap') { const flap = new THREE.Mesh(new THREE.BoxGeometry(Math.max(0.3, chord * 0.1), rd.H, chord * 0.28), anti); flap.position.set(0, -T + rd.H / 2 + 0.3, chord * 0.85); rudder.add(flap); }
@@ -797,7 +797,7 @@ export class View3D {
       const kx = (stem - stern) / (f.stem - f.stern), kb = spec.B / f.beam;
       obj.scale.set(kb, kx, kx);
       obj.position.set(0, (f.draught * kx - spec.T), -(stem - f.stem * kx));
-      if (spec.look.paint) paintModel(obj, spec, stem, stern, m.eye ? stem - (f.stem - m.eye.x) * kx + 3 : spec.bridgeX + 3);
+      if (spec.look.paint) paintModel(obj, spec, stem, stern, m.eye ? stem - (f.stem - m.eye.x) * kx + 3 : spec.bridgeX + 3, m.zones);
       for (const o of procedural) { g.remove(o); o.traverse(c => { const me = c as THREE.Mesh; if (me.geometry) me.geometry.dispose(); }); }
       g.add(obj);
       if (own && m.eye) {
@@ -1195,6 +1195,9 @@ interface ModelEntry {
   ships: string[]; credit: { title: string; author: string; license: string; url: string };
   eye: { x: number; h: number } | null; top: number;
   fit: { stem: number; stern: number; beam: number; draught: number };
+  /** Where the lifeboat (and its davit) sits, for painting: [from, to] as fractions of the length from the stern,
+   *  and the height above the deck they start at, as a fraction of the length. */
+  zones?: { lifeboat?: number[] };
 }
 
 export async function createView(canvas: HTMLCanvasElement) {
@@ -1206,12 +1209,16 @@ export async function createView(canvas: HTMLCanvasElement) {
 /**
  * Paint a model that came without colours (one grey material) in the ship's livery, triangle by triangle,
  * from where each sits on the ship: below the boot-top line, the hull sides up to the deck (and the poop
- * and forecastle sides), the cargo deck with its piping and cranes, the forecastle top, the accommodation.
- * The deck level is found from the model itself: the height with most upward-facing area over the cargo tanks.
+ * and forecastle sides), the cargo deck with its piping and cranes, the forecastle, the accommodation with
+ * its decks, and the lifeboat where the model's zone puts it. The deck level is found from the model itself
+ * (the height with most upward-facing area over the cargo tanks), and the side shell from the hull's
+ * half-breadth at each frame. A livery with a funnel colour gets a funnel casing on the house, at look.funnel.
  */
-function paintModel(obj: THREE.Object3D, spec: ShipSpec, stem: number, stern: number, xHouse: number) {
-  const P = spec.look.paint!, len = stem - stern, xFcle = stem - 0.1 * len, B = spec.B;
-  const cols = { boot: new THREE.Color(P.boot), hull: new THREE.Color(P.hull), deck: new THREE.Color(P.deck), fcle: new THREE.Color(P.fcle), house: new THREE.Color(P.house) };
+function paintModel(obj: THREE.Object3D, spec: ShipSpec, stem: number, stern: number, xHouse: number, zones?: ModelEntry['zones']) {
+  const P = spec.look.paint!, len = stem - stern, xFcle = stem - 0.1 * len, B = spec.B, bootH = P.bootH ?? 0.6;
+  const C = (c: string | undefined, d: string) => new THREE.Color(c ?? d);
+  const cols = { boot: C(P.boot, ''), hull: C(P.hull, ''), deck: C(P.deck, ''), fcle: C(P.fcle, ''), house: C(P.house, ''),
+    houseDeck: C(P.houseDeck, P.house), lifeboat: C(P.lifeboat, P.house) };
   obj.updateMatrixWorld(true);
   const meshes: THREE.Mesh[] = [];
   obj.traverse(o => { const me = o as THREE.Mesh; if (me.isMesh) meshes.push(me); });
@@ -1226,8 +1233,9 @@ function paintModel(obj: THREE.Object3D, spec: ShipSpec, stem: number, stern: nu
     if (me.geometry.index) me.geometry = me.geometry.toNonIndexed(); else me.geometry = me.geometry.clone();
     me.userData.shared = false;
   }
-  // deck level: the most upward-facing area between the house and the forecastle, in 0.25 m bins
-  const bins = new Map<number, number>();
+  // deck level: the most upward-facing area between the house and the forecastle, in 0.25 m bins;
+  // half-breadth of the hull at each metre of length, below the deck
+  const bins = new Map<number, number>(), half = new Map<number, number>();
   for (const me of meshes) {
     const pos = me.geometry.getAttribute('position') as THREE.BufferAttribute;
     for (let i = 0; i < pos.count; i += 3) {
@@ -1238,20 +1246,49 @@ function paintModel(obj: THREE.Object3D, spec: ShipSpec, stem: number, stern: nu
   let deck = spec.look.freeboard, best = 0;
   for (const [k, A] of bins) if (A > best) { best = A; deck = k / 4; }
   for (const me of meshes) {
+    const pos = me.geometry.getAttribute('position') as THREE.BufferAttribute;
+    for (let i = 0; i < pos.count; i++) {
+      a.fromBufferAttribute(pos, i).applyMatrix4(me.matrixWorld);
+      if (a.y > deck + 4) continue;
+      const k = Math.round(-a.z); half.set(k, Math.max(half.get(k) ?? 0, Math.abs(a.x)));
+    }
+  }
+  const inZone = (z: number[] | undefined, x: number, h: number) => !!z && x >= stern + z[0] * len && x <= stern + z[1] * len && h >= deck + z[2] * len;
+  for (const me of meshes) {
     const pos = me.geometry.getAttribute('position') as THREE.BufferAttribute, col = new Float32Array(pos.count * 3);
     for (let i = 0; i < pos.count; i += 3) {
       tri(pos, me.matrixWorld, i);
       const x = -(a.z + b.z + c.z) / 3, h = (a.y + b.y + c.y) / 3, y = Math.abs(a.x + b.x + c.x) / 3;
-      const shell = Math.abs(n.y) < 0.6 && y > 0.4 * B;                    // the ship's side, not a deck or a pipe
-      const k = h < 0.6 ? cols.boot
-        : h < deck - 0.2 ? cols.hull
-        : x > xFcle && shell && h < deck + 2.8 ? cols.hull                    // forecastle sides
-        : x < xHouse && Math.abs(n.y) < 0.6 && h < deck + 3.5 ? cols.hull     // poop sides and transom, up to the house
-        : x > xFcle ? cols.fcle : x < xHouse ? cols.house : cols.deck;
+      const lo = Math.min(a.y, b.y, c.y), hi = Math.max(a.y, b.y, c.y);
+      // the ship's side: facing sideways, at the hull's breadth for this frame (not a deck, a pipe or the house)
+      const shell = Math.abs(n.y) < 0.6 && y > (half.get(Math.round(x)) ?? B / 2) - 1;
+      // big triangles on the flared bow reach from the bottom to the deck: red only if all of it is below
+      // the boot-top line, hull colour if any of it is below the deck
+      const k = hi < bootH + 0.4 || (h < bootH && hi < deck - 1) ? cols.boot
+        : h < deck - 0.2 || lo < deck - 0.5 ? cols.hull
+        : shell && h < deck + 0.8 ? cols.hull                                     // sheer strake
+        : x > stem - 0.3 * len && h < deck + 4.5 && n.x * Math.sign(a.x + b.x + c.x) > 0.25
+          && y > (half.get(Math.round(x)) ?? B / 2) - 2.5 ? cols.hull           // flared bow plating, rising to the forecastle
+        : x > xFcle && Math.abs(n.y) < 0.6 && h < deck + 3 ? cols.hull          // forecastle bulwark
+        : x < xHouse && Math.abs(n.y) < 0.6 && h < deck + 3.5 ? cols.hull       // poop sides and transom, up to the house
+        : x > xFcle ? cols.fcle
+        : x >= xHouse ? cols.deck
+        : inZone(zones?.lifeboat, x, h) ? cols.lifeboat
+        : n.y > 0.8 ? cols.houseDeck : cols.house;
       for (let j = 0; j < 3; j++) { col[(i + j) * 3] = k.r; col[(i + j) * 3 + 1] = k.g; col[(i + j) * 3 + 2] = k.b; }
     }
     me.geometry.setAttribute('color', new THREE.BufferAttribute(col, 3));
     const mat = (me.material as THREE.MeshStandardMaterial).clone(); mat.vertexColors = true; mat.color.set(0xffffff);
     me.material = mat;
+  }
+  // funnel casing on the house top, with its black top
+  if (P.funnel) {
+    const F = spec.look.funnel, top = 1.4, body = 9;
+    const fm = new THREE.MeshStandardNodeMaterial({ color: P.funnel, roughness: 0.55 }), tm = new THREE.MeshStandardNodeMaterial({ color: P.funnelTop ?? P.hull, roughness: 0.7 });
+    const f1 = new THREE.Mesh(new THREE.BoxGeometry(F.w, body, F.l), fm); f1.position.set(0, F.h - top - body / 2, -F.x);
+    const f2 = new THREE.Mesh(new THREE.BoxGeometry(F.w * 0.96, top, F.l * 0.96), tm); f2.position.set(0, F.h - top / 2, -F.x);
+    for (const m of [f1, f2]) { m.castShadow = m.receiveShadow = true; obj.parent ? obj.parent.add(m) : obj.add(m); }
+    // in obj's frame if it has no parent yet: undo its scale and offset
+    if (!obj.parent) for (const m of [f1, f2]) { m.position.sub(obj.position).divide(obj.scale); m.scale.set(1 / obj.scale.x, 1 / obj.scale.y, 1 / obj.scale.z); }
   }
 }

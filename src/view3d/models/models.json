@@ -227,6 +227,9 @@
    "cb-baltic",
    "cb-baltic-ballast"
   ],
+  "zones": {
+   "lifeboat": [0.0, 0.075, 0.019]
+  },
   "credit": {
    "title": "Oil tanker",
    "author": "factorydottcat",
