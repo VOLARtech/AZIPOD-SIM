@@ -92,6 +92,7 @@ On a phone or tablet, just use the levers and wheels on screen. On a computer yo
 
 ## Thanks and credits
 
+- **Developed by Khalil Mahboub**, aspiring marine captain and aspiring superyacht captain. Feedback, ideas, or anything you'd like to discuss: Instagram [@snowskyz](https://www.instagram.com/snowskyz/) · WhatsApp [+1 514 574 1719](https://wa.me/15145741719).
 - **Sea chart of Miami:** NOAA electronic navigational charts (public domain).
 - **Buildings and roads:** © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), available under the Open Database License.
 - **Spirit-class cruise ship:** 1:300 Carnival Spirit hobby model (3D Warehouse, converted by iconic3dmodels).

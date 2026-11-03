@@ -618,3 +618,8 @@ details.sec[open] { display: flex; flex-direction: column; gap: 10px; padding-bo
 }
 .edit-bar .cb { height: 34px; padding: 0 10px; font-size: 12px; }
 .edit-bar .hint { flex-basis: 100%; font: 500 11px var(--font-num); color: var(--muted); }
+
+/* developer credit on the first-run card and in the menu */
+.gate-card .credit { font-size: 13px; color: var(--muted); }
+.gate-card .credit a, .credits a { color: var(--own, #f0a030); text-decoration: none; font-weight: 600; white-space: nowrap; }
+.gate-card .credit a:hover, .credits a:hover { text-decoration: underline; }
