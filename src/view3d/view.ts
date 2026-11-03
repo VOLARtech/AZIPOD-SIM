@@ -18,7 +18,7 @@ export const sceneryCredit = (id: string) => (SCENERY[id] ? 'Buildings © OpenSt
 import { makeWater } from './water';
 import { Wake } from './wake';
 import { SPEEDS } from '../ui/state';
-import type { PodSpec } from '../physics/ship';
+import type { PodSpec, ShipSpec } from '../physics/ship';
 import { SHIP } from '../physics/ship';
 import { HULL, setHull } from '../physics/contact';
 import { setShip } from '../physics/ship';
@@ -797,6 +797,7 @@ export class View3D {
       const kx = (stem - stern) / (f.stem - f.stern), kb = spec.B / f.beam;
       obj.scale.set(kb, kx, kx);
       obj.position.set(0, (f.draught * kx - spec.T), -(stem - f.stem * kx));
+      if (spec.look.paint) paintModel(obj, spec, stem, stern, m.eye ? stem - (f.stem - m.eye.x) * kx + 3 : spec.bridgeX + 3);
       for (const o of procedural) { g.remove(o); o.traverse(c => { const me = c as THREE.Mesh; if (me.geometry) me.geometry.dispose(); }); }
       g.add(obj);
       if (own && m.eye) {
@@ -1200,4 +1201,57 @@ export async function createView(canvas: HTMLCanvasElement) {
   const v = new View3D(canvas);
   await v.init();
   return v;
+}
+
+/**
+ * Paint a model that came without colours (one grey material) in the ship's livery, triangle by triangle,
+ * from where each sits on the ship: below the boot-top line, the hull sides up to the deck (and the poop
+ * and forecastle sides), the cargo deck with its piping and cranes, the forecastle top, the accommodation.
+ * The deck level is found from the model itself: the height with most upward-facing area over the cargo tanks.
+ */
+function paintModel(obj: THREE.Object3D, spec: ShipSpec, stem: number, stern: number, xHouse: number) {
+  const P = spec.look.paint!, len = stem - stern, xFcle = stem - 0.1 * len, B = spec.B;
+  const cols = { boot: new THREE.Color(P.boot), hull: new THREE.Color(P.hull), deck: new THREE.Color(P.deck), fcle: new THREE.Color(P.fcle), house: new THREE.Color(P.house) };
+  obj.updateMatrixWorld(true);
+  const meshes: THREE.Mesh[] = [];
+  obj.traverse(o => { const me = o as THREE.Mesh; if (me.isMesh) meshes.push(me); });
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3(), e1 = new THREE.Vector3();
+  const tri = (pos: THREE.BufferAttribute, M: THREE.Matrix4, i: number) => {
+    a.fromBufferAttribute(pos, i).applyMatrix4(M); b.fromBufferAttribute(pos, i + 1).applyMatrix4(M); c.fromBufferAttribute(pos, i + 2).applyMatrix4(M);
+    n.subVectors(b, a).cross(e1.subVectors(c, a)); const A = n.length() / 2; n.normalize();
+    return A;
+  };
+  // per-corner geometry of our own, so each triangle takes one colour (the cached model stays grey)
+  for (const me of meshes) {
+    if (me.geometry.index) me.geometry = me.geometry.toNonIndexed(); else me.geometry = me.geometry.clone();
+    me.userData.shared = false;
+  }
+  // deck level: the most upward-facing area between the house and the forecastle, in 0.25 m bins
+  const bins = new Map<number, number>();
+  for (const me of meshes) {
+    const pos = me.geometry.getAttribute('position') as THREE.BufferAttribute;
+    for (let i = 0; i < pos.count; i += 3) {
+      const A = tri(pos, me.matrixWorld, i), x = -(a.z + b.z + c.z) / 3, h = (a.y + b.y + c.y) / 3;
+      if (n.y > 0.9 && x > xHouse + 10 && x < xFcle - 10 && h > 0.5) { const k = Math.round(h * 4); bins.set(k, (bins.get(k) ?? 0) + A); }
+    }
+  }
+  let deck = spec.look.freeboard, best = 0;
+  for (const [k, A] of bins) if (A > best) { best = A; deck = k / 4; }
+  for (const me of meshes) {
+    const pos = me.geometry.getAttribute('position') as THREE.BufferAttribute, col = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i += 3) {
+      tri(pos, me.matrixWorld, i);
+      const x = -(a.z + b.z + c.z) / 3, h = (a.y + b.y + c.y) / 3, y = Math.abs(a.x + b.x + c.x) / 3;
+      const shell = Math.abs(n.y) < 0.6 && y > 0.4 * B;                    // the ship's side, not a deck or a pipe
+      const k = h < 0.6 ? cols.boot
+        : h < deck - 0.2 ? cols.hull
+        : x > xFcle && shell && h < deck + 2.8 ? cols.hull                    // forecastle sides
+        : x < xHouse && Math.abs(n.y) < 0.6 && h < deck + 3.5 ? cols.hull     // poop sides and transom, up to the house
+        : x > xFcle ? cols.fcle : x < xHouse ? cols.house : cols.deck;
+      for (let j = 0; j < 3; j++) { col[(i + j) * 3] = k.r; col[(i + j) * 3 + 1] = k.g; col[(i + j) * 3 + 2] = k.b; }
+    }
+    me.geometry.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    const mat = (me.material as THREE.MeshStandardMaterial).clone(); mat.vertexColors = true; mat.color.set(0xffffff);
+    me.material = mat;
+  }
 }

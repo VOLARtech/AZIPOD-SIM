@@ -179,6 +179,9 @@ export interface ShipLook {
   wingOut: number;            // how far the wings reach past the hull side
   funnel: { x: number; h: number; w: number; l: number };
   hull: string; topsides: string; super: string; glass: string; accent: string;
+  /** Livery for a detailed model that has no colours of its own: painted by where each surface sits
+   *  (boot-top and bottom, hull sides, cargo deck and its piping, forecastle, accommodation). */
+  paint?: { boot: string; hull: string; deck: string; fcle: string; house: string };
   /** Detailed mesh (tools/ship/stl_to_ship.py) used instead of the procedural blocks. */
   model?: { id: string; mast: [number, number]; stern: [number, number] };
 }

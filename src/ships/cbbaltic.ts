@@ -31,7 +31,9 @@ const look = (xg: number, fb: number): ShipLook => {
     freeboard: fb, bridgeH: 24.6 + up, bridgeLen: 9, wingOut: 0.5,
     decks: [{ x0: -0.5 * L - xg, x1: stemX - 146.7 - xg - 3, h: 3 + up, inset: 0.5 }, { x0: stemX - 166 - xg, x1: stemX - 146.7 - xg, h: 15 + up, inset: 2 }, { x0: stemX - 163 - xg, x1: stemX - 146.7 - xg, h: 24.6 + up, inset: 4 }],
     funnel: { x: stemX - 170 - xg, h: 30 + up, w: 5, l: 6 },
-    hull: '#2b2e31', topsides: '#8a1f1d', super: '#ecebe4', glass: '#20282f', accent: '#1f5a8c',
+    hull: '#16181a', topsides: '#16181a', super: '#f2f2ee', glass: '#20282f', accent: '#c8201c',
+    // as she is: black hull over a red boot-top, red tank deck, piping and crane, white forecastle and house
+    paint: { boot: '#a3170f', hull: '#0d0e0f', deck: '#b0150e', fcle: '#f2f2ee', house: '#f2f2ee' },
   };
 };
 
