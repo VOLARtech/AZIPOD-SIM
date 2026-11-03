@@ -1,4 +1,6 @@
-# Azipod Bridge
+# SHIPSHAPE
+
+*Formerly Azipod Bridge.*
 
 **Learn to handle ships, from a small harbour tug to a giant container ship, right in your web browser.**
 
@@ -59,7 +61,7 @@ If a ship is too big or too deep for a harbour, the simulator tells you and pick
 | --- | --- |
 | Android, Windows, Mac, Linux, Chromebook (Chrome or Edge) | Tap **INSTALL** in the app, or the install icon in the address bar |
 | iPhone, iPad | Open it in Safari, tap Share, then **Add to Home Screen** |
-| No install, no internet at all | Download [the offline copy](https://volartech.github.io/AZIPOD-SIM/azipod-bridge-offline.html), a single file that opens in any browser |
+| No install, no internet at all | Download [the offline copy](https://volartech.github.io/AZIPOD-SIM/shipshape-offline.html), a single file that opens in any browser |
 
 The app updates itself. When a new version is ready, it shows a **RELOAD** button.
 
@@ -73,6 +75,7 @@ On a phone or tablet, just use the levers and wheels on screen. On a computer yo
 
 ## What's new
 
+- **New name: SHIPSHAPE.** Azipod Bridge is now SHIPSHAPE, since it has grown from Azipod cruise ships into every kind of ship. The address stays the same, and an installed copy keeps working.
 - **22 more ships.** It began with three Azipod ships; now there are 25, covering almost every way a ship can be driven: engines with a telegraph, adjustable propellers, tug drives, water jets, computer-held positioning and more.
 - **Realistic 3D ships.** Detailed 3D models replace the simple box shapes, fitted to each ship's real size.
 - **New places and challenges.** River, ice, offshore platform, oil terminal, tanker escort, fast ferry and ocean scenarios, plus other ships to meet and overtake.
@@ -92,6 +95,7 @@ On a phone or tablet, just use the levers and wheels on screen. On a computer yo
 
 ## Thanks and credits
 
+- **Developed by Khalil Mahboub**, aspiring marine captain and aspiring superyacht captain. Feedback, ideas, or anything you'd like to discuss: Instagram [@snowskyz](https://www.instagram.com/snowskyz/) · WhatsApp [+1 514 574 1719](https://wa.me/15145741719).
 - **Sea chart of Miami:** NOAA electronic navigational charts (public domain).
 - **Buildings and roads:** © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), available under the Open Database License.
 - **Spirit-class cruise ship:** 1:300 Carnival Spirit hobby model (3D Warehouse, converted by iconic3dmodels).

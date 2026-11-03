@@ -1,4 +1,4 @@
-# Azipod Bridge: technical notes
+# SHIPSHAPE: technical notes
 
 The physics, data sources, ship models and developer workflow behind the simulator. For an overview in plain language, see the [README](../README.md); for how the physics compares with published tests and real ships, see the [physics audit](PHYSICS_AUDIT.md).
 
@@ -153,7 +153,7 @@ npm test             # physics and control regression tests
 npm run golden       # Azipod ships bit-identical to the reference
 npm run trials       # IMO-style sea trials in the terminal
 npm run validate     # 277 m stopping-test comparison
-npm run build:all    # dist/ = PWA + azipod-bridge-offline.html
+npm run build:all    # dist/ = PWA + shipshape-offline.html (also kept at the old name, azipod-bridge-offline.html)
 ```
 
 Every push to `main` runs the tests, builds, and publishes to GitHub Pages (`.github/workflows/pages.yml`).

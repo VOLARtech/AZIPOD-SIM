@@ -1,12 +1,12 @@
 {
-  "name": "azipod-bridge",
+  "name": "shipshape",
   "version": "4.0.0",
   "description": "Twin-Azipod ship-handling simulator (PWA)",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "build:single": "vite build --mode single",
-    "build:all": "npm run build && npm run build:single && cp dist-single/index.html dist/azipod-bridge-offline.html",
+    "build:all": "npm run build && npm run build:single && cp dist-single/index.html dist/shipshape-offline.html && cp dist-single/index.html dist/azipod-bridge-offline.html",
     "preview": "vite preview",
     "test": "tsx scripts/test.ts",
     "trials": "tsx scripts/trials.ts",

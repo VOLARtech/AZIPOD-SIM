@@ -47,7 +47,7 @@ export function initApp(onGateClosed: () => void) {
     await deferred.userChoice;
     deferred = null; $('b-install').hidden = true;
   };
-  addEventListener('appinstalled', () => { $('b-install').hidden = true; toast('Installed. Open Azipod Bridge from your home screen or app list.'); });
+  addEventListener('appinstalled', () => { $('b-install').hidden = true; toast('Installed. Open SHIPSHAPE from your home screen or app list.'); });
   renderAbout();
 }
 
@@ -65,7 +65,7 @@ function renderAbout() {
     : 'In Chrome or Edge (Android, Windows, macOS, Linux, ChromeOS): tap INSTALL in the button row, or use the install icon in the address bar.';
   $('about').innerHTML = `
     <p><b>Install.</b> ${how} Once installed it opens in its own window and keeps working with no connection.${standalone ? ' <b>This copy is installed.</b>' : ''}</p>
-    <p><b>No install at all.</b> <a href="azipod-bridge-offline.html" download>Download the offline copy</a>: one HTML file, about 5 MB, that opens in any browser with no internet. Handy for laptops on board.</p>
+    <p><b>No install at all.</b> <a href="shipshape-offline.html" download>Download the offline copy</a>: one HTML file, about 5 MB, that opens in any browser with no internet. Handy for laptops on board.</p>
     <p><b>Feedback.</b> Report a problem or suggest a scenario on <a href="${repo}/issues" target="_blank" rel="noopener">GitHub</a>.</p>
     <p><b>Data</b> Chart: NOAA ENC (public domain). Buildings and roads © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>, ODbL. Ship models: 1:300 Carnival Spirit hobby model (3D Warehouse / iconic3dmodels); the other ships from Sketchfab under CC BY 4.0: ${Object.values(MODELS).filter(m => m.credit.license !== 'supplied').map(m => `“<a href="${m.credit.url}" target="_blank" rel="noopener">${m.credit.title}</a>” by ${m.credit.author}`).join(', ')}; ${Object.values(MODELS).filter(m => m.credit.license === 'supplied').map(m => `“${m.credit.title}” supplied by ${m.credit.author}`).join(', ')}.</p>
     <p><b>Version</b> ${__APP_VERSION__} · build ${__BUILD__}${__PWA__ ? '' : ' · offline single-file copy'}.</p>
