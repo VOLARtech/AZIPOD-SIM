@@ -30,7 +30,7 @@ It started as a trainer for cruise ships with *Azipods* (propellers in pods unde
 | --- | --- | --- |
 | Cruise, expedition and training ships | Two large Azipod cruise ships (293 m and 278 m), the 53.5 m expedition yacht *Paspaley Pearl*, a 135 m Azipod training ship, a classic twin-propeller cruise ship | Pod levers and a joystick, or propeller levers |
 | Ferries | A car and passenger ferry, a 70 m fast catamaran ferry (36 knots) | Propeller levers; water-jet controls on the fast ferry |
-| Cargo ships | An oil supertanker (loaded or empty), a gas carrier, a medium and a huge 24,000-container ship, a bulk carrier (also a version with tall spinning *rotor sails*) | Engine telegraph and steering wheel, like a real cargo ship |
+| Cargo ships | The 183 m oil and chemical tanker *CB Baltic* (loaded or in ballast, set up from her own papers), an oil supertanker (loaded or empty), a gas carrier, a medium and a huge 24,000-container ship, a bulk carrier (also a version with tall spinning *rotor sails*) | Engine telegraph and steering wheel, like a real cargo ship |
 | Tugs | Three harbour tugs of different designs | Tug controls, with a towline you can pay out and release |
 | Offshore | A platform supply ship, an anchor-handling tug | *Dynamic positioning*: the computer holds position while you set where to go |
 | Special | An icebreaker, a river push boat with four barges, a navy frigate, a 90 m superyacht | Each with its own controls |
@@ -73,10 +73,11 @@ On a phone or tablet, just use the levers and wheels on screen. On a computer yo
 
 ## What's new
 
-- **20 more ships.** It began with three Azipod ships; now there are 23, covering almost every way a ship can be driven: engines with a telegraph, adjustable propellers, tug drives, water jets, computer-held positioning and more.
+- **22 more ships.** It began with three Azipod ships; now there are 25, covering almost every way a ship can be driven: engines with a telegraph, adjustable propellers, tug drives, water jets, computer-held positioning and more.
 - **Realistic 3D ships.** Detailed 3D models replace the simple box shapes, fitted to each ship's real size.
 - **New places and challenges.** River, ice, offshore platform, oil terminal, tanker escort, fast ferry and ocean scenarios, plus other ships to meet and overtake.
 - **Paspaley Pearl.** The 53.5 m expedition yacht joins the fleet: small, quick to turn, with two pods and a bow thruster.
+- **CB Baltic.** The 38,000-tonne tanker joins the fleet, loaded or in ballast (7.5 m aft, 5.5 m forward). She is set up from her pilot card, wheelhouse poster and loading computer, corrected where her crew says the papers are wrong: about 14 knots flat out, and astern only about 30 % of ahead. Her lever works like the one on her bridge: each order sets both engine speed and propeller pitch.
 - **Tugs come when you call them.** Harbour tugs wait out of sight until you ask for help, then leave again when you let them go.
 - **Smoother and more reliable.** Switching ships is quicker, the chart draws faster, and the app copes better with slow or missing internet.
 - **Checked against real ships.** A full audit of the physics, every propulsion system and every ship's layout against published tests and IMO standards: bow thrusters now keep about half their push under way as model tests show, tugs handle like real tugs, the escort towline pulls the tanker properly, and rudders sit right behind their propellers. The details, with what is still uncertain, are in [docs/PHYSICS_AUDIT.md](docs/PHYSICS_AUDIT.md).

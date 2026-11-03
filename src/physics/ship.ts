@@ -6,6 +6,7 @@
 import { RHO, NU_W, G, DEG } from './consts';
 import { KVLCC2 } from '../ships/kvlcc2';
 import { KCS, PANAMAX, KVLCC2_BALLAST } from '../ships/cargo';
+import { CB_BALTIC, CB_BALTIC_BALLAST } from '../ships/cbbaltic';
 import { ROPAX, CRUISE_CONV, LNG, ULCV } from '../ships/twin';
 import { ASD_TUG, VSP_TUG, ROTOR_TUG } from '../ships/tugs';
 import { HSC_CAT } from '../ships/fast';
@@ -38,6 +39,9 @@ export interface PodSpec {
 }
 export type UnitKind = 'azipod' | 'azimuth' | 'shaft' | 'vsp' | 'waterjet';
 
+/** A ship's own bridge control programme for a CPP: shaft speed (fraction of MCR rpm) and pitch for each order,
+ *  dead slow → navigation full ahead and dead slow → emergency astern. With it the lever is the order, not the pitch. */
+export interface CppProgram { ahead: [number, number][]; astern: [number, number][] }
 /** Propeller on a shaft. Thrust K_T(J) = k0 + k1 J + k2 J² ahead (MMG standard method form). */
 export interface PropellerSpec {
   D: number;                  // diameter [m]
@@ -50,7 +54,7 @@ export interface PropellerSpec {
   hand: 1 | -1;               // 1 = right-handed (clockwise seen from astern, turning ahead)
   kTTah: number;              // transverse thrust ahead, fraction of thrust (felt at low J only)
   kTTas: number;              // transverse thrust astern, fraction of thrust
-  cpp?: { pitchTime: number; asternPitch: number };   // controllable pitch: s for 0 → full, astern pitch limit
+  cpp?: { pitchTime: number; asternPitch: number; program?: CppProgram };   // controllable pitch: s for 0 → full, astern pitch limit
 }
 export type RudderType = 'conventional' | 'flap' | 'schilling';
 /** Rudder behind a propeller, MMG standard method (Yasukawa & Yoshimura 2015) interaction model. */
@@ -283,7 +287,7 @@ export const SPIRIT: ShipSpec = {
   },
 };
 
-export const SHIPS: Record<string, ShipSpec> = { becancour: BECANCOUR, lady: LADY, spirit: SPIRIT, kvlcc2: KVLCC2, 'kvlcc2-ballast': KVLCC2_BALLAST, kcs: KCS, panamax: PANAMAX, ulcv: ULCV, lng: LNG, ropax: ROPAX, 'cruise-shaft': CRUISE_CONV, 'asd-tug': ASD_TUG, 'vsp-tug': VSP_TUG, 'rotor-tug': ROTOR_TUG, 'hsc-cat': HSC_CAT, psv: PSV, ahts: AHTS, icebreaker: ICEBREAKER, 'push-convoy': PUSH_CONVOY, frigate: FRIGATE, superyacht: SUPERYACHT, 'panamax-rotor': PANAMAX_ROTOR, 'paspaley-pearl': PASPALEY_PEARL };
+export const SHIPS: Record<string, ShipSpec> = { becancour: BECANCOUR, lady: LADY, spirit: SPIRIT, kvlcc2: KVLCC2, 'kvlcc2-ballast': KVLCC2_BALLAST, kcs: KCS, panamax: PANAMAX, ulcv: ULCV, lng: LNG, ropax: ROPAX, 'cruise-shaft': CRUISE_CONV, 'asd-tug': ASD_TUG, 'vsp-tug': VSP_TUG, 'rotor-tug': ROTOR_TUG, 'hsc-cat': HSC_CAT, psv: PSV, ahts: AHTS, icebreaker: ICEBREAKER, 'push-convoy': PUSH_CONVOY, frigate: FRIGATE, superyacht: SUPERYACHT, 'panamax-rotor': PANAMAX_ROTOR, 'paspaley-pearl': PASPALEY_PEARL, 'cb-baltic': CB_BALTIC, 'cb-baltic-ballast': CB_BALTIC_BALLAST };
 /** The ship in use. A live binding: importers see the new ship after setShip(). */
 export let SHIP: ShipSpec = BECANCOUR;
 export function setShip(id: string) { SHIP = SHIPS[id] ?? BECANCOUR; return SHIP; }

@@ -837,9 +837,10 @@ function renderShipList() {
   const box = $('ships'); box.innerHTML = '';
   const def = SHIPS[S.sc.ship ?? 'becancour'];
   const row = (sp: ShipSpec): [string, string, string] => [sp.id, sp.name, `LOA ${sp.LOA} m · B ${sp.B} m · T ${sp.T} m · ${propulsionSummary(sp)}`];
-  // Paspaley Pearl leads the list; the rest follow in fleet order
-  const opts: [string | null, string, string][] = [row(SHIPS['paspaley-pearl']), [null, `Scenario's ship · ${def.name}`, 'The ship the scenario was written for.'],
-    ...Object.values(SHIPS).filter(sp => sp.id !== 'paspaley-pearl').map(row)];
+  // the real ships lead the list (Paspaley Pearl, CB Baltic laden and in ballast); the rest follow in fleet order
+  const lead = ['paspaley-pearl', 'cb-baltic', 'cb-baltic-ballast'];
+  const opts: [string | null, string, string][] = [...lead.map(id => row(SHIPS[id])), [null, `Scenario's ship · ${def.name}`, 'The ship the scenario was written for.'],
+    ...Object.values(SHIPS).filter(sp => !lead.includes(sp.id)).map(row)];
   for (const [id, name, line] of opts) {
     const b = document.createElement('button');
     b.className = (S.shipId ?? null) === id ? 'cur' : '';

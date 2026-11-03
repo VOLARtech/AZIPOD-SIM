@@ -12,7 +12,7 @@
 // interaction (t_R, a_H, x_H). C_N is capped per rudder type: a conventional rudder stalls,
 // a flap rudder gives more lift, a Schilling rudder keeps lift towards 70°.
 import { RHO, DEG } from '../consts';
-import type { PodSpec, PropellerSpec, RudderSpec, ShaftSpec, ShipSpec, EngineSpec } from '../ship';
+import type { CppProgram, PodSpec, PropellerSpec, RudderSpec, ShaftSpec, ShipSpec, EngineSpec } from '../ship';
 
 export interface ShaftForce { X: number; Y: number; N: number; T: number; FN: number; uR: number; TT: number; Q: number }
 
@@ -141,6 +141,15 @@ export interface EngineState {
   msg: string;               // what the engine room would tell you
   starts: number;            // starts made this watch
 }
+/** Lever (−1 … 1) → shaft speed and pitch through a ship's programme: orders at ±0.2, 0.4 … 1, in between
+ *  interpolated; at zero the shaft keeps dead-slow speed with the blades at zero pitch. */
+export function cppProgram(pg: CppProgram, lever: number): { rpm: number; pitch: number } {
+  const t = lever >= 0 ? pg.ahead : pg.astern, a = Math.min(1, Math.abs(lever)) * t.length;
+  const pts: [number, number][] = [[t[0][0], 0], ...t];
+  const k = Math.min(t.length - 1, Math.floor(a)), f = a - k, [r0, p0] = pts[k], [r1, p1] = pts[k + 1];
+  return { rpm: r0 + (r1 - r0) * f, pitch: p0 + (p1 - p0) * f };
+}
+
 export function initEngine(e: EngineSpec, running: number): EngineState {
   return {
     mode: running ? 'run' : 'stop', dir: running > 0 ? 1 : running < 0 ? -1 : 0, air: e.air?.pMax ?? 0,

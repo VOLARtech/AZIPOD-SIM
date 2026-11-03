@@ -6,7 +6,7 @@ import { DEG, Hydro, RHO, RHO_AIR, ShipSpec, deriveHydro, resistanceCt } from '.
 import { Obstacle, Fender, contactForces, ContactInfo, Pt } from './contact';
 import { MooringLine, lineForces } from './mooring';
 import { DepthField, groundingForces } from './harbour';
-import { ShaftForce, EngineState, initEngine, propTorque, shaftForces, stepEngine } from './units/shaft';
+import { ShaftForce, EngineState, cppProgram, initEngine, propTorque, shaftForces, stepEngine } from './units/shaft';
 import { mmgHull } from './hull/mmg';
 import { stepVsp, vspForce } from './units/vsp';
 import { JetForce, jetForce, stepJet } from './units/jet';
@@ -396,10 +396,12 @@ function stepShaft(spec: ShipSpec, ps: PodSpec, p: PodState, c: PodCmd, st: Ship
   }
   let demand = c.rpm;
   if (pr.cpp) {
-    const tgt = Math.max(-pr.cpp.asternPitch, Math.min(1, c.pitch ?? 0)), mx = dt / pr.cpp.pitchTime;
+    // with the ship's own programme the lever is the order: it sets both pitch and shaft speed
+    const o = pr.cpp.program ? cppProgram(pr.cpp.program, Math.max(-1, Math.min(1, c.pitch ?? 0))) : { pitch: c.pitch ?? 0, rpm: c.rpm };
+    const tgt = Math.max(-pr.cpp.asternPitch, Math.min(1, o.pitch)), mx = dt / pr.cpp.pitchTime;
     const pp = p.pitch ?? 0;
     p.pitch = pp + Math.max(-mx, Math.min(mx, tgt - pp));
-    demand = Math.max(0, c.rpm);
+    demand = Math.max(0, o.rpm);
   }
   p.eng ??= initEngine(e, p.rpm);
   const cps = Math.cos(st.psi), sps = Math.sin(st.psi);

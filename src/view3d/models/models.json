@@ -223,7 +223,9 @@
  "tanker": {
   "ships": [
    "kvlcc2",
-   "kvlcc2-ballast"
+   "kvlcc2-ballast",
+   "cb-baltic",
+   "cb-baltic-ballast"
   ],
   "credit": {
    "title": "Oil tanker",
