@@ -43,8 +43,8 @@ export default defineConfig(({ mode }) => {
         includeAssets: ['favicon.svg', 'icons/apple-touch-icon.png'],
         manifest: {
           id: './',
-          name: 'Azipod Bridge — ship-handling simulator',
-          short_name: 'Azipod Bridge',
+          name: 'SHIPSHAPE — ship-handling simulator',
+          short_name: 'SHIPSHAPE',
           description: 'Learn to handle ships: 23 ships from tugs to giant container ships, real ports in 3D, wind, current, tugs and mooring. Works offline.',
           lang: 'en',
           start_url: './',
@@ -64,7 +64,7 @@ export default defineConfig(({ mode }) => {
           globPatterns: ['**/*.{js,css,html,woff2,png,svg,webmanifest,bin}'],
           // ship models load when a ship is first shown, and are kept for offline use from then on
           runtimeCaching: [{ urlPattern: /\.glb$/, handler: 'CacheFirst', options: { cacheName: 'ship-models', expiration: { maxEntries: 40 } } }],
-          globIgnores: ['**/azipod-bridge-offline.html'],
+          globIgnores: ['**/*-offline.html'],
           navigateFallback: 'index.html',
           cleanupOutdatedCaches: true,
           maximumFileSizeToCacheInBytes: 5_000_000,
