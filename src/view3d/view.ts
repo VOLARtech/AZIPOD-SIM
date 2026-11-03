@@ -314,6 +314,8 @@ export class View3D {
     g.userData.gen = -1;                                   // a ship model still loading for this group must not land
   }
 
+  /** The harbour changed (fenders and bollards edited): rebuild it on the next build. */
+  harbourChanged() { this.harbourFor = ''; this.builtFor = ''; this.build(); }
   /** Rebuild for the current scenario and ship (cheap; called on scenario load). */
   build() {
     const key = S.sc.id + '|' + SHIP.id + '|' + (S.rt.escort?.spec.id ?? '') + '|' + S.rt.traffic.map(t => t.spec.id).join(',');

@@ -62,6 +62,13 @@
 
   <aside class="legend" id="legend" hidden role="button" tabindex="0" aria-expanded="false"></aside>
 
+  <div class="edit-bar" id="edit-bar" hidden role="toolbar" aria-label="Edit fenders and bollards">
+    <span class="tag">EDIT BERTH</span>
+    <button class="cb" data-em="bollard">+ BOLLARD</button><button class="cb" data-em="fender">+ FENDER</button><button class="cb" data-em="remove">REMOVE</button>
+    <button class="cb" id="edit-reset">RESET</button><button class="cb" id="edit-done">DONE</button>
+    <span class="hint" id="edit-hint">Tap near a quay edge.</span>
+  </div>
+
   <aside class="ais" id="ais" hidden aria-label="AIS targets">
     <div class="ais-head"><span class="tag">AIS</span><button class="ais-rng" id="ais-rng" aria-label="Mini map range">AUTO</button><button class="ais-fold" id="ais-head" aria-expanded="true" aria-label="Show or hide the mini map"><span class="chev" aria-hidden="true"></span></button></div>
     <div class="ais-body"><canvas class="ais-map" id="ais-map" aria-label="AIS mini map: own ship in the middle, tap a ship for its details"></canvas><div class="ais-info" id="ais-info"></div></div>
@@ -151,6 +158,13 @@
         <label for="s-cd">Current sets to <output id="o-cd"></output></label><input type="range" id="s-cd" min="0" max="355" step="5" />
         <label class="chk"><input type="checkbox" id="s-gu" /> Gusts (σ 17 %, 12 s)</label>
       </div>
+      </details>
+      <details class="sec"><summary><h2>Berth</h2></summary>
+      <div class="env-grid">
+        <span class="lbl">Fenders and bollards</span>
+        <div class="seg"><button id="b-editberth">Edit on the chart</button></div>
+      </div>
+      <p class="note">Put your own fenders and bollards on any quay, pier or dolphin: tap near its edge to add a bollard on it or a fender on its face, or tap one to take it away. Your layout is kept for each scenario on this device; RESET puts the scenario's own back.</p>
       </details>
       <details class="sec"><summary><h2>Damage</h2></summary>
       <div class="env-grid">

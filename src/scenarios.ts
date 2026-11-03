@@ -141,7 +141,7 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     id: 'terminal', name: 'Crude terminal · jetty, port side to',
-    brief: 'Deep-water tanker jetty: four breasting dolphins on a 26 m berth, mooring dolphins beyond, open water astern. Come in at a shallow angle, take the way off early (a big ship carries it for miles), and land flat on the dolphins at a few centimetres a second. 18 kn wind on the starboard bow, flood tide 0.8 kn along the berth. Two 80 t tugs on the starboard side. Schematic, not a real terminal.',
+    brief: 'Deep-water tanker jetty: four breasting dolphins on a 26 m berth with quick-release hooks for the springs, mooring dolphins set back for the breasts, head and stern lines, open water astern. Come in at a shallow angle, take the way off early (a big ship carries it for miles), and land flat on the dolphins at a few centimetres a second. 18 kn wind on the starboard bow, flood tide 0.8 kn along the berth. Two 80 t tugs on the starboard side. Schematic, not a real terminal.',
     start: { n: -1150, e: -2300, psi: 72, kn: 5 },
     windKn: 18, windFrom: 40, gusts: true, currentKn: 0.8, currentSet: 90, depth: 30,
     shoals: [
@@ -153,13 +153,19 @@ export const SCENARIOS: Scenario[] = [
       // breasting dolphins (fendered faces on n = 0), loading platform set back, mooring dolphins
       ...[-130, -45, 45, 130].map(e => ({ poly: rect(0, e - 7, 14, e + 7), ...CONCRETE, kind: 'fendered' as const })),
       { poly: rect(8, -22, 40, 22), ...CONCRETE, kind: 'pier' as const },
-      ...[-230, -185, 185, 230].map(e => ({ poly: rect(35, e - 6, 47, e + 6), ...CONCRETE, kind: 'pier' as const })),
+      ...[-230, -185, -160, 160, 185, 230].map(e => ({ poly: rect(35, e - 6, 47, e + 6), ...CONCRETE, kind: 'pier' as const })),
       { poly: rect(40, -12, 300, 12), ...CONCRETE, kind: 'pier' as const },                 // trestle to shore
       { poly: rect(300, -3200, 1400, 3200), ...BANK, kind: 'bank' as const },
     ],
     berthFace: { n: -2, e: 0, psi: 90, side: -1, standoff: 0.1 },
     fenders: [-130, -45, 45, 130].flatMap(e => fenderRow(-2, e - 3, e + 3, 6, -1, 0, SCN2000)),
-    bollards: [-230, -185, -45, 45, 185, 230].map(e => [41, e] as Pt),
+    // OCIMF-style: quick-release hooks at both ends of each breasting dolphin (springs), on the platform,
+    // and on the mooring dolphins set back abreast of the ship's ends (breasts at ±160, head and stern beyond)
+    bollards: [
+      ...[-130, -45, 45, 130].flatMap(e => [[10, e - 6], [10, e + 6]] as Pt[]),
+      [30, -18], [30, 18],
+      ...[-230, -185, -160, 160, 185, 230].map(e => [41, e] as Pt),
+    ],
     mooringSide: -1, tugSide: 1, tugBP: 80 * 9.81e3, ship: 'kvlcc2',
     zoom: 0.5,
   },
@@ -295,12 +301,13 @@ export function scenarioWorld(id: string) {
   };
 }
 
-// Rated energy: area under the reaction curve to rated deflection
-for (const sc of SCENARIOS) for (const f of sc.fenders) {
+/** Rated energy: area under the reaction curve to rated deflection. */
+export function ratedEnergy(f: Fender) {
   const dr = f.dRated * f.height, N = 50; let E = 0;
   for (let i = 0; i < N; i++) E += fenderReaction(f, (i + 0.5) / N * dr) * dr / N;
-  f.Er = E;
+  return E;
 }
+for (const sc of SCENARIOS) for (const f of sc.fenders) f.Er = ratedEnergy(f);
 
 /** Berth pose (CG mark) for a ship of beam B and CG offset xg, from the scenario's fender face. */
 export function berthFor(sc: Scenario, B: number, xg: number) {
@@ -309,6 +316,44 @@ export function berthFor(sc: Scenario, B: number, xg: number) {
   const ps = f.psi * Math.PI / 180, off = -f.side * (B / 2 + f.standoff);
   // the ship lies parallel to the face, off it by half her beam and the fender standoff; CG offset along the face
   return { n: f.n + off * Math.cos(ps + Math.PI / 2) + xg * Math.cos(ps), e: f.e + off * Math.sin(ps + Math.PI / 2) + xg * Math.sin(ps), psi: f.psi };
+}
+/**
+ * Where a ship of this length and draught can start: the scenario's start, or, if the water there is too
+ * shallow along her keel (or she would lie in a quay), the nearest spot close by that is deep enough from
+ * stem to stern, same heading. A 10.8 m container ship in a 10.3 m patch of a dredged channel slides over
+ * to the deeper side of it instead of starting aground.
+ */
+export function safeStart(sc: Scenario, L: number, B: number, T: number) {
+  const d = depthAt(sc), { n, e, psi } = sc.start, c = Math.cos(psi * DEG), sn = Math.sin(psi * DEG), need = T + Math.max(0.3, 0.03 * T);
+  const boxes = sc.obstacles.map(o => o.bbox ?? (o.bbox = bboxOf(o.poly)));
+  const inSolid = (pn: number, pe: number) => sc.obstacles.some((o, i) => { const b = boxes[i]; return pn >= b[0] && pn <= b[2] && pe >= b[1] && pe <= b[3] && pip(o.poly, pn, pe); });
+  // least water anywhere under her (−∞ if any of her lies in a quay)
+  const least = (dx: number, dy: number) => {
+    let m = Infinity;
+    for (let x = -L / 2; x <= L / 2 + 1e-6; x += Math.max(10, L / 12)) for (const y of [-B / 2, 0, B / 2]) {
+      const pn = n + c * (x + dx) - sn * (y + dy), pe = e + sn * (x + dx) + c * (y + dy);
+      if (inSolid(pn, pe)) return -Infinity;
+      m = Math.min(m, d(pn, pe));
+    }
+    return m;
+  };
+  const ok = (dx: number, dy: number) => least(dx, dy) >= need;
+  if (ok(0, 0)) return { ...sc.start, moved: 0 };
+  // nearest first: sideways across the channel, then along it
+  const tries: [number, number][] = [];
+  for (let dy = -300; dy <= 300; dy += 12.5) for (let dx = -600; dx <= 600; dx += 25) tries.push([dx, dy]);
+  tries.sort((a, b) => Math.hypot(a[0] / 2, a[1]) - Math.hypot(b[0] / 2, b[1]));
+  const at = ([dx, dy]: [number, number]) => ({ n: n + c * dx - sn * dy, e: e + sn * dx + c * dy, psi, kn: sc.start.kn, moved: Math.hypot(dx, dy) });
+  for (const t of tries) if (ok(t[0], t[1])) return at(t);
+  // nowhere deep enough: the deepest water nearby, if it is better than where she was
+  let best: [number, number] = [0, 0], bm = least(0, 0);
+  for (const t of tries) { const m = least(t[0], t[1]); if (m > bm + 0.2) { bm = m; best = t; } }
+  return at(best);
+}
+function pip(p: Pt[], n: number, e: number) {
+  let r = false;
+  for (let i = 0, j = p.length - 1; i < p.length; j = i++) { const [ni, ei] = p[i], [nj, ej] = p[j]; if ((ni > n) !== (nj > n) && e < (ej - ei) * (n - ni) / (nj - ni) + ei) r = !r; }
+  return r;
 }
 /** Water at the start (and the berth) deep enough for a ship of draught T? */
 export function fits(sc: Scenario, T: number, berth = sc.berth, tug = true, dp = true) {

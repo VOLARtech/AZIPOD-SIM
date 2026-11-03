@@ -484,7 +484,7 @@ details.sec[open] { display: flex; flex-direction: column; gap: 10px; padding-bo
 /* ================= v5: console — one dark look for every control, in every chart palette =================
    The chart palettes (day / dusk / night) set the tokens on :root. Here the control surfaces set their
    own, which their contents inherit, so only the chart, its labels and the 3D view change with the palette. */
-.hud, .mapbtns, .tray, .panel, .legend, .toast, .sheet, .gate, .ais {
+.hud, .mapbtns, .tray, .panel, .legend, .toast, .sheet, .gate, .ais, .edit-bar {
   --panel: rgba(20, 26, 32, 0.86); --panel-solid: #171e25; --rule: #303b45;
   --ink: #eef3f5; --muted: #8d9aa4; --own: #f39a2b; --port: #ef4452; --stbd: #33c46a;
   --warn: #ff6b3d; --ok: #33c46a; --predict: #d65aad; --alt-crash: #e7b54b; --alt-coast: #a3b1bc;
@@ -608,3 +608,13 @@ details.sec[open] { display: flex; flex-direction: column; gap: 10px; padding-bo
 .dmg-log span { color: var(--muted); margin-right: 8px; }
 .dmg-log .heavy { color: var(--warn); }
 .dmg-log .warn { color: #e8a33a; }
+
+/* ---------- berth editor ---------- */
+.edit-bar {
+  position: absolute; z-index: 4; left: var(--gutL); right: var(--gutR); top: calc(var(--hudH, 120px) + 52px);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; max-width: 560px;
+  background: var(--panel); border: 1px solid var(--own); border-radius: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+.edit-bar .cb { height: 34px; padding: 0 10px; font-size: 12px; }
+.edit-bar .hint { flex-basis: 100%; font: 500 11px var(--font-num); color: var(--muted); }

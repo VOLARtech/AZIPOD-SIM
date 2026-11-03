@@ -49,7 +49,7 @@ The physics, data sources, ship models and developer workflow behind the simulat
   | Waterjets | 70 m fast-ferry catamaran | Bucket/rpm levers, nozzle helm, joystick, comfort |
   | DP thruster suites | Platform supply vessel, anchor-handling tug | DP console |
 
-- **Propulsion physics**: MMG-standard shaft, propeller and rudder (Yasukawa & Yoshimura 2015) with transverse thrust, four-quadrant propeller, flap and Schilling rudders; two-stroke engine with air starts, reversal, minimum and barred speeds, load programme and stalls; CPP with pitch servo; Z-drives and Azipods on the pod model; Voith Schneider as a lagged thrust vector; waterjets from momentum flux with a pump power balance, reversing bucket, cavitation limit; tunnel thrusters; power management on the switchboard. KVLCC2 matches an independent implementation of the published MMG model within 1 % in turning and zig-zags.
+- **Propulsion physics**: MMG-standard shaft, propeller and rudder (Yasukawa & Yoshimura 2015) with transverse thrust, four-quadrant propeller, flap and Schilling rudders; two-stroke engine with air starts, reversal (astern start below 40 % rpm after 20 s to reverse the camshaft), minimum and barred speeds, load-up and load-down programmes and stalls; CPP with pitch servo; Z-drives and Azipods on the pod model; Voith Schneider as a lagged thrust vector; waterjets from momentum flux with a pump power balance, reversing bucket, cavitation limit; tunnel thrusters; power management on the switchboard. KVLCC2 matches an independent implementation of the published MMG model within 1 % in turning and zig-zags.
 - **Hulls**: Clarke's derivatives for most ships, the published MMG hull for KVLCC2, catamaran demi-hulls with the resistance hump of fast slender hulls, tug fallbacks where Clarke's regression runs out, and a lifting skeg.
 - **Trials**: IMO MSC.137(76) turning, initial turning, zig-zags and stopping for conventional ships; reported but not graded for pods, VSP and waterjets; HSC turning, crash stop and passenger accelerations against the HSC Code.
 - **Tugs and escort**: roll as a fourth degree of freedom from the lateral forces and their heights (deck edge, girting, capsize); an HMPE towline with brake, render, heave, pay out and quick release; the escorted VLCC runs her own model and autopilot, and her rudder jams on cue.
@@ -61,6 +61,16 @@ The physics, data sources, ship models and developer workflow behind the simulat
 ## Keys
 
 Azipod ships: port pod `A` `D` azimuth, `W` `S` rpm · stbd pod `J` `L`, `I` `K` · bow thruster `Q` `E` · joystick arrows. Telegraph and lever ships: `W` `S` engine order, `A` `D` helm, `X` stop, `M` midships. Waterjets: `J` joystick mode. DP: `1` `2` `3` modes, `W` `A` `S` `D` `Q` `E` joystick, `I` `J` `K` `L` `U` `O` move the setpoint. Everywhere: `H` head-up · `V` chart / split / 3D · `C` 3D camera.
+
+## Starting position and berth layout
+
+- **Start:** if the ship chosen draws too much for a scenario's start (the water along her whole keel must exceed the draught plus 30 cm, or 3 %), she starts at the nearest spot within a few hundred metres that is deep enough, same heading, with a toast saying so. Example: a 3600 TEU container ship in PortMiami moves 25 m north, into the deeper side of the channel. A scenario's own ship always keeps its start.
+- **Berth editor** (`src/ui/berthedit.ts`; Menu → Berth → Edit on the chart):
+  - + BOLLARD puts a bollard 1.5 m in from the nearest quay, pier or dolphin edge.
+  - + FENDER puts a fender on that face, facing the water, like the nearest existing fender (or a 1 m cone, SCN 1000 class).
+  - REMOVE takes away the nearest one within 12 m; a line made fast to a removed bollard is let go.
+  - The layout is kept per scenario in this browser. RESET restores the scenario's own, and the 3D harbour is rebuilt when editing ends.
+- **Crude terminal:** quick-release hooks at both ends of each breasting dolphin (springs) and on the loading platform, with mooring dolphins at ±160, ±185 and ±230 m (breasts, head and stern lines). All six lines reach a bollard for every ship that fits the berth.
 
 ## Damage
 
