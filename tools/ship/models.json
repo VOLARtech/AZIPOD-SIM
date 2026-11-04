@@ -125,20 +125,6 @@
         "h": 29.8
       }
     },
-    "clio": {
-      "uid": "306ef5879ba44031851be0555b80484d",
-      "ships": [
-        "superyacht"
-      ],
-      "name": "Clio",
-      "author": "gmanisdabossatbeastmode",
-      "license": "CC Attribution",
-      "url": "https://sketchfab.com/3d-models/none-306ef5879ba44031851be0555b80484d",
-      "eye": {
-        "x": 18.5,
-        "h": 15
-      }
-    },
     "tanker": {
       "uid": "63339c2e2f274672a9bdcf924864ae62",
       "ships": [
@@ -155,7 +141,14 @@
       "prepare": [
         "--bow",
         "aft"
-      ]
+      ],
+      "zones": {
+        "lifeboat": [
+          0.0,
+          0.075,
+          0.019
+        ]
+      }
     },
     "lngcarrier": {
       "uid": "0fe1b96ac2754fb59e0745443294eb50",
@@ -245,6 +238,21 @@
       "eye": {
         "x": 11.8,
         "h": 8.7
+      }
+    },
+    "megayacht": {
+      "uid": "6ea1a172da2748eb9d1e51cb26f02114",
+      "ships": [
+        "superyacht"
+      ],
+      "name": "Yacht",
+      "author": "gmanisdabossatbeastmode",
+      "license": "CC Attribution",
+      "url": "https://sketchfab.com/3d-models/none-6ea1a172da2748eb9d1e51cb26f02114",
+      "vscale": 1.6,
+      "eye": {
+        "x": 20.6,
+        "h": 4.5
       }
     }
   }

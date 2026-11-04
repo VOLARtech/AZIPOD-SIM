@@ -49,5 +49,7 @@ for name, m in M.items():
     reg[name] = {'ships': m['ships'], 'credit': {'title': m['name'], 'author': m['author'], 'license': m['license'], 'url': m['url']},
                  'eye': m.get('eye') or eye(meta, d['bridgeX']), 'top': meta['ymax'],
                  'fit': {k: d[k] for k in ('stem', 'stern', 'beam', 'draught')}}
+    for k in ('zones', 'vscale'):                       # painting zones and height stretch, from models.json
+        if k in m: reg[name][k] = m[k]
 json.dump(reg, open(reg_path, 'w'), indent=1); open(reg_path, 'a').write('\n')
 print('registry:', ', '.join(reg))

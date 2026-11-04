@@ -198,28 +198,6 @@
    "draught": 8
   }
  },
- "clio": {
-  "ships": [
-   "superyacht"
-  ],
-  "credit": {
-   "title": "Clio",
-   "author": "gmanisdabossatbeastmode",
-   "license": "CC Attribution",
-   "url": "https://sketchfab.com/3d-models/none-306ef5879ba44031851be0555b80484d"
-  },
-  "eye": {
-   "x": 18.5,
-   "h": 15
-  },
-  "top": 16.54,
-  "fit": {
-   "stem": 49,
-   "stern": -41,
-   "beam": 14.5,
-   "draught": 3.9
-  }
- },
  "tanker": {
   "ships": [
    "kvlcc2",
@@ -228,7 +206,11 @@
    "cb-baltic-ballast"
   ],
   "zones": {
-   "lifeboat": [0.0, 0.075, 0.019]
+   "lifeboat": [
+    0.0,
+    0.075,
+    0.019
+   ]
   },
   "credit": {
    "title": "Oil tanker",
@@ -381,5 +363,28 @@
    "beam": 11.2,
    "draught": 3.4
   }
+ },
+ "megayacht": {
+  "ships": [
+   "superyacht"
+  ],
+  "credit": {
+   "title": "Yacht",
+   "author": "gmanisdabossatbeastmode",
+   "license": "CC Attribution",
+   "url": "https://sketchfab.com/3d-models/none-6ea1a172da2748eb9d1e51cb26f02114"
+  },
+  "eye": {
+   "x": 20.6,
+   "h": 4.5
+  },
+  "top": 10.56,
+  "fit": {
+   "stem": 49,
+   "stern": -41,
+   "beam": 14.5,
+   "draught": 3.9
+  },
+  "vscale": 1.6
  }
 }

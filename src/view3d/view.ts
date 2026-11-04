@@ -795,13 +795,15 @@ export class View3D {
       const f = m.fit, over = Math.max(5, spec.LOA - spec.L);
       const stem = spec.L / 2 + over * 0.8 - spec.xg, stern = -spec.L / 2 - over * 0.2 - spec.xg;
       const kx = (stem - stern) / (f.stem - f.stern), kb = spec.B / f.beam;
-      obj.scale.set(kb, kx, kx);
-      obj.position.set(0, (f.draught * kx - spec.T), -(stem - f.stem * kx));
+      // a model built long and low for its length can be stretched in height (keel kept at the draught)
+      const ky = kx * (m.vscale ?? 1);
+      obj.scale.set(kb, ky, kx);
+      obj.position.set(0, f.draught * ky - spec.T, -(stem - f.stem * kx));
       if (spec.look.paint) paintModel(obj, spec, stem, stern, m.eye ? stem - (f.stem - m.eye.x) * kx + 3 : spec.bridgeX + 3, m.zones);
       for (const o of procedural) { g.remove(o); o.traverse(c => { const me = c as THREE.Mesh; if (me.geometry) me.geometry.dispose(); }); }
       g.add(obj);
       if (own && m.eye) {
-        this.ship.userData.eyeH = (m.eye.h + f.draught) * kx - spec.T;   // eye.h is above the model's waterline
+        this.ship.userData.eyeH = (m.eye.h + f.draught) * ky - spec.T;   // eye.h is above the model's waterline
         this.ship.userData.eyeX = stem - (f.stem - m.eye.x) * kx;
       }
     }).catch(err => console.warn('ship model', name, err));
@@ -1198,6 +1200,8 @@ interface ModelEntry {
   /** Where the lifeboat (and its davit) sits, for painting: [from, to] as fractions of the length from the stern,
    *  and the height above the deck they start at, as a fraction of the length. */
   zones?: { lifeboat?: number[] };
+  /** Height stretch for a model that is too low for the ship it stands in for. */
+  vscale?: number;
 }
 
 export async function createView(canvas: HTMLCanvasElement) {

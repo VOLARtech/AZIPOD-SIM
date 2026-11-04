@@ -26,7 +26,7 @@ The physics, data sources, ship models and developer workflow behind the simulat
   - vsp-tug: “[Tug Boat 02](https://sketchfab.com/3d-models/none-1b64860d3aaa41e8b82afcb0d56fae52)” by agt14032013
   - psv, ahts: “[Multi Purpose Offshore Vessel](https://sketchfab.com/3d-models/none-c604045da67a4a0b93d8ce4dc8db3e56)” by agt14032013
   - icebreaker: “[Icebreaker](https://sketchfab.com/3d-models/none-1ed361672e6e42298fa5b92dd61127bd)” by agt14032013
-  - superyacht: “[Clio](https://sketchfab.com/3d-models/none-306ef5879ba44031851be0555b80484d)” by gmanisdabossatbeastmode
+  - superyacht: “[Yacht](https://sketchfab.com/3d-models/none-6ea1a172da2748eb9d1e51cb26f02114)” by gmanisdabossatbeastmode
   - kvlcc2, kvlcc2-ballast: “[Oil tanker](https://sketchfab.com/3d-models/none-63339c2e2f274672a9bdcf924864ae62)” by factorydottcat
   - lng: “[Gas Carrier Ship](https://sketchfab.com/3d-models/none-0fe1b96ac2754fb59e0745443294eb50)” by medialog
   - panamax, panamax-rotor: “[Bulk Carrier](https://sketchfab.com/3d-models/none-93c076900f004102b78dfac989efae1d)” by medialog
