@@ -364,27 +364,26 @@
    "draught": 3.4
   }
  },
- "megayacht": {
+ "frickie": {
   "ships": [
    "superyacht"
   ],
   "credit": {
-   "title": "Yacht",
-   "author": "gmanisdabossatbeastmode",
-   "license": "CC Attribution",
-   "url": "https://sketchfab.com/3d-models/none-6ea1a172da2748eb9d1e51cb26f02114"
+   "title": "Frickie's Yacht",
+   "author": "rubenn",
+   "license": "CC Attribution-NonCommercial",
+   "url": "https://sketchfab.com/3d-models/frickies-yacht-a5b72f2a23cd4e1f9eaf49059606c7a3"
   },
   "eye": {
-   "x": 20.6,
-   "h": 4.5
+   "x": 14.5,
+   "h": 13.2
   },
-  "top": 10.56,
+  "top": 24.75,
   "fit": {
    "stem": 49,
    "stern": -41,
    "beam": 14.5,
    "draught": 3.9
-  },
-  "vscale": 1.6
+  }
  }
 }

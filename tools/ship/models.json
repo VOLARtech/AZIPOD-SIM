@@ -240,19 +240,18 @@
         "h": 8.7
       }
     },
-    "megayacht": {
-      "uid": "6ea1a172da2748eb9d1e51cb26f02114",
+    "frickie": {
+      "uid": "a5b72f2a23cd4e1f9eaf49059606c7a3",
       "ships": [
         "superyacht"
       ],
-      "name": "Yacht",
-      "author": "gmanisdabossatbeastmode",
-      "license": "CC Attribution",
-      "url": "https://sketchfab.com/3d-models/none-6ea1a172da2748eb9d1e51cb26f02114",
-      "vscale": 1.6,
+      "name": "Frickie's Yacht",
+      "author": "rubenn",
+      "license": "CC Attribution-NonCommercial",
+      "url": "https://sketchfab.com/3d-models/frickies-yacht-a5b72f2a23cd4e1f9eaf49059606c7a3",
       "eye": {
-        "x": 20.6,
-        "h": 4.5
+        "x": 14.5,
+        "h": 13.2
       }
     }
   }
