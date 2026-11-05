@@ -1,7 +1,10 @@
 // Golden regression: full-precision end states of scripted runs for every Azipod ship.
-// Refactors of the propulsion code must reproduce these bit for bit.
-//   npm run golden            compare against scripts/golden.json
+// Refactors of the physics code must reproduce these bit for bit.
+//   npm run golden              compare against scripts/golden.json
+//   npm run golden -- --add     append records that are not in the reference yet; never rewrites one
 //   npm run golden -- --update  rewrite the reference (only for deliberate physics changes)
+// The runs use the frozen v4 scenario fixtures (scripts/fixtures/v4), not the live scenarios, so the live
+// areas can gain berths, equipment and chart data without touching these records.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { DEG, KN, setShip } from '../src/physics/ship';
 import { buildHull, setHull } from '../src/physics/contact';
@@ -10,11 +13,13 @@ import { Runtime } from '../src/physics/runtime';
 import { runTrials } from '../src/physics/trials';
 import { runValidation } from '../src/physics/validation';
 import { runPrediction, PredictJob } from '../src/physics/predict';
-import { SCENARIOS, currentField, depthAt, scenarioWorld } from '../src/scenarios';
-import MIAMI_DATA from '../src/scenes/miami.physics.json';
+import { currentField, depthAt, worldOf } from '../src/scenarios';
+import { V4_SCENARIOS } from './fixtures/v4/scenarios';
+import MIAMI_DATA from './fixtures/v4/miami.physics.json';
 
 const FILE = new URL('./golden.json', import.meta.url);
 const AZIPOD_SHIPS = ['becancour', 'lady', 'spirit'];
+const SCENARIOS = V4_SCENARIOS;
 SCENARIOS.find(s => s.id === 'miami-terminal-v')!.setData!(MIAMI_DATA as never);
 
 const out: Record<string, number[]> = {};
@@ -51,7 +56,7 @@ for (const id of AZIPOD_SHIPS) {
     out[`run.${id}.${sc.id}`] = snap(rt);
 
     // predictor tracks from the end state
-    const sw = scenarioWorld(sc.id);
+    const sw = worldOf(sc);
     const job: PredictJob = {
       id: 1, shipId: id, onboard: true, state: { ...rt.state, pods: rt.state.pods.map(p => ({ ...p })) },
       cmd: { pods: rt.cmd.pods.map(p => ({ ...p })), bt: rt.cmd.bt, mode: rt.cmd.mode },
@@ -69,8 +74,9 @@ for (const id of AZIPOD_SHIPS) {
 const v = runValidation();
 out.validation = [v.serviceKn, v.approachRpm, ...v.rows.flatMap(r => [r.model, r.time, r.heading])];
 
+const write = (rec: Record<string, number[]>) => writeFileSync(FILE, JSON.stringify(rec, null, 0).replace(/\],"/g, '],\n"') + '\n');
 if (process.argv.includes('--update')) {
-  writeFileSync(FILE, JSON.stringify(out, null, 0).replace(/\],"/g, '],\n"') + '\n');
+  write(out);
   console.log(`golden: wrote ${Object.keys(out).length} records`);
 } else {
   const ref: Record<string, number[]> = JSON.parse(readFileSync(FILE, 'utf8'), (_k, x) => (x === null ? NaN : x));
@@ -83,4 +89,10 @@ if (process.argv.includes('--update')) {
   }
   console.log(bad ? `golden: ${bad} of ${Object.keys(ref).length} records changed` : `golden: all ${Object.keys(ref).length} records identical`);
   if (bad) process.exitCode = 1;
+  else if (process.argv.includes('--add')) {
+    const extra = Object.keys(out).filter(k => !(k in ref));
+    for (const k of extra) ref[k] = out[k];
+    if (extra.length) write(ref);
+    console.log(`golden: added ${extra.length} new record${extra.length === 1 ? '' : 's'}${extra.length ? ': ' + extra.join(', ') : ''}`);
+  }
 }

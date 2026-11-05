@@ -26,6 +26,8 @@ jobs:
       - run: npm ci
       - name: Physics regression tests
         run: npm test
+      - name: Golden physics records (bit for bit)
+        run: npm run golden
       - name: Build PWA and offline single-file copy
         run: npm run build:all
         env:

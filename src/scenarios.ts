@@ -280,25 +280,29 @@ export const SCENARIOS: Scenario[] = [
 
 for (const sc of SCENARIOS) for (const o of sc.obstacles) o.bbox = bboxOf(o.poly);
 
-const fields = new Map<string, DepthField>();
+// keyed by the scenario object itself, so two scenario sets that share ids (the live ones and the frozen
+// golden fixtures) never see each other's depth fields
+const fields = new WeakMap<Scenario, DepthField>();
 export function depthAt(sc: Scenario): DepthField {
-  let f = fields.get(sc.id);
+  let f = fields.get(sc);
   if (!f) {
     if (sc.needsData && !sc.depthGrid) return () => sc.depth;     // not loaded yet: never cache the placeholder
     f = sc.depthGrid ? gridField(sc.depthGrid, sc.tide ?? 0) : depthField(sc.depth, sc.shoals);
-    fields.set(sc.id, f);
+    fields.set(sc, f);
   }
   return f;
 }
 
-
-/** Everything the predictor worker needs about a scenario, rebuilt from its id. */
-export function scenarioWorld(id: string) {
-  const sc = SCENARIOS.find(s => s.id === id)!;
+/** Everything the predictor needs about a scenario. */
+export function worldOf(sc: Scenario) {
   return {
     obstacles: sc.obstacles, fenders: sc.fenders, bollards: sc.bollards, depthAt: depthAt(sc),
     current: (kn: number, set: number) => currentField(sc, kn, set),
   };
+}
+/** The predictor worker's world for a live scenario, rebuilt from its id. */
+export function scenarioWorld(id: string) {
+  return worldOf(SCENARIOS.find(s => s.id === id)!);
 }
 
 /** Rated energy: area under the reaction curve to rated deflection. */

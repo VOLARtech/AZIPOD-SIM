@@ -1,0 +1,233 @@
+// FROZEN v4 FIXTURE (golden regression only): the fourteen scenarios exactly as they were before
+// the area packs, berth equipment and charts were added. scripts/golden.ts runs on these, so the live
+// scenarios in src/ can gain equipment and data while golden.json stays byte-identical.
+// Do not edit: copy of src/scenarios.ts (v4.0) lines 55–279, with its two load-time loops.
+import { DEG, KN } from '../../../src/physics/ship';
+import type { Fender, Pt } from '../../../src/physics/contact';
+import { bboxOf } from '../../../src/physics/contact';
+import { ratedEnergy, type Scenario } from '../../../src/scenarios';
+import { AMSTERDAM } from './amsterdam';
+import { MIAMI } from './miami';
+void DEG; void KN;
+
+// Hull-on-structure: stiff while loading, little stored energy returned (plating crush) → e ≈ 0.2
+const CONCRETE = { k: 6e6, c: 1.5e6, mu: 0.45, unload: 0.04 };
+const BANK = { k: 1.5e6, c: 2e6, mu: 0.7, unload: 0.02 };   // soft mud/rock bank
+
+/** Row of cone fenders (default ≈ SCN 1000 class: 1.0 m, 72 % rated deflection, ~900 kN). */
+function fenderRow(n: number, e0: number, e1: number, spacing: number, nn: number, ne: number, size = { width: 3.2, height: 1.0, Rr: 900e3 }): Fender[] {
+  const out: Fender[] = [];
+  for (let e = e0; e <= e1 + 1e-6; e += spacing)
+    out.push({ n, e, nn, ne, width: size.width, height: size.height, dRated: 0.72, Rr: size.Rr, Er: 0, mu: 0.2 });
+  return out;
+}
+/** SCN 2000-class cone fenders for tanker berths: 2.0 m, ~2.8 MN rated reaction. */
+const SCN2000 = { width: 4.0, height: 2.0, Rr: 2.8e6 };
+
+const rect = (n0: number, e0: number, n1: number, e1: number): Pt[] => [[n0, e0], [n0, e1], [n1, e1], [n1, e0]];
+
+
+export const V4_SCENARIOS: Scenario[] = [
+  MIAMI,
+  AMSTERDAM,
+  {
+    id: 'quai27', name: 'Quai 27 · port side to',
+    brief: 'Land the 293 m Spirit port side to on the fenders with the CG on the berth mark, then put out head, stern and springs. Offshore wind, ebb setting west, weaker water inside the pier. 12 m alongside; silt off the pier head carries 8.6 m. Two 60 t tugs on call on the starboard side.',
+    ship: 'spirit', tugBP: 588e3,
+    start: { n: -300, e: -520, psi: 70, kn: 5 },
+    windKn: 14, windFrom: 15, gusts: true, currentKn: 1.2, currentSet: 270, depth: 12,
+    shoals: [
+      { poly: [[-250, 150], [-250, 250], [-160, 250], [-150, 190], [-190, 140]], depth: 8.6, label: '8.6' },
+      { poly: rect(-620, -900, -545, 900), depth: 7.0, label: '7.0' },
+    ],
+    obstacles: [
+      { poly: rect(1.0, -520, 400, 260), ...CONCRETE, kind: 'fendered' },
+      { poly: rect(-150, 260, 400, 330), ...CONCRETE, kind: 'pier' },
+      { poly: rect(-900, -900, -620, 900), ...BANK, kind: 'bank' },
+    ],
+    berth: { n: -16.2, e: 40, psi: 90 },
+    fenders: fenderRow(0, -500, 240, 20, -1, 0),
+    bollards: Array.from({ length: 31 }, (_, i) => [3, -500 + i * 24] as Pt),
+    mooringSide: -1, tugSide: 1,
+    // the pier shadows the ebb along the quay: weak water inside ~150 m
+    shelter: (n, e) => {
+      const ss = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+      return 1 - 0.65 * ss(-210, -110, n) * (1 - ss(250, 330, e));
+    },
+    zoom: 0.55,
+  },
+  {
+    id: 'canal', name: 'Dredged channel · bank effect',
+    brief: '260 m wide, 10.6 m deep (h/T 1.36) for a 293 m, 7.8 m-draught ship. Hold the centreline at 6–8 kn: watch squat eat the under-keel clearance, and the stern get drawn toward the near bank if you wander off centre. An 8.5 m shoal narrows the channel halfway.',
+    ship: 'spirit',
+    start: { n: -1500, e: -34, psi: 0, kn: 7 },
+    windKn: 8, windFrom: 250, gusts: true, currentKn: 0.5, currentSet: 180, depth: 10.6,
+    shoals: [
+      { poly: [[-225, 46], [-225, 130], [180, 130], [180, 77], [0, 46]], depth: 8.5, label: '8.5' },
+      { poly: rect(-2100, -130, 2100, -104), depth: 6.3 }, { poly: rect(-2100, 104, 2100, 130), depth: 6.3 },
+    ],
+    obstacles: [
+      { poly: rect(-2100, -500, 2100, -130), ...BANK, kind: 'bank' },
+      { poly: rect(-2100, 130, 2100, 500), ...BANK, kind: 'bank' },
+    ],
+    fenders: [], bollards: [],
+    zoom: 0.45,
+  },
+  {
+    id: 'swing', name: 'Swing basin · 180°',
+    brief: 'Turn the 293 m Spirit 180° inside a 660 m basin and leave the way you came. Fresh beam wind, no current. Watch your pod wash off the walls. Two 60 t tugs available on the port side if you want them.',
+    ship: 'spirit', tugBP: 588e3,
+    start: { n: -1144, e: 0, psi: 0, kn: 4 },
+    windKn: 16, windFrom: 270, gusts: true, currentKn: 0, currentSet: 0, depth: 10.5,
+    shoals: [],
+    obstacles: [
+      { poly: rect(-1232, -880, 484, -330), ...CONCRETE, kind: 'quay' },
+      { poly: rect(-1232, 330, 484, 880), ...CONCRETE, kind: 'quay' },
+      { poly: rect(330, -330, 484, 330), ...CONCRETE, kind: 'quay' },
+      { poly: rect(-924, -330, -880, -110), ...CONCRETE, kind: 'pier' },
+      { poly: rect(-924, 110, -880, 330), ...CONCRETE, kind: 'pier' },
+    ],
+    fenders: [], bollards: [], tugSide: -1,
+    zoom: 0.45,
+  },
+  {
+    id: 'terminal', name: 'Crude terminal · jetty, port side to',
+    brief: 'Deep-water tanker jetty: four breasting dolphins on a 26 m berth with quick-release hooks for the springs, mooring dolphins set back for the breasts, head and stern lines, open water astern. Come in at a shallow angle, take the way off early (a big ship carries it for miles), and land flat on the dolphins at a few centimetres a second. 18 kn wind on the starboard bow, flood tide 0.8 kn along the berth. Two 80 t tugs on the starboard side. Schematic, not a real terminal.',
+    start: { n: -1150, e: -2300, psi: 72, kn: 5 },
+    windKn: 18, windFrom: 40, gusts: true, currentKn: 0.8, currentSet: 90, depth: 30,
+    shoals: [
+      { poly: [[260, -3200], [260, 3200], [900, 3200], [900, -3200]], depth: 12, label: '12' },
+      { poly: [[-3200, 900], [-1600, 1400], [-1300, 3200], [-3200, 3200]], depth: 16, label: '16' },
+      { poly: rect(-60, -260, 30, 260), depth: 26, label: '26' },
+    ],
+    obstacles: [
+      // breasting dolphins (fendered faces on n = 0), loading platform set back, mooring dolphins
+      ...[-130, -45, 45, 130].map(e => ({ poly: rect(0, e - 7, 14, e + 7), ...CONCRETE, kind: 'fendered' as const })),
+      { poly: rect(8, -22, 40, 22), ...CONCRETE, kind: 'pier' as const },
+      ...[-230, -185, -160, 160, 185, 230].map(e => ({ poly: rect(35, e - 6, 47, e + 6), ...CONCRETE, kind: 'pier' as const })),
+      { poly: rect(40, -12, 300, 12), ...CONCRETE, kind: 'pier' as const },                 // trestle to shore
+      { poly: rect(300, -3200, 1400, 3200), ...BANK, kind: 'bank' as const },
+    ],
+    berthFace: { n: -2, e: 0, psi: 90, side: -1, standoff: 0.1 },
+    fenders: [-130, -45, 45, 130].flatMap(e => fenderRow(-2, e - 3, e + 3, 6, -1, 0, SCN2000)),
+    // OCIMF-style: quick-release hooks at both ends of each breasting dolphin (springs), on the platform,
+    // and on the mooring dolphins set back abreast of the ship's ends (breasts at ±160, head and stern beyond)
+    bollards: [
+      ...[-130, -45, 45, 130].flatMap(e => [[10, e - 6], [10, e + 6]] as Pt[]),
+      [30, -18], [30, 18],
+      ...[-230, -185, -160, 160, 185, 230].map(e => [41, e] as Pt),
+    ],
+    mooringSide: -1, tugSide: 1, tugBP: 80 * 9.81e3, ship: 'kvlcc2',
+    zoom: 0.5,
+  },
+  {
+    id: 'escort', name: 'Escort · laden VLCC, 8 kn',
+    brief: 'You are the escort tug, made fast on your forward winch to the centre lead aft of a laden VLCC making 8 kn on 000°, 60 m of line out. Work out to her quarter, then steer her with the line in indirect mode: hold your hull at an angle to the flow and let the water do the work. At about three minutes her rudder jams 20° to starboard: stop the swing. Watch the line tension and your heel: a line leading abeam at high tension girts and capsizes a tug.',
+    start: { n: 0, e: 0, psi: 0, kn: 8 },
+    windKn: 10, windFrom: 300, gusts: true, currentKn: 0, currentSet: 0, depth: Infinity,
+    shoals: [], obstacles: [], fenders: [], bollards: [], zoom: 1.6,
+    ship: 'asd-tug', tugsOnly: true,
+    escort: { ship: 'kvlcc2', kn: 8, course: 0, fair: 'aft', tugPoint: 0, L0: 60, failure: { t: 180, kind: 'rudder', rudder: 20, text: 'Escorted ship: RUDDER JAMMED 20° STARBOARD' } },
+  },
+  {
+    id: 'meet', name: 'Channel · meeting and overtaking',
+    brief: 'A 300 m dredged channel, 12 m deep (h/T 1.5 for the Spirit), northbound at 7 kn on the starboard side of the fairway. A 3600 TEU container ship comes down the other side at 10 kn: as the bows meet they push each other away, then each stern is drawn toward the other. About five minutes later a Ro-Pax overtakes you at 15 kn, close on your port side: she draws you in and sheers your bow toward her as she comes abeam. Keep your side of the channel and do not touch the banks.',
+    ship: 'spirit',
+    start: { n: -2200, e: 45, psi: 0, kn: 7 },
+    windKn: 6, windFrom: 200, gusts: false, currentKn: 0, currentSet: 0, depth: 12,
+    shoals: [{ poly: rect(-6500, -150, 6500, -125), depth: 7 }, { poly: rect(-6500, 125, 6500, 150), depth: 7 }],
+    obstacles: [
+      { poly: rect(-6500, -600, 6500, -150), ...BANK, kind: 'bank' },
+      { poly: rect(-6500, 150, 6500, 600), ...BANK, kind: 'bank' },
+    ],
+    fenders: [], bollards: [], zoom: 0.5,
+    traffic: [
+      { ship: 'kcs', label: 'CONTAINER SHIP', start: { n: 1500, e: -55, psi: 180, kn: 10 } },
+      { ship: 'ropax', label: 'RO-PAX', start: { n: -5200, e: -10, psi: 0, kn: 15 } },
+    ],
+  },
+  {
+    id: 'river', name: 'River bend · push convoy downstream',
+    brief: 'A laden four-barge push convoy, 193 m, going downstream on a 200 m wide river with 3 kn of current, 5 m of water under a 3.5 m draught. A right-hand bend of 700 m radius, then a bridge 1.7 km below it with a 120 m span between the piers. The current carries you round the bend and sets you toward the outer bank: start the turn early, keep the stern up into the current, and remember she stops on her propellers going astern, steering with the flanking rudders.',
+    ship: 'push-convoy',
+    start: { n: -2400, e: 0, psi: 0, kn: 4 },
+    windKn: 8, windFrom: 270, gusts: true, currentKn: 3, currentSet: 0, depth: 5,
+    shoals: [],
+    obstacles: [
+      { poly: [[-3400, 100], [0, 100], ...Array.from({ length: 13 }, (_, k) => { const a = -Math.PI / 2 + k * Math.PI / 24; return [600 * Math.cos(a), 700 + 600 * Math.sin(a)] as Pt; }).slice(1), [600, 4000], [-3400, 4000]] as Pt[], ...BANK, kind: 'bank' },
+      { poly: [[-3400, -100], [0, -100], ...Array.from({ length: 13 }, (_, k) => { const a = -Math.PI / 2 + k * Math.PI / 24; return [800 * Math.cos(a), 700 + 800 * Math.sin(a)] as Pt; }).slice(1), [800, 4000], [1700, 4000], [1700, -700], [-3400, -700]] as Pt[], ...BANK, kind: 'bank' },
+      { poly: rect(600, 2395, 640, 2405), ...CONCRETE, kind: 'pier' },
+      { poly: rect(760, 2395, 800, 2405), ...CONCRETE, kind: 'pier' },
+    ],
+    fenders: [], bollards: [], zoom: 0.55,
+    // the current follows the river: north in the upper reach, round the bend, east below it
+    flow: (n, e) => {
+      if (n < 0) return [1, 0];
+      if (e > 700) return [0, 1];
+      const dn = n, de = e - 700, r = Math.hypot(dn, de) || 1;
+      return [-de / r, dn / r];
+    },
+  },
+  {
+    id: 'ice', name: 'Ice · breaking a channel',
+    brief: 'Level ice 0.8 m thick from the edge 400 m ahead, with a 1.4 m band of older ice further in. Break a straight channel 3 km north, turn, and come back through it: the brash in your own channel offers a fraction of the resistance, the edges grab your shoulders if you swing, and turning in unbroken ice takes a lot more than turning in open water. Three Azipods: point one aft to wash the ice off the hull if she sticks.',
+    ship: 'icebreaker',
+    start: { n: -400, e: 0, psi: 0, kn: 6 },
+    windKn: 12, windFrom: 30, gusts: true, currentKn: 0, currentSet: 0, depth: 40,
+    shoals: [], obstacles: [], fenders: [], bollards: [], zoom: 0.6,
+    ice: [{ poly: rect(1500, -3000, 1900, 3000), h: 1.4 }, { poly: rect(0, -3000, 6000, 3000), h: 0.8 }],
+  },
+  {
+    id: 'rotor', name: 'Ocean passage · rotor sails',
+    brief: 'A laden bulk carrier with four Flettner rotor sails, on passage at economical speed, wind 25 kn on the beam. The rotors spin to the spin ratio that gives the most thrust and add knots for the same fuel; they also push her sideways and turn her, so she carries leeway and some weather helm. Switch the rotors off and on from the engine room panel and watch speed, leeway and the rudder she needs.',
+    ship: 'panamax-rotor',
+    start: { n: 0, e: 0, psi: 0, kn: 11 },
+    windKn: 25, windFrom: 90, gusts: true, currentKn: 0, currentSet: 0, depth: Infinity,
+    shoals: [], obstacles: [], fenders: [], bollards: [], zoom: 0.3,
+  },
+  {
+    id: 'hsc', name: 'Fast ferry · harbour entrance at speed',
+    brief: 'You are coming in from sea at 34 kn on 000°. The breakwater gap is 150 m wide, 3.5 km ahead, and inside it the harbour limit is 8 kn. A fast craft carries her way for only a couple of lengths, so the skill is judging when to come off the power: the hull drops off the plane through the resistance hump. Then berth port side to on the ferry quay at the head of the basin: buckets and nozzles, or switch to the joystick. Fresh westerly, 1 kn flood setting east across the entrance. Schematic harbour.',
+    start: { n: -3500, e: -60, psi: 0, kn: 34 },
+    windKn: 18, windFrom: 260, gusts: true, currentKn: 1.0, currentSet: 90, depth: 9,
+    shoals: [{ poly: rect(-260, -1400, -40, -900), depth: 3.2, label: '3.2' }, { poly: rect(-260, 900, -40, 1400), depth: 3.2, label: '3.2' }],
+    obstacles: [
+      { poly: rect(-40, -1400, 0, -75), ...CONCRETE, kind: 'quay' },
+      { poly: rect(-40, 75, 0, 1400), ...CONCRETE, kind: 'quay' },
+      { poly: rect(0, -1400, 720, -620), ...BANK, kind: 'bank' },
+      { poly: rect(0, 620, 720, 1400), ...BANK, kind: 'bank' },
+      { poly: rect(600, -620, 720, 620), ...CONCRETE, kind: 'fendered' },
+    ],
+    berthFace: { n: 598.5, e: -120, psi: 90, side: -1, standoff: 0.1 },
+    fenders: fenderRow(598.5, -380, 140, 16, -1, 0),
+    bollards: Array.from({ length: 14 }, (_, i) => [603, -380 + i * 40] as Pt),
+    mooringSide: -1, ship: 'hsc-cat',
+    // the breakwater shelters the basin from the cross-set
+    shelter: n => (n > 0 ? 0.15 : 1),
+    zoom: 0.5,
+  },
+  {
+    id: 'dp', name: 'DP · supply run at a platform',
+    brief: 'Platform supply vessel on DP, stern 25 m off the east face of a fixed platform, ready to work cargo. Wind 24 kn from the east-south-east, 0.8 kn current setting west-north-west: the environment pushes her onto the platform. Take her in on the joystick, then AUTO POS with the stern 15 m off. During the run the instructor script trips the port azimuth (2 min), then both DGNSS drift together (5 min): a drift-off toward the platform if you trust them. Watch the position plot and the consequence alarm.',
+    start: { n: 0, e: 92, psi: 90, kn: 0 },
+    windKn: 24, windFrom: 110, gusts: true, currentKn: 0.8, currentSet: 290, depth: 110,
+    shoals: [],
+    obstacles: [
+      ...[[-25, -25], [-25, 25], [25, -25], [25, 25]].map(([n, e]) => ({ poly: rect(n - 3, e - 3, n + 3, e + 3), ...CONCRETE, kind: 'pier' as const })),
+    ],
+    fenders: [], bollards: [], zoom: 2.4,
+    ship: 'psv', dpOnly: true,
+    dpScript: [{ t: 120, kind: 'unit', unit: 0 }, { t: 300, kind: 'common', dir: 90 }],
+  },
+  {
+    id: 'trials', name: 'Open water · trials',
+    brief: 'Deep, calm, no obstructions. Try a crash stop, a pod-only turn, the joystick, or walking the ship sideways.',
+    ship: 'spirit',
+    start: { n: 0, e: 0, psi: 0, kn: 8 },
+    windKn: 0, windFrom: 0, gusts: false, currentKn: 0, currentSet: 0, depth: Infinity,
+    shoals: [], obstacles: [], fenders: [], bollards: [], zoom: 0.3,
+  },
+];
+
+for (const sc of V4_SCENARIOS) for (const o of sc.obstacles) o.bbox = bboxOf(o.poly);
+for (const sc of V4_SCENARIOS) for (const f of sc.fenders) f.Er = ratedEnergy(f);

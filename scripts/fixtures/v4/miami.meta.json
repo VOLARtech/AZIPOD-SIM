@@ -1,0 +1,135 @@
+{
+ "source": "NOAA Office of Coast Survey ENC (S-57)",
+ "cells": {
+  "US5MIABB": {
+   "edition": "2",
+   "update": "0",
+   "issued": "20250714",
+   "scale": 12000
+  },
+  "US5MIABC": {
+   "edition": "2",
+   "update": "0",
+   "issued": "20250903",
+   "scale": 22000
+  },
+  "US5MIABD": {
+   "edition": "1",
+   "update": "0",
+   "issued": "20240220",
+   "scale": 22000
+  },
+  "US5MIACB": {
+   "edition": "5",
+   "update": "1",
+   "issued": "20260223",
+   "scale": 12000
+  },
+  "US5MIACC": {
+   "edition": "7",
+   "update": "0",
+   "issued": "20260720",
+   "scale": 12000
+  },
+  "US5MIACD": {
+   "edition": "2",
+   "update": "0",
+   "issued": "20250724",
+   "scale": 12000
+  },
+  "US5MIADB": {
+   "edition": "2",
+   "update": "0",
+   "issued": "20250903",
+   "scale": 12000
+  },
+  "US5MIADC": {
+   "edition": "1",
+   "update": "0",
+   "issued": "20240220",
+   "scale": 12000
+  },
+  "US5MIADD": {
+   "edition": "2",
+   "update": "0",
+   "issued": "20250626",
+   "scale": 12000
+  }
+ },
+ "datum": "MLLW",
+ "origin": [
+  25.775,
+  -80.165
+ ],
+ "bounds": [
+  -2104.9,
+  -3209.8,
+  1883.3,
+  4714.5
+ ],
+ "berth": {
+  "name": "Terminal V \u00b7 Berth H(V)",
+  "n": 619.7,
+  "e": -1551.1,
+  "len": 139.5,
+  "along": [
+   0.9368,
+   0.34987
+  ],
+  "normal": [
+   0.34987,
+   -0.9368
+  ],
+  "depth": 10.0,
+  "centre": 0.0,
+  "fenders": [
+   -64.8,
+   -44.8,
+   -24.8,
+   -4.8,
+   15.2,
+   35.2,
+   55.2,
+   75.2,
+   95.2
+  ],
+  "bollards": [
+   [
+    558.4,
+    -1571.9
+   ],
+   [
+    577.1,
+    -1564.9
+   ],
+   [
+    595.8,
+    -1557.9
+   ],
+   [
+    614.6,
+    -1550.9
+   ],
+   [
+    633.3,
+    -1543.9
+   ],
+   [
+    652.0,
+    -1536.9
+   ],
+   [
+    670.8,
+    -1529.9
+   ],
+   [
+    689.5,
+    -1522.9
+   ],
+   [
+    708.2,
+    -1515.9
+   ]
+  ]
+ }
+}
