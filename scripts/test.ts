@@ -1209,4 +1209,82 @@ test('a layout saved before every berth was fitted out becomes changes: the new 
   assert.equal(q.fenders.length, F0); assert.equal(q.bollards.length, B0); assert.ok(!mem.size, 'nothing saved');
 });
 
+console.log('charts');
+import { lightText, lightOn, sectorColour } from '../src/ui/chart/lights';
+import { cardinal, isolatedDanger, lateral, safeWater, special, completeAid, TOP, BOY } from '../src/ui/chart/marks';
+import { synthChart, STD_CONTOURS } from '../src/scenes/synth';
+import { simplify } from '../src/ui/chart/render';
+import { fromEncJson } from '../src/ui/chart/model';
+test('light characteristics read as on the chart', () => {
+  assert.equal(lightText({ chr: 2, grp: '(2)', per: 6, col: ['green'], h: 8, range: 4 }), 'Fl(2)G.6s8m4M');
+  assert.equal(lightText({ chr: 26, grp: '(6)', per: 10, col: ['white'] }), 'VQ(6)+LFl.10s');
+  assert.equal(lightText({ chr: 25, grp: '(6)(1)', per: 15, col: ['white'] }), 'Q(6)+LFl.15s');
+  assert.equal(lightText({ chr: 5, grp: '(3)', per: 5, col: ['white'] }), 'VQ(3)5s');
+  assert.equal(lightText({ chr: 8, per: 4, col: ['white'], sectors: [{ from: 0, to: 10, col: 'white' }, { from: 10, to: 20, col: 'red' }, { from: 20, to: 30, col: 'green' }] }), 'Oc.WRG.4s');
+  assert.equal(lightText({ chr: 12, morse: 'U', per: 15, col: ['white'] }), 'Mo(U)15s');
+  assert.equal(lightText({ chr: 7, per: 4, col: ['white'] }), 'Iso.4s');
+  assert.equal(lightText({ chr: 1, col: ['red'] }), 'F.R');
+});
+test('lights flash in their rhythm: Fl(2) twice a period, Iso half the time, F always, Q once a second', () => {
+  const count = (l: Parameters<typeof lightOn>[0], T: number) => { let n = 0, was = false, on = 0; for (let t = 0; t < T; t += 0.01) { const o = lightOn(l, t).on; if (o && !was) n++; was = o; if (o) on++; } return { n, frac: on * 0.01 / T }; };
+  const fl2 = count({ chr: 2, grp: '(2)', per: 6, col: ['green'] }, 60);
+  assert.ok(fl2.n === 20 || fl2.n === 21, `Fl(2) 6s: ${fl2.n} flashes a minute`);
+  assert.ok(Math.abs(count({ chr: 7, per: 4, col: ['white'] }, 40).frac - 0.5) < 0.02, 'Iso');
+  assert.ok(count({ chr: 1, col: ['red'] }, 10).frac > 0.99, 'F');
+  const q = count({ chr: 4, col: ['white'] }, 30); assert.ok(q.n >= 29 && q.n <= 31, `Q: ${q.n} in 30 s`);
+  const s = count({ chr: 26, grp: '(6)', per: 10, col: ['white'] }, 100); assert.ok(s.n >= 69 && s.n <= 71, `VQ(6)+LFl 10s: ${s.n} in 100 s (6 + the long flash, ten times)`);
+  // sectors: seen from 5° (bearing toward the light) the light is white; toward 15°, red; outside, dark
+  const sec = { chr: 8, per: 4, col: ['white'], sectors: [{ from: 0, to: 10, col: 'white' }, { from: 10, to: 20, col: 'red' }] };
+  assert.equal(sectorColour(sec, 185), 'white'); assert.equal(sectorColour(sec, 195), 'red'); assert.equal(sectorColour(sec, 90), null);
+});
+test('IALA marks: lateral colours by region, cardinal bands and topmarks, isolated danger, safe water, special', () => {
+  assert.deepEqual([lateral('A', 'port', [0, 0]).col, lateral('A', 'stbd', [0, 0]).col, lateral('B', 'port', [0, 0]).col, lateral('B', 'stbd', [0, 0]).col], [['red'], ['green'], ['green'], ['red']]);
+  assert.equal(lateral('A', 'port', [0, 0]).shp, BOY.can); assert.equal(lateral('A', 'stbd', [0, 0]).shp, BOY.conical);
+  const N = cardinal('N', [0, 0]), E = cardinal('E', [0, 0]), S = cardinal('S', [0, 0]), W = cardinal('W', [0, 0]);
+  assert.deepEqual([N.col, E.col, S.col, W.col], [['black', 'yellow'], ['black', 'yellow', 'black'], ['yellow', 'black'], ['yellow', 'black', 'yellow']]);
+  assert.deepEqual([N.top, E.top, S.top, W.top], [TOP.cones2Up, TOP.cones2BaseToBase, TOP.cones2Down, TOP.cones2PointToPoint]);
+  assert.deepEqual([N, E, S, W].map(m => lightText(m.light!)), ['VQ5M', 'VQ(3)5s5M', 'VQ(6)+LFl.10s5M', 'VQ(9)10s5M']);
+  const I = isolatedDanger([0, 0]), SW = safeWater([0, 0]), SP = special([0, 0]);
+  assert.deepEqual([I.col, I.top, lightText(I.light!)], [['black', 'red', 'black'], TOP.spheres2, 'Fl(2)5s4M']);
+  assert.deepEqual([SW.col, SW.colpat, SW.top], [['red', 'white'], 2, TOP.sphere]);
+  assert.deepEqual([SP.col, SP.top, SP.light!.col], [['yellow'], TOP.x, ['yellow']]);
+  // a charted pillar buoy without its topmark gets one from its category
+  assert.equal(completeAid({ k: 'BOYLAT', n: 0, e: 0, col: ['red'], shp: BOY.pillar, cat: 2 }, 'B').top, TOP.coneUp);
+  assert.equal(completeAid({ k: 'BOYCAR', n: 0, e: 0, col: ['yellow', 'black'], shp: BOY.pillar, cat: 3 }, 'A').top, TOP.cones2Down);
+});
+test('every scenario has a chart: depth areas, soundings that are the physics depths, contours where the depth steps, safety contour for her ship, aids', () => {
+  for (const sc of SCENARIOS.filter(s => !s.chart)) {
+    const m = synthChart(sc), d = depthAt(sc);
+    assert.ok(m.depare.length >= 1 + sc.shoals.length, `${sc.id}: depth areas`);
+    for (const [n, e, z] of m.soundings) { assert.ok(isFinite(n) && isFinite(e) && isFinite(z), `${sc.id}: NaN sounding`); assert.ok(Math.abs(d(n, e) - z) <= 0.05, `${sc.id}: sounding ${z} where the physics has ${d(n, e)}`); }
+    if (isFinite(sc.depth)) assert.ok(m.soundings.length > 20, `${sc.id}: ${m.soundings.length} soundings`);
+    // a shoal that steps the depth across a standard value has that contour along its edge
+    for (const s of sc.shoals) {
+      const crossed = STD_CONTOURS.filter(v => v > s.depth && v <= sc.depth);
+      if (crossed.length) assert.ok(m.contours.some(c => crossed.includes(c.v!)), `${sc.id}: no contour round the ${s.depth} m shoal`);
+    }
+    for (const c of m.contours) assert.ok(c.pts.every(p => p.every(isFinite)), `${sc.id}: NaN contour`);
+    if (sc.marks) assert.equal(m.aids.length, sc.marks.length);
+  }
+  const q = synthChart(SCENARIOS.find(s => s.id === 'quai27')!);
+  // the Spirit (7.8 m, safety depth 9.8 m) gets the 10 m contour round the 8.6 m shoal as her safety contour
+  assert.ok(q.contours.some(c => c.v === 10), 'quai27: 10 m contour');
+  assert.ok(q.aids.some(a => a.k === 'BOYCAR'), 'quai27: the cardinal off the pier shoal');
+});
+test('PortMiami: the ENC chart reads into the model, lights on their buoys and beacons, shapes the right way round', () => {
+  const m = fromEncJson('miami', MIAMI_CHART as never, { datum: 'MLLW', iala: 'B', source: 'NOAA ENC' });
+  const lit = m.aids.filter(a => a.light), alone = m.aids.filter(a => a.k === 'LIGHTS');
+  assert.ok(lit.length >= 40 && alone.length < lit.length, `${lit.length} lit aids, ${alone.length} lights on their own`);
+  assert.ok(m.aids.filter(a => a.k === 'BOYLAT').every(a => a.shp === BOY.pillar || a.shp === BOY.conical || a.shp === BOY.can || a.shp === undefined));
+  // IALA B: starboard-hand (catlam 2) marks are red
+  assert.ok(m.aids.filter(a => a.k.endsWith('LAT') && a.cat === 2 && a.col.length).every(a => a.col[0] === 'red'), 'IALA B: red to starboard');
+  assert.ok(m.contours.length > 100 && m.soundings.length > 1000);
+});
+test('chart simplification keeps rings closed and lines whole, and drops only what is too small to see', () => {
+  const ring: [number, number][] = Array.from({ length: 200 }, (_, i) => [100 * Math.cos(i / 200 * 2 * Math.PI) + 0.3 * Math.sin(i), 100 * Math.sin(i / 200 * 2 * Math.PI)]);
+  const s3 = simplify(ring, 3, true)!, s15 = simplify(ring, 15, true)!;
+  assert.ok(s3.length < ring.length && s3.length > 10 && s15.length < s3.length && s15.length >= 4, `${s3.length}, ${s15.length}`);
+  assert.equal(simplify([[0, 0], [1, 0], [1, 1], [0, 1]], 15, true), null);
+});
+
 console.log(`\n${pass} passed${process.exitCode ? ', some failed' : ''}`);

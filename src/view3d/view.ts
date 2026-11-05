@@ -14,6 +14,10 @@ import MODELS from './models/models.json';
 import miamiScnUrl from './miami.scn.bin?url';
 import { buildScenery, parseScenery } from './scenery';
 import { HarbourKit } from './harbourkit';
+import { Aids3D } from './aids3d';
+import { chartOf } from '../ui/chart';
+import { completeAid } from '../ui/chart/marks';
+import { solidTest } from '../physics/berths';
 const SCENERY: Record<string, string> = { 'miami-terminal-v': miamiScnUrl };
 export const sceneryCredit = (id: string) => (SCENERY[id] ? 'Buildings © OpenStreetMap contributors' : '');
 import { makeWater } from './water';
@@ -155,6 +159,7 @@ export class View3D {
   private lamps: THREE.Object3D[] = [];
   private lit: THREE.MeshStandardNodeMaterial[] = [];
   private kit: HarbourKit | null = null;
+  private aids: Aids3D | null = null;
   private tugs: THREE.Group[] = [];
   private tugLines: THREE.Line[] = [];
   private lines: THREE.Line[] = [];
@@ -354,7 +359,7 @@ export class View3D {
   private harbourGen = 0;
   private harbourLights: { lit: THREE.MeshStandardNodeMaterial[]; lamps: THREE.Object3D[] } = { lit: [], lamps: [] };
   private buildHarbour() {
-    const g = this.harbour; this.clear(g); this.kit = null; this.harbourGen++;
+    const g = this.harbour; this.clear(g); this.kit = null; this.aids = null; this.harbourGen++;
     this.sceneryLit = null;
     const sc = S.sc, LH = sc.landHeight ?? 2;
     const quayM = this.mat(0x858176, { rough: 0.95 }), pierM = this.mat(0x7a756b, { rough: 0.95 });
@@ -390,6 +395,13 @@ export class View3D {
     });
     g.add(kit.group); this.kit = kit;
     if (kit.lampHeads) this.lamps.push(kit.lampHeads);
+    // buoys, beacons and lights of the chart (lights on a quay or pier stand at its height)
+    const model = chartOf(sc);
+    if (model?.aids.length) {
+      const solid = solidTest(sc.obstacles);
+      const aids = new Aids3D(model.aids.map(a => completeAid(a, model.meta.iala)), a => (solid(a.n, a.e) ? LH : 0), c => this.mat(c, { rough: 0.55 }));
+      g.add(aids.group); this.aids = aids;
+    }
     // buildings with lit-window textures
     const win = canvasTex(64, 64, c => {
       c.fillStyle = '#000'; c.fillRect(0, 0, 64, 64);
@@ -1111,6 +1123,8 @@ export class View3D {
       this.underSurf.position.set(this.camera.position.x, -0.02, this.camera.position.z);
     }
     this.sky.position.copy(this.camera.position);
+    // lights of the buoys and beacons: flashing at dusk and night, a few pixels across however far
+    this.aids?.update(rt.state.t, this.camera.position, this.tod !== 'day', this.renderer.domElement.clientHeight / (this.camera.fov * Math.PI / 180));
     if (this.pipeline) {
       this.preCam.copy(this.camera); this.preCam.layers.set(0);
       this.pipeline.render();

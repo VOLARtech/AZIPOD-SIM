@@ -9,6 +9,8 @@ import { bboxOf } from './physics/contact';
 import { HarbourIndex, harbourIndex, indexFresh } from './physics/spatial';
 import { type Berth, type BerthKind, type BerthSpec, type BollardInfo, equipBerths, ratedEnergy, solidTest } from './physics/berths';
 import { SHIPS } from './physics/ship';
+import type { Aid } from './ui/chart/model';
+import { cardinal, lateral, pierLight, platformLight, safeWater } from './ui/chart/marks';
 import { AMSTERDAM, Building } from './scenes/amsterdam';
 import { MIAMI } from './scenes/miami';
 export type { Building };
@@ -56,6 +58,10 @@ export interface Scenario {
   berthSpecs?: BerthSpec[];
   berths?: Berth[];                               // …built from berthSpecs when the scenario is equipped
   ownGear?: { fenders: number; bollards: number }; // how many of the fenders and bollards are the scenario's own (first in the lists)
+  /** Aids to navigation of a hand-built scenario (its schematic chart, and 3D), in its IALA region. */
+  marks?: Aid[];
+  iala?: 'A' | 'B';
+  chartDatum?: string;
   bollardInfo?: BollardInfo[];                    // what each bollard is (height, fitting, SWL), parallel to bollards
 }
 
@@ -114,6 +120,13 @@ export const SCENARIOS: Scenario[] = [
       face('D', 'Quai 27 · pier, east face', 'general', [-150, 330], [400, 330], [0, 1]),
       face('E', 'Quai 27 · west quay', 'general', [400, -520], [1, -520], [0, -1]),
     ],
+    // buoyage runs east into the basin: the silted south bank to starboard, a west cardinal off the shoal at the pier head
+    marks: [
+      ...[-800, -400, 0, 400, 800].map((e, i) => lateral('A', 'stbd', [-528, e], { name: `${2 * i + 1}`, lit: i % 2 === 0 })),
+      cardinal('W', [-200, 118], { name: 'Pier Shoal' }),
+      pierLight('A', 'stbd', [-153, 263], { name: 'Pier head' }),
+      pierLight('A', 'port', [-1, -517], { name: 'Quay west end' }),
+    ],
     // the pier shadows the ebb along the quay: weak water inside ~150 m
     shelter: (n, e) => {
       const ss = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -136,6 +149,12 @@ export const SCENARIOS: Scenario[] = [
       { poly: rect(-2100, 130, 2100, 500), ...BANK, kind: 'bank' },
     ],
     fenders: [], bollards: [],
+    // northbound buoyage: port hand to the west, starboard hand to the east; the shoal narrowing it marked on its edge
+    marks: [
+      ...[-2000, -1500, -1000, -500, 500, 1000, 1500, 2000].flatMap((n, i) => [
+        lateral('A', 'port', [n, -100], { name: `${2 * i + 2}`, lit: i % 2 === 0 }), lateral('A', 'stbd', [n, 100], { name: `${2 * i + 1}`, lit: i % 2 === 0 })]),
+      lateral('A', 'stbd', [-215, 40], { name: 'Shoal S', lit: true, grp: '(2)' }), lateral('A', 'stbd', [150, 66], { name: 'Shoal N', lit: true, grp: '(2)' }),
+    ],
     zoom: 0.45,
   },
   {
@@ -166,6 +185,7 @@ export const SCENARIOS: Scenario[] = [
       face('AW', 'Approach · west wall', 'general', [-1232, -330], [-924, -330], [0, 1]),
       face('AE', 'Approach · east wall', 'general', [-924, 330], [-1232, 330], [0, -1]),
     ],
+    marks: [pierLight('A', 'port', [-902, -112], { name: 'West pier' }), pierLight('A', 'stbd', [-902, 112], { name: 'East pier' })],
     zoom: 0.45,
   },
   {
@@ -197,6 +217,12 @@ export const SCENARIOS: Scenario[] = [
     ],
     mooringSide: -1, tugSide: 1, tugBP: 80 * 9.81e3, ship: 'kvlcc2',
     berthSpecs: [face('J', 'Crude jetty · breasting dolphins', 'dolphins', [0, -137], [0, 137], [-1, 0], { generate: false, top: 4 })],
+    // the 16 m bank to the south-east marked on its deep sides; the jetty ends lit fixed red
+    marks: [
+      cardinal('N', [-1390, 2200], { name: 'SE Bank N' }), cardinal('W', [-2300, 1060], { name: 'SE Bank W' }),
+      { k: 'LIGHTS', n: 2, e: -137, col: ['red'], name: 'Jetty W', light: { chr: 1, col: ['red'], h: 6, range: 2 } },
+      { k: 'LIGHTS', n: 2, e: 137, col: ['red'], name: 'Jetty E', light: { chr: 1, col: ['red'], h: 6, range: 2 } },
+    ],
     zoom: 0.5,
   },
   {
@@ -220,6 +246,8 @@ export const SCENARIOS: Scenario[] = [
       { poly: rect(-6500, 150, 6500, 600), ...BANK, kind: 'bank' },
     ],
     fenders: [], bollards: [], zoom: 0.5,
+    marks: Array.from({ length: 16 }, (_, i) => -6000 + i * 800).flatMap((n, i) => [
+      lateral('A', 'port', [n, -121], { name: `${2 * i + 2}`, lit: i % 2 === 0, per: 5 }), lateral('A', 'stbd', [n, 121], { name: `${2 * i + 1}`, lit: i % 2 === 0, per: 5 })]),
     traffic: [
       { ship: 'kcs', label: 'CONTAINER SHIP', start: { n: 1500, e: -55, psi: 180, kn: 10 } },
       { ship: 'ropax', label: 'RO-PAX', start: { n: -5200, e: -10, psi: 0, kn: 15 } },
@@ -239,6 +267,11 @@ export const SCENARIOS: Scenario[] = [
       { poly: rect(760, 2395, 800, 2405), ...CONCRETE, kind: 'pier' },
     ],
     fenders: [], bollards: [], zoom: 0.55,
+    // the bridge: the passage between the piers marked with yellow lights, as on inland waterways
+    marks: [
+      { k: 'LIGHTS', n: 642, e: 2400, col: ['yellow'], name: 'Bridge passage', light: { chr: 1, col: ['yellow'], h: 12, range: 2 } },
+      { k: 'LIGHTS', n: 758, e: 2400, col: ['yellow'], light: { chr: 1, col: ['yellow'], h: 12, range: 2 } },
+    ],
     // the current follows the river: north in the upper reach, round the bend, east below it
     flow: (n, e) => {
       if (n < 0) return [1, 0];
@@ -282,6 +315,11 @@ export const SCENARIOS: Scenario[] = [
     bollards: Array.from({ length: 14 }, (_, i) => [603, -380 + i * 40] as Pt),
     mooringSide: -1, ship: 'hsc-cat',
     berthSpecs: [face('F', 'Ferry quay', 'ferry', [600, -620], [600, 620], [-1, 0])],
+    marks: [
+      safeWater([-2600, -20], { name: 'Fairway' }),
+      pierLight('A', 'port', [-20, -77], { name: 'W breakwater', per: 4, range: 6 }), pierLight('A', 'stbd', [-20, 77], { name: 'E breakwater', per: 4, range: 6 }),
+      cardinal('S', [-300, -1150], { name: 'W Shoal' }), cardinal('S', [-300, 1150], { name: 'E Shoal' }),
+    ],
     // the breakwater shelters the basin from the cross-set
     shelter: n => (n > 0 ? 0.15 : 1),
     zoom: 0.5,
@@ -296,6 +334,7 @@ export const SCENARIOS: Scenario[] = [
       ...[[-25, -25], [-25, 25], [25, -25], [25, 25]].map(([n, e]) => ({ poly: rect(n - 3, e - 3, n + 3, e + 3), ...CONCRETE, kind: 'pier' as const })),
     ],
     fenders: [], bollards: [], zoom: 2.4,
+    marks: [platformLight([28, 28], { name: 'Platform' }), platformLight([-28, -28])],
     ship: 'psv', dpOnly: true,
     dpScript: [{ t: 120, kind: 'unit', unit: 0 }, { t: 300, kind: 'common', dir: 90 }],
   },

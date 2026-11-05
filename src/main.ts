@@ -28,7 +28,7 @@ import { LINE, WinchMode } from './physics/mooring';
 import type { Alt, PredictJob, Track } from './physics/predict';
 import { SCENARIOS, safeStart, Scenario, berthFor, currentField, depthAt, fits } from './scenarios';
 import { ensureScenario } from './scenes/loaders';
-import { loadEnc } from './ui/enc';
+import { loadChart } from './ui/chart';
 import { haptic, suspendAudio, uiTick, unlockAudio, updateAudio } from './ui/audio';
 import { AngleDetent, LinearDetent, detentSlider, onFeel } from './ui/controls';
 onFeel(uiTick);
@@ -128,7 +128,7 @@ async function openScenario(sc: Scenario) {
   }
   if (sc.needsData || sc.chart) {
     try {
-      const [data] = await Promise.all([ensureScenario(sc), sc.chart ? loadEnc(sc.chart) : null]);
+      const [data] = await Promise.all([ensureScenario(sc), sc.chart ? loadChart(sc.chart) : null]);
       if (data && !postedData.has(sc.id)) { pw.postMessage({ kind: 'data', id: sc.id, data }); postedData.add(sc.id); }
     } catch (err) {
       if (seq !== openSeq) return;

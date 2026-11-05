@@ -10,7 +10,7 @@ import { LINE, tugEngaged } from '../physics/mooring';
 import type { Alt, Track } from '../physics/predict';
 import type { Traffic } from '../physics/traffic';
 import { S, SPEEDS, full } from './state';
-import { drawEncBase, drawEncMarks } from './enc';
+import { chartOf, drawChartBase, drawChartMarks as drawMarks } from './chart';
 
 export const C: Record<string, string> = {};
 /** The berth editor is open: fenders and bollards are ringed on the chart. */
@@ -124,12 +124,13 @@ export function shownPose(): Pose & { u: number; v: number; r: number } {
 let viewBounds: [number, number, number, number] = [0, 0, 0, 0];
 /** Real-chart soundings, aids and names: screen-space marks above the depth shades. */
 export function drawChartMarks() {
-  if (!S.sc.chart) return;
+  const model = chartOf(S.sc); if (!model) return;
   ctx.save(); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  drawEncMarks(S.sc.chart, { ctx, px, scale: S.view.scale, C, bounds: viewBounds, toScr });
-  // provenance, always on screen with a real chart
+  drawMarks(model, { ctx, px, scale: S.view.scale, C, bounds: viewBounds, toScr, rot: S.view.rot });
+  // provenance, always on screen
   ctx.font = `500 10px ${C.fontNum}`; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillStyle = C.muted;
-  const note = `CHART NOAA ENC · DEPTHS m MLLW${S.sc.tide ? ` · TIDE +${S.sc.tide.toFixed(1)} m` : ''} · NOT FOR NAVIGATION`;
+  const m = model.meta;
+  const note = `${m.synthetic ? 'SCHEMATIC CHART' : `CHART ${m.source.toUpperCase()}`} · DEPTHS m ${m.datum.toUpperCase()}${S.sc.tide ? ` · TIDE +${S.sc.tide.toFixed(1)} m` : ''} · IALA ${m.iala} · NOT FOR NAVIGATION`;
   const nx0 = LAY.split === 'left' ? LAY.splitAt + 12 : LAY.padL, ny0 = LAY.trayTop - 36;
   ctx.fillStyle = C['panel-solid']; ctx.globalAlpha = 0.8; ctx.fillRect(nx0 - 3, ny0 - 13, ctx.measureText(note).width + 6, 15); ctx.globalAlpha = 1;
   ctx.fillStyle = C.muted; ctx.fillText(note, nx0, ny0);
@@ -141,7 +142,8 @@ export function drawChart() {
   const nMin = Math.min(n0, n1, n2, n3), nMax = Math.max(n0, n1, n2, n3), eMin = Math.min(e0, e1, e2, e3), eMax = Math.max(e0, e1, e2, e3);
   viewBounds = [nMin, eMin, nMax, eMax];
   // real chart: ENC depth shades, contours, land and structures replace the plain water and grid
-  if (S.sc.chart && drawEncBase(S.sc.chart, { ctx, px, scale: S.view.scale, C, bounds: viewBounds, toScr })) return;
+  const model = chartOf(S.sc);
+  if (model) { drawChartBase(model, { ctx, px, scale: S.view.scale, C, bounds: viewBounds, toScr }); return; }
   // shoal areas (depth areas shallower than the charted base)
   for (const sh of S.sc.shoals) { polyPath(sh.poly); ctx.fillStyle = C.shoal; ctx.fill(); ctx.strokeStyle = C.muted; ctx.lineWidth = px(1); ctx.setLineDash([px(4), px(3)]); ctx.stroke(); ctx.setLineDash([]); }
   const step = S.view.scale > 1.5 ? 50 : S.view.scale > 0.4 ? 100 : 500;
@@ -154,7 +156,7 @@ export function drawChart() {
 
 export function drawStructures() {
   const rt = S.rt;
-  if (!S.sc.chart) for (const o of S.sc.obstacles) {
+  if (!chartOf(S.sc)) for (const o of S.sc.obstacles) {
     polyPath(o.poly); ctx.fillStyle = C.land; ctx.fill();
     ctx.strokeStyle = C['land-edge']; ctx.lineWidth = px(1.5); ctx.stroke();
   }
