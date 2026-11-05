@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 
 S, W, N, E = map(float, sys.argv[1:5]); OUT = sys.argv[5]
 os.makedirs(OUT, exist_ok=True)
-UA = {'User-Agent': 'azipod-bridge-chart-fetch/1.0 (github.com/VOLARtech/AZIPOD-SIM)'}
+UA = {'User-Agent': 'azipod-bridge-chart-fetch/1.0 (github.com/Theseasparky/AZIPOD-SIM)'}
 get = lambda u: urllib.request.urlopen(urllib.request.Request(u, headers=UA), timeout=180).read()
 
 cat = get('https://www.charts.noaa.gov/ENCs/ENCProdCat.xml')

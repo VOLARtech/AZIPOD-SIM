@@ -806,7 +806,11 @@ export class View3D {
         this.ship.userData.eyeH = (m.eye.h + f.draught) * ky - spec.T;   // eye.h is above the model's waterline
         this.ship.userData.eyeX = stem - (f.stem - m.eye.x) * kx;
       }
-    }).catch(err => console.warn('ship model', name, err));
+    }).catch(err => {
+      console.warn('ship model', name, err);
+      // the ship stays drawn in plain blocks: say so, rather than leave a wrong-looking ship unexplained
+      if (own && g.userData.gen === gen) dispatchEvent(new CustomEvent('azb-model-failed', { detail: spec.name }));
+    });
   }
 
   /** Detailed ship from a converted STL, painted per pixel (see tools/ship/stl_to_ship.py). */

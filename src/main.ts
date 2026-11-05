@@ -8,6 +8,8 @@ import '@fontsource/ibm-plex-mono/latin-500.css';
 import '@fontsource/ibm-plex-mono/latin-500-italic.css';
 import './style.css';
 import { initApp, persist, toast } from './app';
+addEventListener('azb-model-failed', e => toast(`Couldn't download the 3D model of ${(e as CustomEvent<string>).detail}, so it is drawn in plain shapes. Check the connection${location.hostname === 'volartech.github.io' ? ', and open SHIPSHAPE from its new address' : ''}.`,
+  location.hostname === 'volartech.github.io' ? { label: 'OPEN', run: () => location.assign('https://theseasparky.github.io/AZIPOD-SIM/') } : undefined, 9000));
 import type { View3D } from './view3d/view';
 import { DEG, KN, SHIP, SHIPS, propulsionSummary, setShip, type ShipSpec } from './physics/ship';
 import { Traffic } from './physics/traffic';

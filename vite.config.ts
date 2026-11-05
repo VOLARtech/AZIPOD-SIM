@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => {
       __APP_VERSION__: JSON.stringify(pkg.version),
       __BUILD__: JSON.stringify((process.env.GITHUB_SHA ?? 'local').slice(0, 7)),
       __PWA__: JSON.stringify(!single),
-      __REPO_URL__: JSON.stringify(process.env.REPO_URL ?? 'https://github.com/VOLARtech/AZIPOD-SIM'),
+      __REPO_URL__: JSON.stringify(process.env.REPO_URL ?? 'https://github.com/Theseasparky/AZIPOD-SIM'),
     },
     resolve: {
       alias: [

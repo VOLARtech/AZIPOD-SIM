@@ -4,7 +4,7 @@
 
 **Learn to handle ships, from a small harbour tug to a giant container ship, right in your web browser.**
 
-👉 **Open it:** https://volartech.github.io/AZIPOD-SIM/
+👉 **Open it:** https://theseasparky.github.io/AZIPOD-SIM/
 
 It's free, runs on phones, tablets and computers, and once installed it keeps working with no internet connection.
 
@@ -61,7 +61,7 @@ If a ship is too big or too deep for a harbour, the simulator tells you and pick
 | --- | --- |
 | Android, Windows, Mac, Linux, Chromebook (Chrome or Edge) | Tap **INSTALL** in the app, or the install icon in the address bar |
 | iPhone, iPad | Open it in Safari, tap Share, then **Add to Home Screen** |
-| No install, no internet at all | Download [the offline copy](https://volartech.github.io/AZIPOD-SIM/shipshape-offline.html), a single file that opens in any browser |
+| No install, no internet at all | Download [the offline copy](https://theseasparky.github.io/AZIPOD-SIM/shipshape-offline.html), a single file that opens in any browser |
 
 The app updates itself. When a new version is ready, it shows a **RELOAD** button.
 
@@ -118,7 +118,7 @@ On a phone or tablet, just use the levers and wheels on screen. On a computer yo
   - Car and passenger ferry: “[PRIDE OF KENT (P&O Ferries)](https://sketchfab.com/3d-models/none-f7c269fbb81e4072b72e28b085e52c7e)” by ipierre
   - Navy frigate: “[1:1 Low poly US NAVY DDG-51 USS Arleigh Burke.](https://sketchfab.com/3d-models/none-17be09c31c6047e4a5969b68c29eba03)” by WTigerTw
 
-Found a problem, or have an idea for a scenario? [Open an issue](https://github.com/VOLARtech/AZIPOD-SIM/issues).
+Found a problem, or have an idea for a scenario? [Open an issue](https://github.com/Theseasparky/AZIPOD-SIM/issues).
 
 ## For developers
 

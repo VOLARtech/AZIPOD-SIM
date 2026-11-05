@@ -18,7 +18,7 @@ q = f"""[out:json][timeout:240];
 out body geom qt;"""
 for url in ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://overpass.private.coffee/api/interpreter']:
     try:
-        req = urllib.request.Request(url, data=urllib.parse.urlencode({'data': q}).encode(), headers={'User-Agent': 'azipod-bridge-osm-fetch/1.0 (github.com/VOLARtech/AZIPOD-SIM)'})
+        req = urllib.request.Request(url, data=urllib.parse.urlencode({'data': q}).encode(), headers={'User-Agent': 'azipod-bridge-osm-fetch/1.0 (github.com/Theseasparky/AZIPOD-SIM)'})
         d = urllib.request.urlopen(req, timeout=300).read()
         js = json.loads(d)
         json.dump(js, open(out, 'w'), separators=(',', ':'))
