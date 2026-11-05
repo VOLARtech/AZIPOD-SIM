@@ -6,6 +6,7 @@ import { Command, Env, Model, ShipState, World, cloneState, mismatched, rk4, upd
 import { ContactInfo, contactForces, Fender, Obstacle, Pt } from './contact';
 import type { MooringLine } from './mooring';
 import type { DepthField } from './harbour';
+import type { HarbourIndex } from './spatial';
 import { engines, fullAstern, helm, isHelmShip } from './pilot';
 
 export type Alt = 'current' | 'port' | 'stbd' | 'crash' | 'coast';
@@ -28,7 +29,7 @@ export interface PredictJob {
 export interface Pose { t: number; n: number; e: number; psi: number; u: number; v: number; r: number }
 export interface Track { alt: Alt; poses: Pose[]; stopT: number | null; stopDist: number; dist: number; contactT: number | null; groundT: number | null }
 
-export interface ScenarioWorld { obstacles: Obstacle[]; fenders: Fender[]; bollards: Pt[]; depthAt: DepthField; current: (kn: number, set: number) => (n: number, e: number) => [number, number] }
+export interface ScenarioWorld { obstacles: Obstacle[]; fenders: Fender[]; bollards: Pt[]; depthAt: DepthField; current: (kn: number, set: number) => (n: number, e: number) => [number, number]; index?: HarbourIndex }
 
 export function runPrediction(spec: ShipSpec, job: PredictJob, sw: ScenarioWorld): Track[] {
   const sp = job.onboard ? mismatched(spec) : spec;
@@ -38,7 +39,7 @@ export function runPrediction(spec: ShipSpec, job: PredictJob, sw: ScenarioWorld
   const lines = job.lines.map(l => ({ ...l, kind: 'head', name: '', lead: 0, mode: 'brake', T: 0, peakT: 0 })) as MooringLine[];
   const world: World = { obstacles: [], fenders: [], contact: false, lines, bollards: sw.bollards, ext: job.ext, depthAt: sw.depthAt, squat: 0 };
   const probe: ContactInfo = { active: false, points: [], fenders: [] };
-  const startsInContact = (() => { contactForces(job.state, sw.obstacles, sw.fenders, probe); return probe.active; })();
+  const startsInContact = (() => { contactForces(job.state, sw.obstacles, sw.fenders, probe, sw.index); return probe.active; })();
   const dt = job.horizon > 240 ? 1 : 0.5;
   return job.alts.map(alt => {
     const st = cloneState(job.state);
@@ -64,7 +65,7 @@ export function runPrediction(spec: ShipSpec, job: PredictJob, sw: ScenarioWorld
         poses.push({ t, n: st.n, e: st.e, psi: st.psi, u: st.u, v: st.v, r: st.r });
         nextRec += 1;
         if (!startsInContact && Math.round(t) % 2 === 0) {
-          contactForces(st, sw.obstacles, sw.fenders, probe);
+          contactForces(st, sw.obstacles, sw.fenders, probe, sw.index);
           if (probe.active) { contactT = t; break; }
         }
         if ((world.aground ?? 0) > 0.05) { groundT = t; break; }

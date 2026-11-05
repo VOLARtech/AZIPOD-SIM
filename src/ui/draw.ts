@@ -611,7 +611,7 @@ export function updateQuayLines(dt: number) {
     let best: { d: number; n: number; e: number; pn: number; pe: number } | null = null;
     for (const side of [-1, 1]) {
       const [pn, pe] = bodyToWorld(est, x, side * SHIP.B / 2);
-      const r = nearestStructure(pn, pe, S.sc.obstacles, 300);
+      const r = nearestStructure(pn, pe, S.sc.obstacles, 300, S.rt.index);
       if (!r) continue;
       let d = r[2];
       const fendered = S.sc.obstacles.some(o => o.kind === 'fendered' && o.bbox && r[0] >= o.bbox[0] - 0.1 && r[0] <= o.bbox[2] + 0.1 && r[1] >= o.bbox[1] - 0.1 && r[1] <= o.bbox[3] + 0.1);

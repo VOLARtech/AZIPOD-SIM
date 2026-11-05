@@ -7,6 +7,7 @@ import type { TrafficSetup } from './physics/traffic';
 import type { IceField } from './physics/ice';
 import { Shoal, depthField, DepthField, DepthGrid, gridField } from './physics/harbour';
 import { bboxOf } from './physics/contact';
+import { HarbourIndex, harbourIndex, indexFresh } from './physics/spatial';
 import { AMSTERDAM, Building } from './scenes/amsterdam';
 import { MIAMI } from './scenes/miami';
 export type { Building };
@@ -293,11 +294,18 @@ export function depthAt(sc: Scenario): DepthField {
   return f;
 }
 
+/** Spatial index over a scenario's obstacles, fenders and bollards, rebuilt when any of them changed. */
+const indexes = new WeakMap<Scenario, HarbourIndex>();
+export function indexOf(sc: Scenario): HarbourIndex {
+  let i = indexes.get(sc);
+  if (!indexFresh(i, sc.obstacles, sc.fenders, sc.bollards)) { i = harbourIndex(sc.obstacles, sc.fenders, sc.bollards); indexes.set(sc, i); }
+  return i;
+}
 /** Everything the predictor needs about a scenario. */
 export function worldOf(sc: Scenario) {
   return {
     obstacles: sc.obstacles, fenders: sc.fenders, bollards: sc.bollards, depthAt: depthAt(sc),
-    current: (kn: number, set: number) => currentField(sc, kn, set),
+    current: (kn: number, set: number) => currentField(sc, kn, set), index: indexOf(sc),
   };
 }
 /** The predictor worker's world for a live scenario, rebuilt from its id. */
@@ -329,8 +337,14 @@ export function berthFor(sc: Scenario, B: number, xg: number) {
  */
 export function safeStart(sc: Scenario, L: number, B: number, T: number) {
   const d = depthAt(sc), { n, e, psi } = sc.start, c = Math.cos(psi * DEG), sn = Math.sin(psi * DEG), need = T + Math.max(0.3, 0.03 * T);
-  const boxes = sc.obstacles.map(o => o.bbox ?? (o.bbox = bboxOf(o.poly)));
-  const inSolid = (pn: number, pe: number) => sc.obstacles.some((o, i) => { const b = boxes[i]; return pn >= b[0] && pn <= b[2] && pe >= b[1] && pe <= b[3] && pip(o.poly, pn, pe); });
+  const idx = indexOf(sc);
+  const inSolid = (pn: number, pe: number) => {
+    for (const i of idx.obs.query(pn, pe, pn, pe)) {
+      const o = sc.obstacles[i], b = o.bbox!;
+      if (pn >= b[0] && pn <= b[2] && pe >= b[1] && pe <= b[3] && pip(o.poly, pn, pe)) return true;
+    }
+    return false;
+  };
   // least water anywhere under her (−∞ if any of her lies in a quay)
   const least = (dx: number, dy: number) => {
     let m = Infinity;

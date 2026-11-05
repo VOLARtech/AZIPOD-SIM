@@ -2,6 +2,7 @@
 import { KN } from './ship';
 import type { Pt } from './contact';
 import type { ShipState, Wrench } from './sim';
+import { type HarbourIndex, bolIndexed } from './spatial';
 
 export type WinchMode = 'brake' | 'heave' | 'slack' | 'auto';
 export type LineKind = 'head' | 'fwdBreast' | 'fwdSpring' | 'aftSpring' | 'aftBreast' | 'stern';
@@ -42,22 +43,25 @@ const fairWorld = (st: ShipState, f: [number, number]): Pt => {
 };
 
 /** Choose the bollard giving the line its proper lead, within reach. */
-export function pickBollard(st: ShipState, line: MooringLine, bollards: Pt[]): number {
+export function pickBollard(st: ShipState, line: MooringLine, bollards: Pt[], idx?: HarbourIndex): number {
   const c = Math.cos(st.psi), s = Math.sin(st.psi);
   const [fn, fe] = fairWorld(st, line.fair);
   const tn = fn + line.lead * c, te = fe + line.lead * s;
   let best = -1, bd = Infinity;
-  bollards.forEach(([bn, be], i) => {
+  const visit = (i: number) => {
+    const [bn, be] = bollards[i];
     const d = Math.hypot(bn - fn, be - fe);
     if (d > LINE.reach) return;
     const score = Math.hypot(bn - tn, be - te);
     if (score < bd) { bd = score; best = i; }
-  });
+  };
+  if (bolIndexed(idx, bollards)) for (const i of idx.bol.query(fn - LINE.reach - 1, fe - LINE.reach - 1, fn + LINE.reach + 1, fe + LINE.reach + 1)) visit(i);
+  else for (let i = 0; i < bollards.length; i++) visit(i);
   return best;
 }
 
-export function passLine(st: ShipState, line: MooringLine, bollards: Pt[]): boolean {
-  const b = pickBollard(st, line, bollards);
+export function passLine(st: ShipState, line: MooringLine, bollards: Pt[], idx?: HarbourIndex): boolean {
+  const b = pickBollard(st, line, bollards, idx);
   if (b < 0) return false;
   const [fn, fe] = fairWorld(st, line.fair);
   line.bollard = b; line.state = 'fast'; line.mode = 'slack';

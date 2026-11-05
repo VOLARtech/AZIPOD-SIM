@@ -16,6 +16,7 @@ import { DpSystem } from './dp';
 import { Traffic, hullsTouch, interaction } from './traffic';
 import { IceState } from './ice';
 import { HULL } from './contact';
+import { HarbourIndex, harbourIndex } from './spatial';
 
 export const DT = 0.05;
 /** Joystick auto heading (HDG HOLD), rate gain × ship length in m/s: 1.7 /s on the 47 m yacht, 0.32 /s on a
@@ -89,6 +90,7 @@ export class Runtime {
       obstacles: harbour.obstacles, fenders: harbour.fenders, lines: this.lines, bollards: harbour.bollards,
       lineT: this.lines.map(() => 0), ext: { X: 0, Y: 0, N: 0 }, depthAt: harbour.depthAt, squat: 0, aground: 0,
     };
+    this.reindex();
     this.sensors.step(state, 0, env.current(state.n, state.e), this.wind());
     if (spec.roll) this.roll = rollInit();
     if (spec.station === 'dp') {
@@ -128,8 +130,12 @@ export class Runtime {
   setHdgHold(on: boolean) { this.dp.hdgHold = on; this.dp.psiRef = this.sensors.out.est.psi; this.hdgLatched = false; }
   setPosHold(on: boolean) { const e = this.sensors.out.est; this.dp.posHold = on; this.dp.nRef = e.n; this.dp.eRef = e.e; }
 
+  /** Rebuild the spatial index over the harbour's obstacles, fenders and bollards (after a berth edit). */
+  reindex() { this.index = this.world.index = harbourIndex(this.harbour.obstacles, this.harbour.fenders, this.harbour.bollards); }
+  index!: HarbourIndex;
+
   passLine(i: number) {
-    const ok = passLine(this.state, this.lines[i], this.harbour.bollards);
+    const ok = passLine(this.state, this.lines[i], this.harbour.bollards, this.index);
     this.alert(ok ? `${this.lines[i].name} ashore` : `${this.lines[i].name}: no bollard within ${LINE.reach} m`, ok ? 'good' : '');
     return ok;
   }
@@ -194,12 +200,12 @@ export class Runtime {
     const tug = tugForces(this.tugs);
     this.depthHere = this.harbour.depthAt(st.n, st.e);
     const stw = Math.hypot(st.u - (Math.cos(st.psi) * cur[0] + Math.sin(st.psi) * cur[1]), st.v);
-    this.bank = bankEffect(spec, st, this.harbour.obstacles, this.depthHere);
+    this.bank = bankEffect(spec, st, this.harbour.obstacles, this.depthHere, this.index);
     const confined = this.bank.clear < 2 * spec.B ? 1 : 0;
     this.sq = squat(spec, stw, this.depthHere, confined);
     const dmgT = this.damageOn ? Math.max(this.damage.draughtAt(spec.L / 2), this.damage.draughtAt(-spec.L / 2)) : 0;
     this.ukc = this.depthHere - spec.T - this.sq - dmgT;
-    this.wash = washReflection(spec, st, this.bd.pods.map(p => p.T), this.harbour.obstacles);
+    this.wash = washReflection(spec, st, this.bd.pods.map(p => p.T), this.harbour.obstacles, this.index);
     const ext = this.world.ext!;
     // passing ships
     const it = this.inter; it.X = it.Y = it.N = 0;

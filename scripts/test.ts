@@ -999,4 +999,66 @@ test('CB Baltic: about 14 kn flat out, laden a little slower than in ballast', (
   assert.ok(l > 13 && l < 14 && b > 13.5 && b < 14.5 && b > l, `laden ${l.toFixed(1)} kn, ballast ${b.toFixed(1)} kn`);
 });
 
+console.log('spatial index');
+import { harbourIndex } from '../src/physics/spatial';
+import { contactForces as cF, type Obstacle as Ob, type Fender as Fd, type Pt as P2 } from '../src/physics/contact';
+import { nearestStructure } from '../src/physics/harbour';
+import { pickBollard, makeLines } from '../src/physics/mooring';
+import { V4_SCENARIOS } from './fixtures/v4/scenarios';
+import V4_MIAMI from './fixtures/v4/miami.physics.json';
+{
+  // a seeded random harbour: a few hundred boxes and slivers, fenders and bollards scattered along them
+  let seed = 12345; const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  const obs: Ob[] = [], fen: Fd[] = [], bol: P2[] = [];
+  for (let i = 0; i < 400; i++) {
+    const n = (rnd() - 0.5) * 6000, e = (rnd() - 0.5) * 6000, a = 5 + rnd() * 300, b = 5 + rnd() * 60, t = rnd() * Math.PI;
+    const c = Math.cos(t), s = Math.sin(t);
+    obs.push({ poly: [[-a, -b], [a, -b], [a, b], [-a, b]].map(([x, y]) => [n + x * c - y * s, e + x * s + y * c] as P2), k: 6e6, c: 1.5e6, mu: 0.45, unload: 0.04, kind: 'quay' });
+    for (let k = 0; k < 3; k++) {
+      const x = (rnd() - 0.5) * 2 * a;
+      fen.push({ n: n + x * c + (b + 1) * s * -1, e: e + x * s + (b + 1) * c, nn: -s, ne: c, width: 3, height: 1, Rr: 9e5, Er: 0, dRated: 0.72, mu: 0.2 });
+      bol.push([n + x * c - (b - 1.5) * s, e + x * s + (b - 1.5) * c]);
+    }
+  }
+  const mia = V4_SCENARIOS.find(s => s.id === 'miami-terminal-v')!; mia.setData!(V4_MIAMI as never);
+  const cases: [string, Ob[], Fd[], P2[]][] = [['random harbour', obs, fen, bol], ['PortMiami tiles', mia.obstacles, mia.fenders, mia.bollards]];
+  const same = (a: number, b: number) => Object.is(a, b);
+  for (const [name, O, F, B] of cases) test(`${name}: indexed contact, nearest structure, bank, wash and line picking are bit for bit the plain loops`, () => {
+    const idx = harbourIndex(O, F, B);
+    let checked = 0, touching = 0;
+    for (let k = 0; k < 500; k++) {
+      // poses near random items, so many of them touch something
+      const o = O[Math.floor(rnd() * O.length)], [pn, pe] = o.poly[Math.floor(rnd() * o.poly.length)];
+      const st = makeState(SHIP, pn + (rnd() - 0.5) * 120, pe + (rnd() - 0.5) * 120, rnd() * 2 * Math.PI, rnd() * 3);
+      st.v = (rnd() - 0.5) * 0.4; st.r = (rnd() - 0.5) * 0.01;
+      st.pods.forEach(p => { p.alpha = (rnd() - 0.5) * 2 * Math.PI; p.rpm = rnd(); });
+      const ci1 = { active: false, points: [], fenders: [] }, ci2 = { active: false, points: [], fenders: [] };
+      const a = cF(st, O, F, ci1), b = cF(st, O, F, ci2, idx);
+      assert.ok(same(a.X, b.X) && same(a.Y, b.Y) && same(a.N, b.N), `contact differs at ${k}`);
+      assert.deepEqual(ci2.fenders, ci1.fenders);
+      if (ci1.active) touching++;
+      // a moving obstacle appended after the static ones (another ship) is still seen
+      const moving: Ob = { poly: [[pn - 5, pe - 5], [pn + 5, pe - 5], [pn + 5, pe + 5], [pn - 5, pe + 5]], k: 4e6, c: 1.2e6, mu: 0.3, unload: 0.05, kind: 'ship', vel: [1, 0] };
+      const OO = O.concat([moving]), a2 = cF(st, OO, F), b2 = cF(st, OO, F, undefined, idx);
+      assert.ok(same(a2.X, b2.X) && same(a2.Y, b2.Y) && same(a2.N, b2.N), `contact with a moving obstacle differs at ${k}`);
+      const r1 = nearestStructure(st.n, st.e, O, 300), r2 = nearestStructure(st.n, st.e, O, 300, idx);
+      assert.deepEqual(r2, r1);
+      const k1 = bankEffect(SHIP, st, O, 12), k2 = bankEffect(SHIP, st, O, 12, idx);
+      assert.ok(same(k1.Y, k2.Y) && same(k1.N, k2.N) && same(k1.clear, k2.clear), `bank differs at ${k}`);
+      const T = SHIP.pods.map(() => 3e5 * (rnd() > 0.5 ? 1 : -1));
+      const w1 = washReflection(SHIP, st, T, O), w2 = washReflection(SHIP, st, T, O, idx);
+      assert.ok(same(w1.X, w2.X) && same(w1.Y, w2.Y) && same(w1.N, w2.N), `wash differs at ${k}`);
+      for (const l of makeLines(SHIP.L, SHIP.B, SHIP.xg, 1)) assert.equal(pickBollard(st, l, B, idx), pickBollard(st, l, B), `bollard pick differs at ${k}`);
+      checked++;
+    }
+    assert.ok(checked === 500 && touching > 20, `${touching} of ${checked} poses touched something`);
+  });
+  test('a stale index (bollards edited) falls back to the plain loop instead of a wrong answer', () => {
+    const B = bol.slice(0, 50), idx = harbourIndex(obs, fen, B);
+    const st = makeState(SHIP, B[10][0], B[10][1], 0, 0), line = makeLines(SHIP.L, SHIP.B, SHIP.xg, 1)[1];
+    B.splice(0, 1); B.push([st.n, st.e + 0.5]);     // the editor removed one bollard and added one right by the ship
+    assert.equal(pickBollard(st, line, B, idx), pickBollard(st, line, B));
+  });
+}
+
 console.log(`\n${pass} passed${process.exitCode ? ', some failed' : ''}`);
