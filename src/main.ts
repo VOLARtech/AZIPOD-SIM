@@ -54,6 +54,7 @@ function applyEnv() {
 function loadScenario(sc: Scenario) {
   S.sc = sc;
   loadBerth();                                            // this device's own fenders and bollards, if any
+  postHarbour();                                          // …and the predictor worker sees the same ones
   setEdit(null);
   const shipChanged = setShip(S.shipId ?? sc.ship ?? 'becancour') !== S.rt?.spec;
   if (sc.berthFace) sc.berth = berthFor(sc, SHIP.B, 0);
@@ -224,11 +225,17 @@ function set3d(mode: typeof S.disp.view) {
 
 // ---------------------------------------------------------------- predictor worker
 const pw = new PredictWorker();
-pw.onmessage = (e: MessageEvent<{ id: number; tracks: Track[] }>) => {
+pw.onmessage = (e: MessageEvent<{ id: number; tracks: Track[]; error?: string }>) => {
   S.pred.pending = false;
+  if (e.data.error) console.warn('prediction failed:', e.data.error);
   if (e.data.id === S.pred.jobId) S.pred.tracks = e.data.tracks;
 };
+pw.onerror = e => { S.pred.pending = false; console.warn('prediction worker error', e.message); };
+/** Tell the worker the berth's fenders and bollards (after the berth editor, or a saved layout, changed them). */
+function postHarbour() { pw.postMessage({ kind: 'harbour', id: S.sc.id, fenders: S.sc.fenders, bollards: S.sc.bollards }); }
 function requestPrediction(now: number) {
+  // a reply that never came (worker busy for seconds, or lost): send again rather than wait forever
+  if (S.pred.pending && now - S.pred.lastSend > 2000) S.pred.pending = false;
   if (S.pred.mode === 0 || S.pred.pending || now - S.pred.lastSend < 250) return;
   const rt = S.rt, r = rt.sensors.out;
   S.pred.interval = ghostInterval(r.sog / KN);
@@ -244,7 +251,7 @@ function requestPrediction(now: number) {
     current: onboard ? r.curEst : null,
     scenarioId: S.sc.id, curKn: S.env.curKn, curSet: S.env.curSet,
     depth: isFinite(rt.depthHere) ? rt.depthHere : Infinity,
-    lines: rt.lines.map(l => ({ fair: l.fair, bollard: l.bollard, L0: l.L0, state: l.state })),
+    lines: rt.lines.map(l => ({ fair: l.fair, bollard: l.bollard, L0: l.L0, state: l.state, bp: l.state === 'fast' ? rt.harbour.bollards[l.bollard] : undefined })),
     ext: { ...rt.world.ext! },
     horizon: S.pred.horizon, alts,
   };
@@ -692,7 +699,7 @@ function setEdit(m: EditMode | null) {
   $('edit-bar').hidden = !m;
   document.querySelectorAll<HTMLButtonElement>('[data-em]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.em === m)));
   if (m) $('edit-hint').textContent = m === 'remove' ? 'Tap a bollard or fender to take it away.' : `Tap near a quay edge to put a ${m} there.`;
-  if (was && !m) v3?.harbourChanged();
+  if (was && !m) { v3?.harbourChanged(); S.rt.reindex(); postHarbour(); }
 }
 document.querySelectorAll<HTMLButtonElement>('[data-em]').forEach(b => (b.onclick = () => setEdit(b.dataset.em as EditMode)));
 $('edit-done').onclick = () => setEdit(null);

@@ -1061,4 +1061,25 @@ import V4_MIAMI from './fixtures/v4/miami.physics.json';
   });
 }
 
+console.log('predictor');
+import { runPrediction as runPred, type PredictJob as PJ } from '../src/physics/predict';
+import { worldOf } from '../src/scenarios';
+test('a line fast to a bollard the worker has never heard of (added in the berth editor) still predicts', () => {
+  const sc = SCENARIOS.find(s => s.id === 'quai27')!, sw = worldOf(sc);
+  const st = makeState(SHIP, -20, 40, 90 * DEG, 0);
+  const job: PJ = {
+    id: 1, shipId: SHIP.id, onboard: false, state: st, cmd: { pods: SHIP.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0, mode: 'twin' },
+    wind: { V: 10, from: 0 }, current: null, scenarioId: sc.id, curKn: 0, curSet: 0, depth: 12,
+    // bollard index 999 exists only on the main thread: the line carries its point
+    lines: [{ fair: [100, -16], bollard: 999, L0: 25, state: 'fast', bp: [4, 140] }],
+    ext: { X: 0, Y: 0, N: 0 }, horizon: 20, alts: ['current'],
+  };
+  const tr = runPred(SHIP, job, sw);
+  assert.equal(tr.length, 1);
+  assert.ok(tr[0].poses.length > 5 && tr[0].poses.every(p => isFinite(p.n) && isFinite(p.e)), 'a finite track');
+  // and the line pulls her toward the bollard it carries (north-east of the fairlead)
+  const p = tr[0].poses[tr[0].poses.length - 1];
+  assert.ok(p.e > st.e + 0.01, `moved toward the bollard: Δe ${(p.e - st.e).toFixed(3)} m`);
+});
+
 console.log(`\n${pass} passed${process.exitCode ? ', some failed' : ''}`);
