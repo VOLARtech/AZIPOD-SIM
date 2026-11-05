@@ -27,6 +27,8 @@ export interface BerthSpec {
   /** false: only the equipment already there, nothing generated (a berth whose gear is all hand-placed). */
   generate?: boolean;
   charted?: boolean;           // the face comes from a chart (else hand-built)
+  /** Longest ship that lies here clear of everything (a structure in front of part of the face). */
+  maxLOA?: number;
 }
 
 export interface Berth extends BerthSpec {
@@ -42,6 +44,8 @@ export interface Berth extends BerthSpec {
   kept: boolean;
   /** Open water a ship may overhang past each end, before a quay or pier across her way [m]. */
   room: [number, number];
+  /** Least depth along the berth at each distance off the face [m off, m deep]: a wide ship needs it further out. */
+  profile: [number, number][];
 }
 
 /** What a bollard is: its height above the water, the kind of fitting, safe working load [t]. */
@@ -103,11 +107,19 @@ export function bollardSWL(M: number) {
   return t <= 2e3 ? 10 : t <= 1e4 ? 30 : t <= 2e4 ? 50 : t <= 5e4 ? 80 : t <= 1e5 ? 100 : t <= 2e5 ? 150 : 200;
 }
 
+/** The water a ship of beam B has under her alongside: the least depth from the face out past her far side. */
+export function depthFor(b: Pick<Berth, 'profile' | 'fenderLat' | 'depth'>, B: number) {
+  if (!b.profile?.length) return b.depth;
+  let d = Infinity;
+  for (const [off, z] of b.profile) if (off <= b.fenderLat + B + 2 || d === Infinity) d = Math.min(d, z);
+  return d;
+}
 /** The largest ship of the fleet that fits a berth with this much length and depth (keel clearance 5 %). */
-export function designShipFor(len: number, depth: number, fleet: ShipSpec[]) {
-  const ok = fleet.filter(s => s.T * 1.05 <= depth && s.LOA <= len);
+export function designShipFor(len: number, depth: number | ((B: number) => number), fleet: ShipSpec[]) {
+  const dOf = typeof depth === 'number' ? () => depth : depth;
+  const ok = fleet.filter(s => s.T * 1.05 <= dOf(s.B) && s.LOA <= len);
   const by = (a: ShipSpec, b: ShipSpec) => displacement(b) - displacement(a) || (a.id < b.id ? -1 : 1);
-  return (ok.length ? ok : [...fleet].sort((a, b) => a.T - b.T).slice(0, 1)).sort(by)[0];
+  return ok.length ? ok.sort(by)[0] : null;
 }
 
 // ---------------------------------------------------------------- equipping
@@ -120,6 +132,28 @@ export interface EquipOpts {
   tide?: number;
 }
 
+/** How far past each end of a face a ship may stick out, at most, as a fraction of its length. */
+const ROOM = 0.35;
+/** …and in metres: no further than her head and stern lines still reach the last bollards. */
+const ROOM_MAX = 45;
+/** The length a ship may have at a berth: the face, the clear water past its ends, 2 m spare at each. */
+export const usableLength = (b: Pick<Berth, 'len' | 'room' | 'maxLOA'>) => Math.min(b.len + b.room[0] + b.room[1] - 4, b.maxLOA ?? Infinity);
+/** A charted face that runs on into shallow water at an end (a wharf rounding into the shoals) is a berth only
+ *  where the water alongside is near the depth of the rest of it. */
+function trimShallowEnds(sp: BerthSpec, depthAt: DepthField): BerthSpec {
+  const dn = sp.b[0] - sp.a[0], de = sp.b[1] - sp.a[1], len = Math.hypot(dn, de);
+  if (len < 60) return sp;
+  // the least of the water close alongside and out where a big ship's far side lies
+  const at = (s: number) => Math.min(...[2, 8, 20, 35].map(off => depthAt(sp.a[0] + dn / len * s + sp.nrm[0] * off, sp.a[1] + de / len * s + sp.nrm[1] * off)));
+  const xs: number[] = []; for (let s = 2; s <= len - 2; s += 2) xs.push(at(s));
+  const med = [...xs].sort((x, y) => x - y)[xs.length >> 1], ok = (z: number) => z >= 0.85 * med;
+  let i0 = 0, i1 = xs.length - 1;
+  while (i0 < i1 && !ok(xs[i0])) i0++;
+  while (i1 > i0 && !ok(xs[i1])) i1--;
+  const s0 = i0 ? 2 + 2 * i0 : 0, s1 = i1 < xs.length - 1 ? 2 + 2 * i1 : len;
+  if (s1 - s0 < 30 || (s0 === 0 && s1 === len)) return sp;
+  return { ...sp, a: [sp.a[0] + dn / len * s0, sp.a[1] + de / len * s0], b: [sp.a[0] + dn / len * s1, sp.a[1] + de / len * s1] };
+}
 /** Points along [s0, s1] at most `step` apart, around the ones already there (sorted). */
 export function fillAlong(kept: number[], s0: number, s1: number, step: number): number[] {
   const out: number[] = [];
@@ -164,26 +198,37 @@ export function equipBerths(specs: BerthSpec[], fenders: Fender[], bollards: Pt[
   const nKeptF = fenders.length, nKeptB = bollards.length;
   for (let i = info.length; i < nKeptB; i++) info.push({ berth: '', z: o.top + 0.5, kind: 'bollard', swl: 50 });
   const byId = new Map(o.fleet.map(s => [s.id, s]));
-  for (const sp of specs) {
+  for (const sp0 of specs) {
+    const sp = sp0.charted ? trimShallowEnds(sp0, o.depthAt) : sp0;
     const dn = sp.b[0] - sp.a[0], de = sp.b[1] - sp.a[1], len = Math.hypot(dn, de) || 1;
     const nl = Math.hypot(sp.nrm[0], sp.nrm[1]) || 1;
-    const b: Berth = { ...sp, len, dir: [dn / len, de / len], nrm: [sp.nrm[0] / nl, sp.nrm[1] / nl], depth: 0, designShip: '', E: { normal: 0, design: 0, v: 0 }, fenderLat: 0, kept: false, room: [0, 0] };
+    const b: Berth = { ...sp, len, dir: [dn / len, de / len], nrm: [sp.nrm[0] / nl, sp.nrm[1] / nl], depth: 0, designShip: '', E: { normal: 0, design: 0, v: 0 }, fenderLat: 0, kept: false, room: [0, 0], profile: [] };
     const rule = RULES[b.kind];
     const at = (s: number, off: number): Pt => [b.a[0] + b.dir[0] * s + b.nrm[0] * off, b.a[1] + b.dir[1] * s + b.nrm[1] * off];
+    // water alongside: the least depth along the face at each distance off it
+    const OFFS = [1, 2, 4, 6, 8, 10, 13, 16, 20, 25, 30, 40, 50, 60, 70], step = Math.max(1, Math.min(2.5, (len - 2) / 4));
+    const least = (s0: number, s1: number, off: number) => { let d = Infinity; for (let s = s0; s <= s1 + 1e-6; s += step) { const p = at(s, off); d = Math.min(d, o.depthAt(p[0], p[1])); } return d; };
+    b.profile = OFFS.map(off => [off, least(1, len - 1, off)] as [number, number]);
     // how far a ship lying here may stick out past each end: up to 15 % of the face, less where a quay or
-    // pier stands across her way (an inside corner)
+    // pier stands across her way (an inside corner) or the water there is shallower than along the face
     const probe = (s0: number, sgn: number) => {
-      for (let x = 0; x <= 0.15 * len + 1e-6; x += 2.5) for (const w of [3, 12, 24]) { const p = at(s0 + sgn * x, w); if (o.solid(p[0], p[1])) return Math.max(0, x - 2.5); }
-      return 0.15 * len;
+      const cap = Math.min(ROOM * len, ROOM_MAX);
+      for (let x = 0; x <= cap + 1e-6; x += 2.5) {
+        for (const w of [3, 12, 24]) { const p = at(s0 + sgn * x, w); if (o.solid(p[0], p[1])) return Math.max(0, x - 2.5); }
+        for (const [w, z] of b.profile) { if (w > 40) break; const p = at(s0 + sgn * x, w); if (o.depthAt(p[0], p[1]) < z) return Math.max(0, x - 2.5); }
+      }
+      return cap;
     };
     b.room = [probe(0, -1), probe(len, 1)];
-    // water alongside: the least depth in the berth pocket
-    if (sp.depth === undefined) {
-      let d = Infinity;
-      for (let s = 0; s <= len + 1e-6; s += Math.min(10, len / 4)) for (const off of [4, 12]) { const p = at(s, off); d = Math.min(d, o.depthAt(p[0], p[1])); }
-      b.depth = d;
-    } else b.depth = sp.depth;
-    const ds = (sp.design && byId.get(sp.design)) || designShipFor(len + b.room[0] + b.room[1], b.depth + (o.tide ?? 0), o.fleet);
+    // a charted depth given for the berth holds alongside it
+    if (sp.depth !== undefined) b.profile = b.profile.map(([off, z]) => [off, off <= 15 ? sp.depth! : z]);
+    b.depth = sp.depth ?? Math.min(...b.profile.filter(([off]) => off <= 15).map(([, z]) => z));
+    b.fenderLat = RULES[b.kind].hMin;                         // until the fenders are known: for the design ship's water
+    const tide = o.tide ?? 0;
+    const fit = designShipFor(usableLength(b), B => depthFor(b, B) + tide, o.fleet);
+    // a charted face no ship of the fleet can lie at (too shallow, too short) is no berth
+    if (!fit && sp.charted && !sp.design) continue;
+    const ds = (sp.design && byId.get(sp.design)) || fit || [...o.fleet].sort((x, y) => x.T - y.T)[0];
     b.designShip = ds.id;
     const M = displacement(ds), v = approachSpeed(M), En = berthingEnergy(ds, v);
     b.E = { normal: En, design: En * rule.cab, v };
@@ -225,7 +270,10 @@ export function equipBerths(specs: BerthSpec[], fenders: Fender[], bollards: Pt[
       for (const s0 of cand) {
         // one that falls on a corner moves 1 m in, onto the quay
         const s = Math.abs(s0 - len) < 1 ? len - 1 : Math.abs(s0) < 1 ? 1 : s0;
-        const p = at(s, -set), q = at(s, 2);
+        let p = at(s, -set);
+        const q = at(s, 2);
+        // a narrow pier or catwalk: nearer the edge
+        if (!o.solid(p[0], p[1])) for (const k of [0.6, 0.35]) { const p2 = at(s, -set * k); if (o.solid(p2[0], p2[1])) { p = p2; break; } }
         // on the quay, and past the ends only while the quay edge runs on (not round a corner, not inland)
         if (!o.solid(p[0], p[1]) || ((s < -1 || s > len + 1) && o.solid(q[0], q[1]))) continue;
         // one bollard where two berths meet at a corner
@@ -276,7 +324,7 @@ export function berthPose(b: Berth, side: -1 | 1, ship: { B: number; xg: number;
   if (along === undefined) {
     const { fwd, aft } = hullEnds(ship), ahead = Math.cos(pr) * b.dir[0] + Math.sin(pr) * b.dir[1] > 0;
     const lo = -b.room[0] + 2 + (ahead ? aft : fwd), hi = b.len + b.room[1] - 2 - (ahead ? fwd : aft);
-    if (lo <= hi) s = Math.max(lo, Math.min(hi, s));
+    s = lo <= hi ? Math.max(lo, Math.min(hi, s)) : (lo + hi) / 2;     // too long for it: as little over each end as can be
   }
   const off = b.fenderLat + ship.B / 2 + standoff;
   return {
@@ -296,9 +344,10 @@ export function nearestBerth(berths: Berth[], n: number, e: number, maxD = Infin
   return best;
 }
 /** Can a ship lie at this berth? null if she can, else why not. */
-export function berthFits(b: Berth, ship: Pick<ShipSpec, 'T' | 'LOA'>, tide = 0): string | null {
-  if (ship.T * 1.05 > b.depth + tide) return `too shallow (${b.depth.toFixed(1)} m)`;
-  if (ship.LOA > b.len + b.room[0] + b.room[1]) return `too short (${b.len.toFixed(0)} m)`;
+export function berthFits(b: Berth, ship: Pick<ShipSpec, 'T' | 'LOA' | 'B'>, tide = 0): string | null {
+  const d = depthFor(b, ship.B);
+  if (ship.T * 1.05 > d + tide) return `too shallow (${d.toFixed(1)} m)`;
+  if (ship.LOA > usableLength(b)) return `too short (${b.len.toFixed(0)} m)`;
   return null;
 }
 export const KIND_LABEL: Record<BerthKind, string> = {

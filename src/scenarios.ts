@@ -1,6 +1,6 @@
 import { DEG, KN } from './physics/ship';
 import type { Fender, Obstacle, Pt } from './physics/contact';
-import type { CurrentField } from './physics/sim';
+import type { CurrentField, ShipState } from './physics/sim';
 import type { EscortSetup } from './physics/escort';
 import type { TrafficSetup } from './physics/traffic';
 import type { IceField } from './physics/ice';
@@ -10,6 +10,10 @@ import { HarbourIndex, harbourIndex, indexFresh } from './physics/spatial';
 import { type Berth, type BerthKind, type BerthSpec, type BollardInfo, equipBerths, ratedEnergy, solidTest } from './physics/berths';
 import { SHIPS } from './physics/ship';
 import type { Aid } from './ui/chart/model';
+import { berthFits, berthPose } from './physics/berths';
+import { HULL, buildHull, contactForces, setHull, type ContactInfo } from './physics/contact';
+import { AREAS, areaBerths } from './scenes/areas';
+import { type AreaPack, type PackGrid, multiGridField } from './scenes/pack';
 import { cardinal, lateral, pierLight, platformLight, safeWater } from './ui/chart/marks';
 import { AMSTERDAM, Building } from './scenes/amsterdam';
 import { MIAMI } from './scenes/miami';
@@ -62,6 +66,11 @@ export interface Scenario {
   marks?: Aid[];
   iala?: 'A' | 'B';
   chartDatum?: string;
+  /** A real-chart area (scenes/areas.ts): its pack brings the depth grids, the land and the berths. */
+  area?: string;
+  depthGrids?: PackGrid[];
+  /** The berth to make for, found by name among the area's berths once it is installed, and the side to lie. */
+  berthRef?: { match: RegExp; side: -1 | 1; along?: number };
   bollardInfo?: BollardInfo[];                    // what each bollard is (height, fitting, SWL), parallel to bollards
 }
 
@@ -356,8 +365,8 @@ const fields = new WeakMap<Scenario, DepthField>();
 export function depthAt(sc: Scenario): DepthField {
   let f = fields.get(sc);
   if (!f) {
-    if (sc.needsData && !sc.depthGrid) return () => sc.depth;     // not loaded yet: never cache the placeholder
-    f = sc.depthGrid ? gridField(sc.depthGrid, sc.tide ?? 0) : depthField(sc.depth, sc.shoals);
+    if (sc.needsData && !sc.depthGrid && !sc.depthGrids) return () => sc.depth;     // not loaded yet: never cache the placeholder
+    f = sc.depthGrids ? multiGridField(sc.depthGrids, sc.tide ?? 0) : sc.depthGrid ? gridField(sc.depthGrid, sc.tide ?? 0) : depthField(sc.depth, sc.shoals);
     fields.set(sc, f);
   }
   return f;
@@ -395,6 +404,64 @@ export function equipScenario(sc: Scenario) {
   sc.berths = r.berths; sc.bollardInfo = r.info;
 }
 for (const sc of SCENARIOS) equipScenario(sc);
+
+/** Charted berths where a ship that fits would not lie clear (of a quay, a pier, another berth's fenders): the
+ *  length each may still take (0: none). The contact model itself decides, with each ship's own hull. */
+function clearance(sc: Scenario) {
+  const lim = new Map<string, number>(), idx = harbourIndex(sc.obstacles, sc.fenders, sc.bollards), h0 = HULL;
+  const ci: ContactInfo = { active: false, points: [], fenders: [] }, fleet = Object.values(SHIPS);
+  try {
+    for (const b of sc.berths ?? []) {
+      if (!b.charted) continue;
+      const ships = fleet.filter(sp => !berthFits(b, sp, sc.tide ?? 0)).sort((x, y) => x.LOA - y.LOA);
+      let bad = Infinity;
+      for (const sp of ships) {
+        if (sp.LOA >= bad) break;
+        setHull(buildHull(sp.L, sp.B, sp.xg, sp.LOA));
+        for (const side of [-1, 1] as const) {
+          const p = berthPose(b, side, sp);
+          contactForces({ n: p.n, e: p.e, psi: p.psi * DEG, u: 0, v: 0, r: 0 } as ShipState, sc.obstacles, sc.fenders, ci, idx);
+          if (ci.active) { bad = Math.min(bad, sp.LOA); break; }
+        }
+      }
+      if (bad < Infinity) lim.set(b.id, ships[0] && ships[0].LOA < bad ? bad - 0.01 : 0);
+    }
+  } finally { setHull(h0); }
+  return lim;
+}
+/** Put an area pack into every scenario of that area: depths, land and quays, and its berths fitted out by the
+ *  same rules as everywhere else (the main thread and the predictor worker do this alike, so both hold the
+ *  same fenders and bollards in the same order). */
+export function installArea(id: string, pack: AreaPack) {
+  for (const sc of SCENARIOS) {
+    if (sc.area !== id || sc.depthGrids === pack.grids) continue;
+    sc.depthGrids = pack.grids;
+    fields.delete(sc); indexes.delete(sc);
+    sc.obstacles.length = 0;
+    for (const poly of pack.tiles) sc.obstacles.push({ poly, ...CONCRETE, kind: 'quay', bbox: bboxOf(poly) });
+    const own = sc.ownGear ?? { fenders: 0, bollards: 0 };
+    sc.fenders.length = own.fenders; sc.bollards.length = own.bollards;
+    sc.berthSpecs = areaBerths(id);
+    sc.landHeight ??= AREAS[id].meta.landHeight;
+    // every ship that fits a charted face must lie there clear of everything: where a structure stands in front
+    // of part of it, the face takes only shorter ships; where not even the smallest is clear, it is no berth
+    for (let pass = 0; pass < 4; pass++) {
+      sc.fenders.length = own.fenders; sc.bollards.length = own.bollards;
+      equipScenario(sc);
+      const lim = clearance(sc);
+      if (!lim.size) break;
+      sc.berthSpecs = sc.berthSpecs.flatMap(b => !lim.has(b.id) ? [b] : lim.get(b.id)! > 0 ? [{ ...b, maxLOA: lim.get(b.id)! }] : []);
+    }
+    if (sc.berthRef) {
+      const b = sc.berths!.find(x => sc.berthRef!.match.test(x.name));
+      if (b) {
+        const sp = SHIPS[sc.ship ?? 'becancour'];
+        const p = berthPose(b, sc.berthRef.side, sp, sc.berthRef.along);
+        sc.berth = { n: p.n, e: p.e, psi: p.psi };
+      }
+    }
+  }
+}
 
 /** Berth pose (CG mark) for a ship of beam B and CG offset xg, from the scenario's fender face. */
 export function berthFor(sc: Scenario, B: number, xg: number) {

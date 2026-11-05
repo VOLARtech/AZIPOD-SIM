@@ -129,7 +129,7 @@ async function openScenario(sc: Scenario) {
   if (sc.needsData || sc.chart) {
     try {
       const [data] = await Promise.all([ensureScenario(sc), sc.chart ? loadChart(sc.chart) : null]);
-      if (data && !postedData.has(sc.id)) { pw.postMessage({ kind: 'data', id: sc.id, data }); postedData.add(sc.id); }
+      if (data && !postedData.has(data.area)) { pw.postMessage({ kind: 'area', id: data.area, pack: data.pack.slice(0) }); postedData.add(data.area); }
     } catch (err) {
       if (seq !== openSeq) return;
       console.error(err); toast(`Could not load the chart for ${sc.name}.`); if (S.rt) return; sc = SCENARIOS.find(s => !s.needsData)!;

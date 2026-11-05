@@ -30,6 +30,7 @@ export default defineConfig(({ mode }) => {
         ] : []),
       ],
     },
+    assetsInclude: ['**/*.azp', '**/*.azc', '**/*.scn'],
     build: {
       target: 'es2020',
       outDir: single ? 'dist-single' : 'dist',
@@ -63,7 +64,11 @@ export default defineConfig(({ mode }) => {
         workbox: {
           globPatterns: ['**/*.{js,css,html,woff2,png,svg,webmanifest,bin}'],
           // ship models load when a ship is first shown, and are kept for offline use from then on
-          runtimeCaching: [{ urlPattern: /\.glb$/, handler: 'CacheFirst', options: { cacheName: 'ship-models', expiration: { maxEntries: 40 } } }],
+          runtimeCaching: [
+            { urlPattern: /\.glb$/, handler: 'CacheFirst', options: { cacheName: 'ship-models', expiration: { maxEntries: 40 } } },
+            // area packs (depths, land, charts) and 3D scenery: fetched when an area is first opened, kept after
+            { urlPattern: /\.(azp|azc|scn)$/, handler: 'CacheFirst', options: { cacheName: 'area-data', expiration: { maxEntries: 60 } } },
+          ],
           globIgnores: ['**/*-offline.html'],
           navigateFallback: 'index.html',
           cleanupOutdatedCaches: true,

@@ -467,13 +467,17 @@ test('Spirit-class: 100 % rpm gives 21.5–24.5 kn (22 kn service, ~24 kn trials
   assert.ok(Vs / KN > 21.5 && Vs / KN < 24.5, `${(Vs / KN).toFixed(1)} kn`);
 });
 console.log('real chart: PortMiami (NOAA ENC)');
-import MIAMI_DATA from '../src/scenes/miami.physics.json';
-import MIAMI_CHART from '../src/scenes/miami.chart.json';
+import { fetchAreaPack, fetchAreaChart } from '../src/scenes/areas';
+import { parsePack } from '../src/scenes/pack';
+import { installArea } from '../src/scenarios';
+import type { ChartModel as CM } from '../src/ui/chart/model';
+const MIA_PACK = parsePack(await fetchAreaPack('miami'));
+installArea('miami', MIA_PACK);
+const MIAMI_CHART = await fetchAreaChart('miami') as CM;
 test('PortMiami chart: depth grid honours the charted soundings (within 0.6 m at 90 % of them)', () => {
   const mia = SCENARIOS.find(s => s.id === 'miami-terminal-v')!;
-  mia.setData!(MIAMI_DATA as never);
   const d = depthAt(mia), tide = mia.tide ?? 0;
-  const ok = (MIAMI_CHART.soundings as number[][]).filter(([n, e, z]) => Math.abs(d(n, e) - tide - z) < 0.6).length;
+  const ok = MIAMI_CHART.soundings.filter(([n, e, z]) => Math.abs(d(n, e) - tide - z) < 0.6).length;
   assert.ok(ok / MIAMI_CHART.soundings.length > 0.9, `${ok}/${MIAMI_CHART.soundings.length}`);
 });
 test('PortMiami: keel over ≥ 9 m along the whole berth, start in the channel, both clear of structures', () => {
@@ -1151,7 +1155,7 @@ import { LINE as LN } from '../src/physics/mooring';
   // a parallel landing at the design speed of a careful approach stays inside the fenders' rated deflection
   const land = (sc: Scenario, b: Bth, sp: SSpec) => withHull(sp, () => {
     const v = displacement(sp) > 1e8 ? 0.08 : 0.10, side = (sc.mooringSide ?? -1) as -1 | 1;
-    const p = berthPose(b, side, sp, undefined, 3);
+    const p = berthPose(b, side, sp, undefined, 1);
     const st = makeState(sp, p.n, p.e, p.psi, 0);
     // toward the face: −normal in the body frame
     const c = Math.cos(st.psi), s = Math.sin(st.psi), vn = -b.nrm[0] * v, ve = -b.nrm[1] * v;
@@ -1214,7 +1218,6 @@ import { lightText, lightOn, sectorColour } from '../src/ui/chart/lights';
 import { cardinal, isolatedDanger, lateral, safeWater, special, completeAid, TOP, BOY } from '../src/ui/chart/marks';
 import { synthChart, STD_CONTOURS } from '../src/scenes/synth';
 import { simplify } from '../src/ui/chart/render';
-import { fromEncJson } from '../src/ui/chart/model';
 test('light characteristics read as on the chart', () => {
   assert.equal(lightText({ chr: 2, grp: '(2)', per: 6, col: ['green'], h: 8, range: 4 }), 'Fl(2)G.6s8m4M');
   assert.equal(lightText({ chr: 26, grp: '(6)', per: 10, col: ['white'] }), 'VQ(6)+LFl.10s');
@@ -1271,20 +1274,48 @@ test('every scenario has a chart: depth areas, soundings that are the physics de
   assert.ok(q.contours.some(c => c.v === 10), 'quai27: 10 m contour');
   assert.ok(q.aids.some(a => a.k === 'BOYCAR'), 'quai27: the cardinal off the pier shoal');
 });
-test('PortMiami: the ENC chart reads into the model, lights on their buoys and beacons, shapes the right way round', () => {
-  const m = fromEncJson('miami', MIAMI_CHART as never, { datum: 'MLLW', iala: 'B', source: 'NOAA ENC' });
+test('PortMiami: the area chart has its lights on their buoys and beacons, IALA B colours, contours and soundings', () => {
+  const m = MIAMI_CHART;
   const lit = m.aids.filter(a => a.light), alone = m.aids.filter(a => a.k === 'LIGHTS');
-  assert.ok(lit.length >= 40 && alone.length < lit.length, `${lit.length} lit aids, ${alone.length} lights on their own`);
-  assert.ok(m.aids.filter(a => a.k === 'BOYLAT').every(a => a.shp === BOY.pillar || a.shp === BOY.conical || a.shp === BOY.can || a.shp === undefined));
+  assert.ok(lit.length >= 60 && alone.length < lit.length, `${lit.length} lit aids, ${alone.length} lights on their own`);
+  assert.ok(m.aids.filter(a => a.k === 'BOYLAT').every(a => [BOY.pillar, BOY.conical, BOY.can, BOY.spherical, undefined].includes(a.shp as never)));
   // IALA B: starboard-hand (catlam 2) marks are red
   assert.ok(m.aids.filter(a => a.k.endsWith('LAT') && a.cat === 2 && a.col.length).every(a => a.col[0] === 'red'), 'IALA B: red to starboard');
-  assert.ok(m.contours.length > 100 && m.soundings.length > 1000);
+  assert.ok(m.contours.length > 300 && m.soundings.length > 3000, `${m.contours.length} contours, ${m.soundings.length} soundings`);
+  assert.equal(m.meta.iala, 'B'); assert.equal(m.meta.datum, 'MLLW');
 });
 test('chart simplification keeps rings closed and lines whole, and drops only what is too small to see', () => {
   const ring: [number, number][] = Array.from({ length: 200 }, (_, i) => [100 * Math.cos(i / 200 * 2 * Math.PI) + 0.3 * Math.sin(i), 100 * Math.sin(i / 200 * 2 * Math.PI)]);
   const s3 = simplify(ring, 3, true)!, s15 = simplify(ring, 15, true)!;
   assert.ok(s3.length < ring.length && s3.length > 10 && s15.length < s3.length && s15.length >= 4, `${s3.length}, ${s15.length}`);
   assert.equal(simplify([[0, 0], [1, 0], [1, 1], [0, 1]], 15, true), null);
+});
+
+console.log('area packs');
+import { multiGridField } from '../src/scenes/pack';
+import V4_MIA_GRID from './fixtures/v4/miami.physics.json';
+test('area pack: grids and contact tiles read back; the finest grid that covers a point answers', () => {
+  const p = MIA_PACK;
+  assert.ok(p.grids.length === 2 && p.tiles.length > 1000, `${p.grids.length} grids, ${p.tiles.length} tiles`);
+  for (const g of p.grids) assert.equal(g.data.length, g.nx * g.ny);
+  const fine = p.grids.find(g => g.cell === 10)!, f = multiGridField(p.grids);
+  const n = fine.n0 + 100.5 * 10, e = fine.e0 + 200.5 * 10;
+  assert.ok(Math.abs(f(n, e) - fine.data[100 * fine.nx + 200] / 100) < 1e-9, 'inside the fine grid: its own cell');
+  assert.ok(isFinite(f(-1e5, 1e5)), 'far outside every grid: an edge value, not NaN');
+  for (const t of p.tiles.slice(0, 50)) assert.ok(t.length >= 3 && t.every(([a, b]) => isFinite(a) && isFinite(b)));
+});
+test('PortMiami rebuilt from the ENC matches the old harbour grid in open water (≥ 85 % of cells within 0.15 m, ≥ 95 % within 0.5 m); along quay walls it is now the berth depth', () => {
+  const old = V4_MIA_GRID.grid, q = Buffer.from(old.data, 'base64'), f = multiGridField(MIA_PACK.grids);
+  const mia = SCENARIOS.find(s => s.id === 'miami-terminal-v')!, idx = harbourIndex(mia.obstacles, [], []);
+  let n = 0, a = 0, b = 0;
+  for (let i = 0; i < old.ny; i += 2) for (let j = 0; j < old.nx; j += 2) {
+    const z = q[i * old.nx + j] * old.unit; if (z < 0.15) continue;
+    // the old grid ramped up to 0 m at every wall; the new one keeps the water's depth up to wharves and piers
+    if (nearestStructure(old.n0 + (i + 0.5) * old.cell, old.e0 + (j + 0.5) * old.cell, mia.obstacles, 40, idx)) continue;
+    const d = Math.abs(Math.min(25.4, f(old.n0 + (i + 0.5) * old.cell, old.e0 + (j + 0.5) * old.cell)) - z);
+    n++; if (d <= 0.15) a++; if (d <= 0.5) b++;
+  }
+  assert.ok(a / n >= 0.85 && b / n >= 0.95, `${(100 * a / n).toFixed(1)} % within 0.15 m, ${(100 * b / n).toFixed(1)} % within 0.5 m of ${n}`);
 });
 
 console.log(`\n${pass} passed${process.exitCode ? ', some failed' : ''}`);

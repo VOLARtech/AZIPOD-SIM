@@ -1,0 +1,5 @@
+*.azp binary
+*.azc binary
+*.scn binary
+*.bin binary
+*.glb binary

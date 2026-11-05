@@ -1,0 +1,12 @@
+{
+  "id": "miami", "name": "PortMiami and Biscayne Bay approaches",
+  "bbox": [25.68, -80.25, 25.84, -80.02],
+  "origin": [25.775, -80.165],
+  "datum": "MLLW", "iala": "B", "landHeight": 2.5,
+  "sources": { "noaa": { "minBand": 4 } },
+  "grids": [
+    { "cell": 40, "bbox": [25.68, -80.25, 25.84, -80.02] },
+    { "cell": 10, "bbox": [25.745, -80.215, 25.800, -80.100] }
+  ],
+  "cap": 40
+}
