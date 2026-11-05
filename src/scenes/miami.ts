@@ -8,6 +8,7 @@ import META from './miami.meta.json';
 import type { Fender, Obstacle, Pt } from '../physics/contact';
 import { bboxOf } from '../physics/contact';
 import type { DepthGrid } from '../physics/harbour';
+import type { BerthSpec } from '../physics/berths';
 
 const B = META.berth;
 const [an, ae] = B.along, [nn, ne] = B.normal;           // along the face (to its north end), normal to the water
@@ -23,6 +24,8 @@ const fenders: Fender[] = B.fenders.map(s => {
 const HALF_B = 16.1;                                    // Spirit-class beam / 2
 const berthPos = faceAt(B.centre, FENDER_H + HALF_B + 0.1);
 const heading = deg(an, ae);                            // bow toward the turning basin, starboard side to
+// the berth face, 5 m past the end fenders; its gear is the chart builder's
+const berthSpecs: BerthSpec[] = [{ id: 'V', name: B.name, kind: 'cruise', a: faceAt(Math.min(...B.fenders) - 5), b: faceAt(Math.max(...B.fenders) + 5), nrm: [nn, ne], depth: B.depth, generate: false, charted: true, design: 'spirit' }];
 
 export const MIAMI = {
   id: 'miami-terminal-v', name: 'PortMiami · Terminal V, starboard side to',
@@ -33,7 +36,7 @@ export const MIAMI = {
   shoals: [], obstacles: [] as Obstacle[], fenders,
   berth: { n: berthPos[0], e: berthPos[1], psi: heading },
   bollards: B.bollards as Pt[],
-  mooringSide: 1 as const, tugSide: -1 as const, tugBP: 686e3,
+  mooringSide: 1 as const, tugSide: -1 as const, tugBP: 686e3, berthSpecs,
   landHeight: 2.5, zoom: 0.45,
   chart: 'miami', tide: 0.3,
   depthGrid: undefined as DepthGrid | undefined,

@@ -1066,12 +1066,12 @@ import { runPrediction as runPred, type PredictJob as PJ } from '../src/physics/
 import { worldOf } from '../src/scenarios';
 test('a line fast to a bollard the worker has never heard of (added in the berth editor) still predicts', () => {
   const sc = SCENARIOS.find(s => s.id === 'quai27')!, sw = worldOf(sc);
-  const st = makeState(SHIP, -20, 40, 90 * DEG, 0);
+  const st = makeState(SHIP, -20, 40, 90, 0);
   const job: PJ = {
     id: 1, shipId: SHIP.id, onboard: false, state: st, cmd: { pods: SHIP.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0, mode: 'twin' },
     wind: { V: 10, from: 0 }, current: null, scenarioId: sc.id, curKn: 0, curSet: 0, depth: 12,
     // bollard index 999 exists only on the main thread: the line carries its point
-    lines: [{ fair: [100, -16], bollard: 999, L0: 25, state: 'fast', bp: [4, 140] }],
+    lines: [{ fair: [100, -16], bollard: 999, L0: 25, state: 'fast', bp: [4, 170] }],
     ext: { X: 0, Y: 0, N: 0 }, horizon: 20, alts: ['current'],
   };
   const tr = runPred(SHIP, job, sw);
@@ -1080,6 +1080,133 @@ test('a line fast to a bollard the worker has never heard of (added in the berth
   // and the line pulls her toward the bollard it carries (north-east of the fairlead)
   const p = tr[0].poses[tr[0].poses.length - 1];
   assert.ok(p.e > st.e + 0.01, `moved toward the bollard: Δe ${(p.e - st.e).toFixed(3)} m`);
+});
+
+console.log('berths');
+import { RULES, berthPose, berthFits, berthingEnergy, displacement, equipBerths, fenderOn, bollardOn, faceCoords, hullEnds, type Berth as Bth } from '../src/physics/berths';
+import { SHIPS as FLEET, type ShipSpec as SSpec } from '../src/physics/ship';
+import { HULL as HULL0, hullWorld } from '../src/physics/contact';
+import { LINE as LN } from '../src/physics/mooring';
+{
+  const all = SCENARIOS.filter(s => s.berths?.length).flatMap(sc => sc.berths!.map(b => [sc, b] as [Scenario, Bth]));
+  const gearOf = (sc: Scenario, b: Bth) => ({
+    F: sc.fenders.filter(f => fenderOn(b, f)), B: sc.bollards.filter(p => bollardOn(b, p)),
+  });
+  const along = (b: Bth, pts: [number, number][]) => pts.map(([n, e]) => faceCoords(b, n, e)[0]).sort((x, y) => x - y);
+  const maxGap = (s: number[]) => Math.max(0, ...s.slice(1).map((x, i) => x - s[i]));
+  test(`every berth (${all.length}) has fenders and bollards along all of it, the rule's spacing or its own`, () => {
+    for (const [sc, b] of all) {
+      const { F, B } = gearOf(sc, b), tag = `${sc.id}/${b.id}`;
+      assert.ok(F.length >= 2, `${tag}: ${F.length} fenders`);
+      assert.ok(B.length >= 2, `${tag}: ${B.length} bollards`);
+      if (b.kind === 'dolphins') continue;              // breasting and mooring dolphins stand where the ship's body is
+      const fs = along(b, F.map(f => [f.n, f.e])), bs = along(b, B);
+      assert.ok(maxGap(fs) <= 1.35 * RULES[b.kind].fs + 1e-6, `${tag}: fender gap ${maxGap(fs).toFixed(1)} m`);
+      assert.ok(fs[0] <= 1.35 * RULES[b.kind].fs && fs[fs.length - 1] >= b.len - 1.35 * RULES[b.kind].fs, `${tag}: fenders ${fs[0].toFixed(0)}–${fs[fs.length - 1].toFixed(0)} of ${b.len.toFixed(0)} m`);
+      assert.ok(maxGap(bs) <= 30, `${tag}: bollard gap ${maxGap(bs).toFixed(1)} m`);
+      const end = 0.75 * RULES[b.kind].bs;
+      assert.ok(bs[0] <= end && bs[bs.length - 1] >= b.len - end, `${tag}: bollards ${bs[0].toFixed(0)}–${bs[bs.length - 1].toFixed(0)} of ${b.len.toFixed(0)} m`);
+    }
+  });
+  test('fenders take the design ship: one fender her abnormal berthing energy (PIANC), or the normal one where the gear is the scenario\'s own', () => {
+    for (const [sc, b] of all) {
+      const need = b.kept ? b.E.normal : b.E.design;
+      for (const f of gearOf(sc, b).F) assert.ok(f.Er >= need, `${sc.id}/${b.id}: Er ${(f.Er / 1e3).toFixed(0)} < ${(need / 1e3).toFixed(0)} kJ (${b.designShip})`);
+    }
+  });
+  test('the scenario\'s own fenders and bollards stay first, as they were; equipping is deterministic', () => {
+    const q = SCENARIOS.find(s => s.id === 'quai27')!;
+    assert.deepEqual([q.fenders[0].n, q.fenders[0].e, q.fenders[0].height], [0, -500, 1.0]);
+    assert.deepEqual(q.bollards[0], [3, -500]);
+    const F: typeof q.fenders = [], B: [number, number][] = [];
+    const r = equipBerths(q.berthSpecs!, F, B, { depthAt: depthAt(q), solid: () => true, top: 2, fleet: Object.values(FLEET) });
+    const F2: typeof q.fenders = [], B2: [number, number][] = [];
+    equipBerths(q.berthSpecs!, F2, B2, { depthAt: depthAt(q), solid: () => true, top: 2, fleet: Object.values(FLEET) });
+    assert.deepEqual(F2, F); assert.deepEqual(B2, B); assert.equal(r.info.length, B.length);
+    for (const sc of SCENARIOS) assert.equal(sc.bollardInfo!.length, sc.bollards.length, `${sc.id}: bollard info in step`);
+  });
+  // lie each fitting ship alongside: clear of everything, afloat, and all six lines reach a bollard
+  const fleet = Object.values(FLEET);
+  const withHull = <T>(sp: SSpec, fn: () => T): T => { const h0 = HULL0; setHull(buildHull(sp.L, sp.B, sp.xg, sp.LOA)); try { return fn(); } finally { setHull(h0); } };
+  test('every berth: the smallest, design and largest ship that fit lie alongside clear of the quay, afloat, and all six lines reach', () => {
+    let n = 0;
+    for (const [sc, b] of all) {
+      const ok = fleet.filter(sp => !berthFits(b, sp, sc.tide ?? 0)).sort((x, y) => x.LOA - y.LOA);
+      const ships = [...new Set([ok[0], FLEET[b.designShip], ok[ok.length - 1]])].filter(Boolean);
+      const d = depthAt(sc), idx = harbourIndex(sc.obstacles, sc.fenders, sc.bollards);
+      for (const sp of ships) for (const side of [-1, 1] as const) withHull(sp, () => {
+        const p = berthPose(b, side, sp), tag = `${sc.id}/${b.id} ${sp.id} ${side < 0 ? 'port' : 'stbd'} side to`;
+        const st = makeState(sp, p.n, p.e, p.psi, 0);
+        const ci = { active: false, points: [] as { with?: string }[], fenders: [] };
+        cF(st, sc.obstacles, sc.fenders, ci as never, idx);
+        assert.ok(!ci.active, `${tag}: touches ${ci.points.map(q => q.with ?? 'a fender').join(', ')}`);
+        const least = Math.min(...hullWorld(st).map(([pn, pe]) => d(pn, pe)), d(st.n, st.e));
+        assert.ok(least + (sc.tide ?? 0) >= 1.05 * sp.T - 1e-6, `${tag}: ${least.toFixed(1)} m under her, draught ${sp.T}`);
+        for (const l of makeLines(sp.L, sp.B, sp.xg, side)) assert.ok(pickBollard(st, l, sc.bollards, idx) >= 0, `${tag}: ${l.name} has no bollard within ${LN.reach} m`);
+        n++;
+      });
+    }
+    assert.ok(n > 100, `${n} poses`);
+  });
+  // a parallel landing at the design speed of a careful approach stays inside the fenders' rated deflection
+  const land = (sc: Scenario, b: Bth, sp: SSpec) => withHull(sp, () => {
+    const v = displacement(sp) > 1e8 ? 0.08 : 0.10, side = (sc.mooringSide ?? -1) as -1 | 1;
+    const p = berthPose(b, side, sp, undefined, 3);
+    const st = makeState(sp, p.n, p.e, p.psi, 0);
+    // toward the face: −normal in the body frame
+    const c = Math.cos(st.psi), s = Math.sin(st.psi), vn = -b.nrm[0] * v, ve = -b.nrm[1] * v;
+    st.u = c * vn + s * ve; st.v = -s * vn + c * ve;
+    const rt = new Runtime(sp, st, { pods: sp.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0 }, { ...calm, depth: b.depth }, { obstacles: sc.obstacles, fenders: sc.fenders, bollards: sc.bollards, depthAt: depthAt(sc) });
+    for (let i = 0; i < 1800 && !(rt.contactLog.length && !rt.ci.active); i++) rt.step();
+    return rt.contactLog[rt.contactLog.length - 1];
+  });
+  let seed = 7; const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  const targets = all.filter(([sc, b]) => b.kept);
+  const picks = SCENARIOS.filter(s => s.berths?.length).flatMap(sc => { const bs = sc.berths!.filter(b => !b.kept); return Array.from({ length: Math.min(5, bs.length) }, () => [sc, bs[Math.floor(rnd() * bs.length)]] as [Scenario, Bth]); });
+  test(`parallel landings of the design ship at 0.10 m/s (0.08 above 100 kt) stay below rated deflection: ${targets.length} target berths, ${picks.length} others`, () => {
+    for (const [sc, b] of [...targets, ...picks]) {
+      const ev = land(sc, b, FLEET[b.designShip]), tag = `${sc.id}/${b.id} ${b.designShip}`;
+      assert.ok(ev, `${tag}: never landed`);
+      assert.ok(!ev.hard, `${tag}: hull on the structure`);
+      assert.ok(ev.maxDefl < 1, `${tag}: fender ${(ev.maxDefl * 100).toFixed(0)} % of rated deflection`);
+    }
+  });
+  test('berthing energy: a 50 kt cruise ship ≈ 0.3 MJ, a laden VLCC ≈ 0.9 MJ at their design speeds', () => {
+    const e1 = berthingEnergy(FLEET.spirit), e2 = berthingEnergy(FLEET.kvlcc2);
+    assert.ok(e1 > 0.2e6 && e1 < 0.45e6, `Spirit ${(e1 / 1e3).toFixed(0)} kJ`);
+    assert.ok(e2 > 0.6e6 && e2 < 1.3e6, `KVLCC2 ${(e2 / 1e3).toFixed(0)} kJ`);
+    void hullEnds;
+  });
+}
+
+console.log('berth editor');
+import { S as UIS } from '../src/ui/state';
+import { editAt, loadBerth, resetBerth } from '../src/ui/berthedit';
+test('a layout saved before every berth was fitted out becomes changes: the new gear stays, the edits stay on top', () => {
+  const mem = new Map<string, string>();
+  (globalThis as unknown as { localStorage: unknown }).localStorage = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v), removeItem: (k: string) => void mem.delete(k) };
+  const q = SCENARIOS.find(s => s.id === 'quai27')!;
+  UIS.sc = q; UIS.rt = { lines: [] } as never;
+  const F0 = q.fenders.length, B0 = q.bollards.length, own = q.ownGear!;
+  // what an earlier version saved: the scenario's own 38 fenders less the first, its 31 bollards and one more
+  const v1 = { fenders: q.fenders.slice(1, own.fenders), bollards: [...q.bollards.slice(0, own.bollards), [5, 100]] };
+  mem.set('azb-berth-quai27', JSON.stringify(v1));
+  loadBerth();
+  assert.equal(q.fenders.length, F0 - 1, 'one own fender taken away, the generated ones kept');
+  assert.equal(q.bollards.length, B0 + 1, 'the added bollard on top of all the others');
+  assert.equal(q.bollardInfo!.length, q.bollards.length);
+  assert.ok(!mem.has('azb-berth-quai27') && mem.has('azb-berth2-quai27'), 'saved as changes');
+  loadBerth();                                            // loading again changes nothing
+  assert.equal(q.fenders.length, F0 - 1); assert.equal(q.bollards.length, B0 + 1);
+  assert.match(editAt('bollard', -2, 322), /added/);      // by the pier's east face
+  assert.equal(q.bollards.length, B0 + 2); assert.equal(q.bollardInfo!.length, q.bollards.length);
+  const nb = q.bollards[q.bollards.length - 1];
+  assert.ok(nb[1] > 330 - 3 && nb[1] < 330 && Math.abs(nb[0] + 2) < 0.5, `on the pier behind its east face: ${nb.map(x => x.toFixed(1))}`);
+  assert.match(editAt('fender', -2, 340), /added/);
+  const nf = q.fenders[q.fenders.length - 1];
+  assert.ok(nf.ne > 0.99 && nf.e > 330, 'a fender on the east face, facing east');
+  resetBerth();
+  assert.equal(q.fenders.length, F0); assert.equal(q.bollards.length, B0); assert.ok(!mem.size, 'nothing saved');
 });
 
 console.log(`\n${pass} passed${process.exitCode ? ', some failed' : ''}`);

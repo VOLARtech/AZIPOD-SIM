@@ -30,6 +30,11 @@ export const S = {
   sensMode: 'real' as SensorMode,
   speedIdx: 0, paused: false,
   quay: [{ d: Infinity, rate: 0, n: 0, e: 0, pn: 0, pe: 0 }, { d: Infinity, rate: 0, n: 0, e: 0, pn: 0, pe: 0 }],
+  /** The berth to make for: picked in the menu (per scenario), and the CG pose it gives the ship in use. */
+  berth: {
+    pick: null as null | { sc: string; id: string; side: -1 | 1 },
+    target: null as null | { n: number; e: number; psi: number; name: string; id?: string; side?: -1 | 1 },
+  },
 };
 export const full = () => S.disp.detail === 'full';
 export const SPEEDS = [1, 2, 4, 8];

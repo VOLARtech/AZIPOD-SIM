@@ -13,6 +13,7 @@ import { MODEL_URLS } from './models/urls';
 import MODELS from './models/models.json';
 import miamiScnUrl from './miami.scn.bin?url';
 import { buildScenery, parseScenery } from './scenery';
+import { HarbourKit } from './harbourkit';
 const SCENERY: Record<string, string> = { 'miami-terminal-v': miamiScnUrl };
 export const sceneryCredit = (id: string) => (SCENERY[id] ? 'Buildings © OpenStreetMap contributors' : '');
 import { makeWater } from './water';
@@ -153,7 +154,7 @@ export class View3D {
   private navLights: THREE.Object3D[] = [];
   private lamps: THREE.Object3D[] = [];
   private lit: THREE.MeshStandardNodeMaterial[] = [];
-  private fenders: THREE.Mesh[] = [];
+  private kit: HarbourKit | null = null;
   private tugs: THREE.Group[] = [];
   private tugLines: THREE.Line[] = [];
   private lines: THREE.Line[] = [];
@@ -353,7 +354,7 @@ export class View3D {
   private harbourGen = 0;
   private harbourLights: { lit: THREE.MeshStandardNodeMaterial[]; lamps: THREE.Object3D[] } = { lit: [], lamps: [] };
   private buildHarbour() {
-    const g = this.harbour; this.clear(g); this.fenders = []; this.harbourGen++;
+    const g = this.harbour; this.clear(g); this.kit = null; this.harbourGen++;
     this.sceneryLit = null;
     const sc = S.sc, LH = sc.landHeight ?? 2;
     const quayM = this.mat(0x858176, { rough: 0.95 }), pierM = this.mat(0x7a756b, { rough: 0.95 });
@@ -382,31 +383,13 @@ export class View3D {
       });
       g.add(new THREE.Mesh(mergeGeometries(geos), quayM));
     }
-    // fenders: cone body + panel, compressed live
-    const fM = this.mat(0x1d1d1f, { rough: 0.7 });
-    for (const f of sc.fenders) {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(f.width, 2.6, 1), fM);
-      m.rotation.y = Math.atan2(f.ne, -f.nn);
-      m.userData = { f };
-      g.add(m); this.fenders.push(m);
-    }
-    const bM = this.mat(0x24272a, { rough: 0.5, metal: 0.4 });
-    const bG = new THREE.CylinderGeometry(0.32, 0.4, 0.9, 10);
-    for (const [n, e] of sc.bollards) { const b = new THREE.Mesh(bG, bM); b.position.copy(tp(n, e, LH + 0.45)); g.add(b); }
-    // quay lamps (glow at night)
-    const lampM = new THREE.MeshBasicNodeMaterial({ color: 0xffd9a0 });
-    const poleM = this.mat(0x4a4d50, { rough: 0.6, metal: 0.3 });
-    const poleG = new THREE.CylinderGeometry(0.12, 0.15, 10, 6), headG = new THREE.SphereGeometry(0.55, 8, 6);
-    for (let i = 0; i < sc.bollards.length; i += 3) {
-      const [n, e] = sc.bollards[i];
-      const nb = sc.bollards[Math.min(sc.bollards.length - 1, i + 1)];
-      const dn = nb[0] - n, de = nb[1] - e, l = Math.hypot(dn, de) || 1;
-      // 9 m back from the bollard line, toward the land (perpendicular to the bollard row)
-      const fN = sc.fenders[0]?.nn ?? 0, fE = sc.fenders[0]?.ne ?? 0;
-      const pn = n - fN * 9 + dn / l * 12, pe = e - fE * 9 + de / l * 12;
-      const p = new THREE.Mesh(poleG, poleM); p.position.copy(tp(pn, pe, LH + 5)); g.add(p);
-      const h = new THREE.Mesh(headG, lampM); h.position.copy(tp(pn, pe, LH + 10)); g.add(h); this.lamps.push(h);
-    }
+    // berth equipment, instanced: fenders (squeezed live), bollards, and quay lamps that glow at night
+    const kit = new HarbourKit(sc, LH, {
+      fender: this.mat(0x1d1d1f, { rough: 0.7 }), bollard: this.mat(0x24272a, { rough: 0.5, metal: 0.4 }),
+      pole: this.mat(0x4a4d50, { rough: 0.6, metal: 0.3 }), lamp: new THREE.MeshBasicNodeMaterial({ color: 0xffd9a0 }),
+    });
+    g.add(kit.group); this.kit = kit;
+    if (kit.lampHeads) this.lamps.push(kit.lampHeads);
     // buildings with lit-window textures
     const win = canvasTex(64, 64, c => {
       c.fillStyle = '#000'; c.fillRect(0, 0, 64, 64);
@@ -1039,14 +1022,8 @@ export class View3D {
     }
 
     // fenders: cone length shrinks with the deflection reported by the contact model this step
-    const defl = new Map(rt.ci.fenders.map(f => [f.i, f.defl]));
+    this.kit?.update(rt.ci.fenders);
     const LH = S.sc.landHeight ?? 2;
-    this.fenders.forEach((m, i) => {
-      const f = m.userData.f as { n: number; e: number; nn: number; ne: number; height: number };
-      const d = Math.min(f.height * 0.85, defl.get(i) ?? 0), len = f.height - d;
-      m.scale.z = len;
-      m.position.copy(tp(f.n - f.nn * (d + len / 2), f.e - f.ne * (d + len / 2), LH - 1.6));
-    });
 
     // mooring lines: catenary-ish sag from tension
     const fb = SHIP.look.freeboard;

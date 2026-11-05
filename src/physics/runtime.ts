@@ -5,7 +5,7 @@ import {
 import { ContactInfo, Fender, Obstacle, Pt } from './contact';
 import { DepthField, bankEffect, groundingForces, squat, washReflection } from './harbour';
 import { Damage, Hit } from './damage';
-import { MooringLine, Tug, LINE, makeLines, makeTugs, passLine, tugForces, updateTugs, updateWinches } from './mooring';
+import { MooringLine, Tug, LINE, makeLines, makeTugs, passLine, tugEngaged, tugForces, updateTugs, updateWinches } from './mooring';
 import { DPState, JoyInput, allocate, dpForces, joyLimits } from './allocation';
 import { Sensors } from './sensors';
 import { isPod } from './units/kinds';
@@ -140,6 +140,21 @@ export class Runtime {
     return ok;
   }
   letGo(i: number) { const l = this.lines[i]; l.state = 'stowed'; l.T = 0; }
+  /** Rig the mooring lines on the other side (none may be fast). Returns whether it was done. */
+  setMooringSide(side: -1 | 1) {
+    if (this.lines.some(l => l.state === 'fast')) return false;
+    this.harbour.mooringSide = side;
+    this.lines.splice(0, this.lines.length, ...makeLines(this.spec.L, this.spec.B, this.spec.xg, side));
+    this.world.lineT = this.lines.map(() => 0);
+    return true;
+  }
+  /** Send the tugs round to the other side (only while none is working). */
+  setTugSide(side: -1 | 1) {
+    if (!this.tugs.length || this.tugs.some(tugEngaged)) return false;
+    this.harbour.tugSide = side;
+    this.tugs = makeTugs(this.spec.L, this.spec.xg, side, this.harbour.tugBP);
+    return true;
+  }
 
   step(dt = DT) {
     const st = this.state, spec = this.spec;

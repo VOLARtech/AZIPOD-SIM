@@ -5,6 +5,7 @@ import type { PodSpec } from '../physics/ship';
 import { HULL } from '../physics/contact';
 import { unitAxis } from '../physics/units/kinds';
 import { nearestStructure } from '../physics/harbour';
+import { fenIndexed } from '../physics/spatial';
 import { LINE, tugEngaged } from '../physics/mooring';
 import type { Alt, Track } from '../physics/predict';
 import type { Traffic } from '../physics/traffic';
@@ -157,30 +158,41 @@ export function drawStructures() {
     polyPath(o.poly); ctx.fillStyle = C.land; ctx.fill();
     ctx.strokeStyle = C['land-edge']; ctx.lineWidth = px(1.5); ctx.stroke();
   }
-  // fender units at their live compression
+  // fender units at their live compression (only those in view; one path per state)
   const defl = new Map<number, number>();
   for (const f of rt.ci.fenders) defl.set(f.i, Math.max(defl.get(f.i) ?? 0, f.defl));
+  const [vn0, ve0, vn1, ve1] = viewBounds, inView = (n: number, e: number, m = 6) => n > vn0 - m && n < vn1 + m && e > ve0 - m && e < ve1 + m;
+  const paths = [new Path2D(), new Path2D(), new Path2D()];       // idle, loaded, over rated deflection
   S.sc.fenders.forEach((f, i) => {
+    if (!inView(f.n, f.e)) return;
     const d = Math.min(defl.get(i) ?? 0, f.height), over = d > f.dRated * f.height;
     const tN = -f.ne, tE = f.nn, hw = f.width / 2;
     const fn = f.n - f.nn * d, fe = f.e - f.ne * d, bn = f.n - f.nn * f.height, be = f.e - f.ne * f.height;
-    ctx.beginPath();
-    ctx.moveTo(fe + tE * hw, fn + tN * hw); ctx.lineTo(fe - tE * hw, fn - tN * hw);
-    ctx.lineTo(be - tE * hw * 0.6, bn - tN * hw * 0.6); ctx.lineTo(be + tE * hw * 0.6, bn + tN * hw * 0.6);
-    ctx.closePath(); ctx.fillStyle = over ? C.warn : d > 0 ? C.own : C.ink; ctx.fill();
+    const P = paths[over ? 2 : d > 0 ? 1 : 0];
+    P.moveTo(fe + tE * hw, fn + tN * hw); P.lineTo(fe - tE * hw, fn - tN * hw);
+    P.lineTo(be - tE * hw * 0.6, bn - tN * hw * 0.6); P.lineTo(be + tE * hw * 0.6, bn + tN * hw * 0.6);
+    P.closePath();
   });
+  [C.ink, C.own, C.warn].forEach((c, k) => { ctx.fillStyle = c; ctx.fill(paths[k]); });
   ctx.strokeStyle = C['land-edge']; ctx.lineWidth = px(1.2);
-  for (const [n, e] of S.sc.bollards) { ctx.beginPath(); ctx.arc(e, n, 0.9, 0, Math.PI * 2); ctx.stroke(); }
+  // bollards: drawn once they are big enough to see
+  const bol = new Path2D(), r = Math.max(0.9, px(1.6));
+  if (S.view.scale > 0.25 || editing) for (const [n, e] of S.sc.bollards) if (inView(n, e)) { bol.moveTo(e + r, n); bol.arc(e, n, r, 0, Math.PI * 2); }
+  ctx.stroke(bol);
   if (editing) {
     // berth editor: every bollard and fender ringed, so they can be found and tapped at any zoom
     ctx.strokeStyle = C.own; ctx.lineWidth = px(2);
-    for (const [n, e] of S.sc.bollards) { ctx.beginPath(); ctx.arc(e, n, px(7), 0, Math.PI * 2); ctx.stroke(); }
+    const rb = new Path2D(), rf = new Path2D();
+    for (const [n, e] of S.sc.bollards) if (inView(n, e, 20)) { rb.moveTo(e + px(7), n); rb.arc(e, n, px(7), 0, Math.PI * 2); }
+    ctx.stroke(rb);
     ctx.setLineDash([px(3), px(3)]);
-    for (const f of S.sc.fenders) { ctx.beginPath(); ctx.arc(f.e, f.n, px(9), 0, Math.PI * 2); ctx.stroke(); }
+    for (const f of S.sc.fenders) if (inView(f.n, f.e, 20)) { rf.moveTo(f.e + px(9), f.n); rf.arc(f.e, f.n, px(9), 0, Math.PI * 2); }
+    ctx.stroke(rf);
     ctx.setLineDash([]);
   }
-  if (S.sc.berth) {
-    ctx.save(); bodyTransform({ ...S.sc.berth, psi: S.sc.berth.psi * DEG });
+  const tg = S.berth.target;
+  if (tg) {
+    ctx.save(); bodyTransform({ ...tg, psi: tg.psi * DEG });
     hullPath(); ctx.setLineDash([px(6), px(5)]); ctx.strokeStyle = C.muted; ctx.lineWidth = px(1.3); ctx.stroke(); ctx.setLineDash([]);
     ctx.beginPath(); ctx.moveTo(-6, 0); ctx.lineTo(6, 0); ctx.moveTo(0, -6); ctx.lineTo(0, 6); ctx.stroke();
     ctx.restore();
@@ -603,6 +615,15 @@ function drawShaft(p: PodSpec, ps: { alpha: number; rpm: number }, b: { X: numbe
   if (full() && Math.hypot(b.X, b.Y) > 5e3) { ctx.strokeStyle = ctx.fillStyle = col; ctx.lineWidth = px(2.4); arrow(p.x, p.y, p.x + b.X * Fs, p.y + b.Y * Fs, Math.max(4, px(9))); }
 }
 
+/** How far the fenders by this point of a quay stand off it (0 where there are none within 25 m). */
+function fenderStandoff(n: number, e: number) {
+  const F = S.sc.fenders, idx = S.rt.index;
+  let best = 25, h = 0;
+  const visit = (f: (typeof F)[number]) => { const d = Math.hypot(f.n - n, f.e - e); if (d < best) { best = d; h = Math.max(0, (f.n - n) * f.nn + (f.e - e) * f.ne); } };
+  if (fenIndexed(idx, F)) for (const i of idx.fen.query(n - 25, e - 25, n + 25, e + 25)) visit(F[i]);
+  else F.forEach(visit);
+  return h;
+}
 /** Distance from bow and stern shoulders to the nearest structure, with closing speed. */
 export function updateQuayLines(dt: number) {
   const est = shownPose();
@@ -614,8 +635,7 @@ export function updateQuayLines(dt: number) {
       const r = nearestStructure(pn, pe, S.sc.obstacles, 300, S.rt.index);
       if (!r) continue;
       let d = r[2];
-      const fendered = S.sc.obstacles.some(o => o.kind === 'fendered' && o.bbox && r[0] >= o.bbox[0] - 0.1 && r[0] <= o.bbox[2] + 0.1 && r[1] >= o.bbox[1] - 0.1 && r[1] <= o.bbox[3] + 0.1);
-      if (fendered) d -= S.sc.fenders[0]?.height ?? 1.0; // to the fender face
+      d -= fenderStandoff(r[0], r[1]);                    // to the fender face, where the quay has fenders
       if (!best || d < best.d) best = { d, n: r[0], e: r[1], pn, pe };
     }
     const q = S.quay[k];

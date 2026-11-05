@@ -17,6 +17,8 @@ import { TrafficAI, groundVel, makeTraffic } from './physics/aitraffic';
 import { AisMap, computeAis } from './ui/ais';
 import { drawDamagePlan, renderDamage } from './ui/dmgpanel';
 import { EditMode, editAt, loadBerth, resetBerth } from './ui/berthedit';
+import { initBerthPicker, renderBerthPicker, targetFor } from './ui/berthpicker';
+import { nearestBerth } from './physics/berths';
 import { IceState } from './physics/ice';
 import { buildDpStation, buildJetStation, buildStation, buildTugStation, initialOrders, Station } from './ui/stations';
 import { buildHull, setHull } from './physics/contact';
@@ -51,26 +53,28 @@ function applyEnv() {
   syncEnvUI();
 }
 
-function loadScenario(sc: Scenario) {
+/** Load a scenario: at its start, or (practice off a berth) at a given pose. */
+function loadScenario(sc: Scenario, at?: { n: number; e: number; psi: number; kn: number }) {
   S.sc = sc;
   loadBerth();                                            // this device's own fenders and bollards, if any
   postHarbour();                                          // …and the predictor worker sees the same ones
   setEdit(null);
   const shipChanged = setShip(S.shipId ?? sc.ship ?? 'becancour') !== S.rt?.spec;
   if (sc.berthFace) sc.berth = berthFor(sc, SHIP.B, 0);
+  S.berth.target = targetFor(sc);
   if (shipChanged) {
     setHull(buildHull(SHIP.L, SHIP.B, SHIP.xg, SHIP.LOA));
     sheetStarted = false;                 // pilot card, trials: recompute for this ship
   }
   // a ship that draws too much for the start spot starts on the nearest deep-enough water instead
-  const s0 = safeStart(sc, SHIP.LOA, SHIP.B, SHIP.T);
+  const s0 = at ? { ...at, moved: 0 } : safeStart(sc, SHIP.LOA, SHIP.B, SHIP.T);
   if (s0.moved > 1) setTimeout(() => toast(`Too shallow for the ${SHIP.name} at the usual start: she starts ${s0.moved.toFixed(0)} m away, in deeper water.`), 300);
   const st = makeState(SHIP, s0.n, s0.e, s0.psi, s0.kn);
-  const rpm0 = Math.min(1, sc.start.kn / SHIP.vmaxKn);
+  const kn0 = at ? at.kn : sc.start.kn, rpm0 = Math.min(1, kn0 / SHIP.vmaxKn);
   st.pods.forEach(p => (p.rpm = rpm0));
   S.cmd = { pods: SHIP.pods.map(() => ({ alpha: 0, rpm: rpm0 })), bt: 0, mode: 'twin' };
   // shaft ships start on the nearest telegraph step (or pitch), engine running
-  initialOrders(SHIP, sc.start.kn).forEach((o, i) => {
+  initialOrders(SHIP, kn0).forEach((o, i) => {
     if (!o) return;
     Object.assign(S.cmd.pods[i], o); st.pods[i].rpm = o.rpm; if (o.pitch !== undefined) st.pods[i].pitch = o.pitch; if (o.bucket !== undefined) st.pods[i].bucket = o.bucket;
   });
@@ -78,7 +82,10 @@ function loadScenario(sc: Scenario) {
   Object.assign(S.env, { windKn: sc.windKn, windFrom: sc.windFrom, curKn: sc.currentKn, curSet: sc.currentSet, gusts: sc.gusts });
   S.rt = new Runtime(SHIP, st, S.cmd,
     { windSpeed: 0, windFrom: 0, gusts: false, current: () => [0, 0], depth: sc.depth },
-    { obstacles: sc.obstacles, fenders: sc.fenders, bollards: sc.bollards, depthAt: depthAt(sc), mooringSide: sc.mooringSide, tugSide: SHIP.towPoints ? undefined : sc.tugSide, tugBP: sc.tugBP });
+    { obstacles: sc.obstacles, fenders: sc.fenders, bollards: sc.bollards, depthAt: depthAt(sc), tugBP: sc.tugBP,
+      // lines on the side she lies to at the berth she makes for; any berth with bollards can take them
+      mooringSide: S.berth.target?.side ?? sc.mooringSide ?? (sc.bollards.length ? -1 : undefined),
+      tugSide: SHIP.towPoints || !sc.tugSide ? undefined : S.berth.pick?.sc === sc.id ? (-S.berth.pick.side as -1 | 1) : sc.tugSide });
   S.rt.sensors.mode = S.sensMode;
   if (sc.escort) S.rt.attachEscort(sc.escort, SHIPS[sc.escort.ship]);
   if (sc.dpScript) S.rt.dpScript = sc.dpScript.map(x => ({ ...x }));
@@ -93,12 +100,12 @@ function loadScenario(sc: Scenario) {
   S.view.scale = (Math.min(innerWidth, Math.max(300, innerHeight - 380)) / 520) * sc.zoom;
   S.pred.tracks = [];
   S.quay.forEach(q => { q.d = Infinity; q.rate = 0; });
-  $('b-lines').hidden = !sc.mooringSide; $('b-tugs').hidden = !S.rt.tugs.length;     // a tug as own ship does not call tugs
+  $('b-lines').hidden = !S.rt.lines.length; $('b-tugs').hidden = !S.rt.tugs.length;     // a tug as own ship does not call tugs
   $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = true;
   ($('bt') as HTMLInputElement).value = '0';
   setLever('twin');
   mountStation();
-  buildLines(); buildTugs();
+  buildLines(); buildTugs(); renderBerthPicker();
   D.initParticles();
   if (shipChanged) renderModel(S.rt.model.h);
   onScenarioLoaded();
@@ -297,6 +304,7 @@ function updateHud() {
   updateLegend();
 }
 
+const r_sog = (rt: Runtime) => rt.sensors.out.sog;
 function updateFlag() {
   const rt = S.rt, st = rt.state, flag = $('r-flag');
   const show = (text: string, cls: string) => { flag.textContent = text; flag.className = 'flag ' + cls; flag.hidden = false; };
@@ -319,12 +327,15 @@ function updateFlag() {
     if (cur.contactT !== null) return show(`Predicted contact in ${cur.contactT.toFixed(0)} s`, cur.contactT < 60 ? 'heavy' : '');
     if (cur.groundT !== null) return show(`Predicted grounding in ${cur.groundT.toFixed(0)} s`, 'heavy');
   }
-  if (S.sc.berth) {
-    const b = S.sc.berth, bp = b.psi * DEG, est = rt.sensors.out.est;
-    const dn = est.n - b.n, de = est.e - b.e;
+  const tg = S.berth.target, est = rt.sensors.out.est;
+  if (tg) {
+    const bp = tg.psi * DEG, dn = est.n - tg.n, de = est.e - tg.e;
     const along = dn * Math.cos(bp) + de * Math.sin(bp), off = -dn * Math.sin(bp) + de * Math.cos(bp);
-    if (Math.hypot(dn, de) < 400) return show(`BERTH ${along >= 0 ? 'past' : 'short'} ${Math.abs(along).toFixed(0)} m · off ${Math.abs(off).toFixed(1)} m · hdg ${sgn(wrap(est.psi - bp) / DEG, 1)}°`, '');
+    if (Math.hypot(dn, de) < 400) return show(`${tg.id ? tg.name.toUpperCase() : 'BERTH'} · ${along >= 0 ? 'past' : 'short'} ${Math.abs(along).toFixed(0)} m · off ${Math.abs(off).toFixed(1)} m · hdg ${sgn(wrap(est.psi - bp) / DEG, 1)}°`, '');
   }
+  // no berth to make for: name the one she is lying near, and the water there
+  const nb = S.sc.berths?.length && r_sog(rt) < 4 * KN ? nearestBerth(S.sc.berths, est.n, est.e, 2 * SHIP.B) : null;
+  if (nb && !tg) return show(`${nb.berth.name.toUpperCase()} · ${nb.berth.depth.toFixed(1)} m alongside · ${nb.d.toFixed(0)} m off`, '');
   flag.hidden = true;
 }
 
@@ -615,12 +626,15 @@ let linesSig = '';
 function buildLines() {
   const box = $('lines'), rt = S.rt;
   linesSig = rt.lines.map(l => l.state + l.mode).join();
-  box.innerHTML = rt.lines.map((l, i) => `
+  const side = rt.lines[0]?.fair[1] < 0 ? -1 : 1, anyFast = rt.lines.some(l => l.state === 'fast');
+  box.innerHTML = (rt.lines.length ? `<div class="lrow"><span class="nm">SIDE</span><span class="t">${anyFast ? 'lines fast' : 'rig the lines on'}</span>
+      <div class="btns">${([[-1, 'PORT'], [1, 'STBD']] as const).map(([v, lab]) => `<button data-side="${v}" aria-pressed="${side === v}"${anyFast && side !== v ? ' disabled' : ''}>${lab}</button>`).join('')}</div></div>` : '') + rt.lines.map((l, i) => `
     <div class="lrow"><span class="nm">${l.name}</span><span class="t" id="lt-${i}">${l.state.toUpperCase()}</span>
       <div class="btns">${l.state === 'fast'
         ? MODES.map(([m, lab]) => `<button data-l="${i}" data-m="${m}" aria-pressed="${l.mode === m}">${lab}</button>`).join('') + `<button data-l="${i}" data-m="go">LET GO</button>`
         : `<button data-l="${i}" data-m="pass">${l.state === 'parted' ? 'SEND NEW LINE' : 'SEND ASHORE'}</button>`}</div></div>`).join('');
-  box.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.onclick = () => {
+  box.querySelectorAll<HTMLButtonElement>('button[data-side]').forEach(b => b.onclick = () => { S.rt.setMooringSide(+b.dataset.side! as -1 | 1); buildLines(); });
+  box.querySelectorAll<HTMLButtonElement>('button[data-l]').forEach(b => b.onclick = () => {
     const i = +b.dataset.l!, m = b.dataset.m!;
     if (m === 'pass') S.rt.passLine(i); else if (m === 'go') S.rt.letGo(i); else S.rt.lines[i].mode = m as WinchMode;
     buildLines();
@@ -705,6 +719,30 @@ document.querySelectorAll<HTMLButtonElement>('[data-em]').forEach(b => (b.onclic
 $('edit-done').onclick = () => setEdit(null);
 $('edit-reset').onclick = () => { resetBerth(); $('edit-hint').textContent = "The scenario's own fenders and bollards are back."; };
 $('b-editberth').onclick = () => { $('b-close').click(); setEdit('bollard'); };
+
+// ---------------------------------------------------------------- berth picker
+/** Make for another berth (or the scenario's own): new mark, lines and tugs rigged for the side she lies to. */
+function pickBerth(id: string | null, side: -1 | 1) {
+  S.berth.pick = id ? { sc: S.sc.id, id, side } : null;
+  S.berth.target = targetFor(S.sc);
+  const ms = (S.berth.target?.side ?? side) as -1 | 1;
+  if (S.rt.lines.length && S.rt.lines[0].fair[1] * ms < 0 && !S.rt.setMooringSide(ms)) toast('Lines are fast on the other side: let them go to rig them on this side.');
+  if (!S.rt.lines.length && S.sc.bollards.length) S.rt.setMooringSide(ms);
+  if (S.rt.tugs.length && S.rt.tugs[0].side !== -ms && !S.rt.setTugSide(-ms as -1 | 1)) toast('The tugs are working: stop them to send them round to the other side.');
+  $('b-lines').hidden = !S.rt.lines.length;
+  buildLines(); buildTugs();
+}
+initBerthPicker({
+  pick: pickBerth,
+  startOff() {
+    const tg = S.berth.target; if (!tg) return;
+    // parallel to the berth, a beam and a half off it, stopped
+    const p = tg.psi * DEG, d = 1.5 * SHIP.B, k = -(tg.side ?? -1);      // away from the quay: to starboard when port side to
+    loadScenario(S.sc, { n: tg.n - Math.sin(p) * d * k, e: tg.e + Math.cos(p) * d * k, psi: tg.psi, kn: 0 });
+    $('b-close').click();
+    toast(`Lying off ${tg.name}, stopped. Put her alongside.`);
+  },
+});
 
 // ---------------------------------------------------------------- damage control
 let lostShown = false;

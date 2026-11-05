@@ -1,6 +1,5 @@
 import { DEG, KN } from './physics/ship';
 import type { Fender, Obstacle, Pt } from './physics/contact';
-import { fenderReaction } from './physics/contact';
 import type { CurrentField } from './physics/sim';
 import type { EscortSetup } from './physics/escort';
 import type { TrafficSetup } from './physics/traffic';
@@ -8,6 +7,8 @@ import type { IceField } from './physics/ice';
 import { Shoal, depthField, DepthField, DepthGrid, gridField } from './physics/harbour';
 import { bboxOf } from './physics/contact';
 import { HarbourIndex, harbourIndex, indexFresh } from './physics/spatial';
+import { type Berth, type BerthKind, type BerthSpec, type BollardInfo, equipBerths, ratedEnergy, solidTest } from './physics/berths';
+import { SHIPS } from './physics/ship';
 import { AMSTERDAM, Building } from './scenes/amsterdam';
 import { MIAMI } from './scenes/miami';
 export type { Building };
@@ -51,6 +52,11 @@ export interface Scenario {
   needsData?: boolean;                            // heavy data (depth grid, land) is loaded on demand…
   setData?: (p: { grid: DepthGrid; land: Pt[][] }) => void;   // …and installed with this
   source?: unknown;                               // provenance (chart cells, editions)
+  /** Every face a ship can lie at (quays, piers, dolphins), fitted with fenders and bollards by one rule set. */
+  berthSpecs?: BerthSpec[];
+  berths?: Berth[];                               // …built from berthSpecs when the scenario is equipped
+  ownGear?: { fenders: number; bollards: number }; // how many of the fenders and bollards are the scenario's own (first in the lists)
+  bollardInfo?: BollardInfo[];                    // what each bollard is (height, fitting, SWL), parallel to bollards
 }
 
 // Hull-on-structure: stiff while loading, little stored energy returned (plating crush) → e ≈ 0.2
@@ -68,6 +74,8 @@ function fenderRow(n: number, e0: number, e1: number, spacing: number, nn: numbe
 const SCN2000 = { width: 4.0, height: 2.0, Rr: 2.8e6 };
 
 const rect = (n0: number, e0: number, n1: number, e1: number): Pt[] => [[n0, e0], [n0, e1], [n1, e1], [n1, e0]];
+/** A berth face from a to b, water on the side `nrm` points to. */
+const face = (id: string, name: string, kind: BerthKind, a: Pt, b: Pt, nrm: Pt, more: Partial<BerthSpec> = {}): BerthSpec => ({ id, name, kind, a, b, nrm, ...more });
 
 export function currentField(sc: Scenario, kn: number, setDeg: number): CurrentField {
   const V = kn * KN, cN = V * Math.cos(setDeg * DEG), cE = V * Math.sin(setDeg * DEG);
@@ -99,6 +107,13 @@ export const SCENARIOS: Scenario[] = [
     fenders: fenderRow(0, -500, 240, 20, -1, 0),
     bollards: Array.from({ length: 31 }, (_, i) => [3, -500 + i * 24] as Pt),
     mooringSide: -1, tugSide: 1,
+    berthSpecs: [
+      face('A', 'Quai 27 · main quay', 'cruise', [1, -520], [1, 260], [-1, 0]),
+      face('B', 'Quai 27 · pier, west face', 'general', [1, 260], [-150, 260], [0, -1]),
+      face('C', 'Quai 27 · pier head', 'tug', [-150, 260], [-150, 330], [-1, 0]),
+      face('D', 'Quai 27 · pier, east face', 'general', [-150, 330], [400, 330], [0, 1]),
+      face('E', 'Quai 27 · west quay', 'general', [400, -520], [1, -520], [0, -1]),
+    ],
     // the pier shadows the ebb along the quay: weak water inside ~150 m
     shelter: (n, e) => {
       const ss = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -138,6 +153,19 @@ export const SCENARIOS: Scenario[] = [
       { poly: rect(-924, 110, -880, 330), ...CONCRETE, kind: 'pier' },
     ],
     fenders: [], bollards: [], tugSide: -1,
+    berthSpecs: [
+      face('BW', 'Basin · west quay', 'general', [-880, -330], [330, -330], [0, 1]),
+      face('BH', 'Basin · head quay', 'general', [330, -330], [330, 330], [-1, 0]),
+      face('BE', 'Basin · east quay', 'general', [330, 330], [-880, 330], [0, -1]),
+      face('WN', 'West pier · north face', 'general', [-880, -330], [-880, -110], [1, 0]),
+      face('WX', 'West pier · end', 'tug', [-880, -110], [-924, -110], [0, 1]),
+      face('WS', 'West pier · south face', 'general', [-924, -110], [-924, -330], [-1, 0]),
+      face('EN', 'East pier · north face', 'general', [-880, 110], [-880, 330], [1, 0]),
+      face('EX', 'East pier · end', 'tug', [-924, 110], [-880, 110], [0, -1]),
+      face('ES', 'East pier · south face', 'general', [-924, 330], [-924, 110], [-1, 0]),
+      face('AW', 'Approach · west wall', 'general', [-1232, -330], [-924, -330], [0, 1]),
+      face('AE', 'Approach · east wall', 'general', [-924, 330], [-1232, 330], [0, -1]),
+    ],
     zoom: 0.45,
   },
   {
@@ -168,6 +196,7 @@ export const SCENARIOS: Scenario[] = [
       ...[-230, -185, -160, 160, 185, 230].map(e => [41, e] as Pt),
     ],
     mooringSide: -1, tugSide: 1, tugBP: 80 * 9.81e3, ship: 'kvlcc2',
+    berthSpecs: [face('J', 'Crude jetty · breasting dolphins', 'dolphins', [0, -137], [0, 137], [-1, 0], { generate: false, top: 4 })],
     zoom: 0.5,
   },
   {
@@ -252,6 +281,7 @@ export const SCENARIOS: Scenario[] = [
     fenders: fenderRow(598.5, -380, 140, 16, -1, 0),
     bollards: Array.from({ length: 14 }, (_, i) => [603, -380 + i * 40] as Pt),
     mooringSide: -1, ship: 'hsc-cat',
+    berthSpecs: [face('F', 'Ferry quay', 'ferry', [600, -620], [600, 620], [-1, 0])],
     // the breakwater shelters the basin from the cross-set
     shelter: n => (n > 0 ? 0.15 : 1),
     zoom: 0.5,
@@ -313,13 +343,19 @@ export function scenarioWorld(id: string) {
   return worldOf(SCENARIOS.find(s => s.id === id)!);
 }
 
-/** Rated energy: area under the reaction curve to rated deflection. */
-export function ratedEnergy(f: Fender) {
-  const dr = f.dRated * f.height, N = 50; let E = 0;
-  for (let i = 0; i < N; i++) E += fenderReaction(f, (i + 0.5) / N * dr) * dr / N;
-  return E;
-}
+export { ratedEnergy };
 for (const sc of SCENARIOS) for (const f of sc.fenders) f.Er = ratedEnergy(f);
+
+/** Build a scenario's berths and fit them with fenders and bollards (its own gear kept, first). Charted
+ *  scenarios run it again once their land is in, so bollards go only where there is quay to stand on. */
+export function equipScenario(sc: Scenario) {
+  const top = sc.landHeight ?? 2;
+  sc.ownGear ??= { fenders: sc.fenders.length, bollards: sc.bollards.length };
+  if (!sc.berthSpecs?.length) { sc.berths = []; sc.bollardInfo = sc.bollards.map(() => ({ berth: '', z: top + 0.5, kind: 'bollard', swl: 50 })); return; }
+  const r = equipBerths(sc.berthSpecs, sc.fenders, sc.bollards, { depthAt: depthAt(sc), solid: solidTest(sc.obstacles), top, fleet: Object.values(SHIPS), tide: sc.tide });
+  sc.berths = r.berths; sc.bollardInfo = r.info;
+}
+for (const sc of SCENARIOS) equipScenario(sc);
 
 /** Berth pose (CG mark) for a ship of beam B and CG offset xg, from the scenario's fender face. */
 export function berthFor(sc: Scenario, B: number, xg: number) {

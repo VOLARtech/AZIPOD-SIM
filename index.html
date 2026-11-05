@@ -161,11 +161,20 @@
       </div>
       </details>
       <details class="sec"><summary><h2>Berth</h2></summary>
+      <div class="env-grid" id="berth-pick">
+        <label for="b-berth">Make for</label>
+        <select id="b-berth" class="pick"></select>
+        <span class="lbl">Lie</span>
+        <div class="seg" id="seg-side"><button data-v="-1">Port side to</button><button data-v="1">Starboard side to</button></div>
+        <span class="lbl">Practice</span>
+        <div class="seg"><button id="b-startoff">Start off this berth</button></div>
+        <p class="note" id="berth-info" style="grid-column: 1 / -1"></p>
+      </div>
       <div class="env-grid">
         <span class="lbl">Fenders and bollards</span>
         <div class="seg"><button id="b-editberth">Edit on the chart</button></div>
       </div>
-      <p class="note">Put your own fenders and bollards on any quay, pier or dolphin: tap near its edge to add a bollard on it or a fender on its face, or tap one to take it away. Your layout is kept for each scenario on this device; RESET puts the scenario's own back.</p>
+      <p class="note">Every quay, pier and dolphin face is fitted out for the biggest ship that fits it: fenders sized for her berthing energy, bollards all along. Put your own on any of them too: tap near a face to add a bollard on it or a fender on it, or tap one to take it away. Your changes are kept for each scenario on this device; RESET puts the scenario's own back.</p>
       </details>
       <details class="sec"><summary><h2>Damage</h2></summary>
       <div class="env-grid">
