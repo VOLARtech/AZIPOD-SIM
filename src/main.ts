@@ -29,6 +29,7 @@ import { LINE, WinchMode } from './physics/mooring';
 import type { Alt, PredictJob, Track } from './physics/predict';
 import { SCENARIOS, safeStart, Scenario, berthFor, currentField, depthAt, fits, navDepthAt, waterOf, type Water } from './scenarios';
 import { ensureScenario } from './scenes/loaders';
+import { AREAS } from './scenes/areas';
 import { loadChart } from './ui/chart';
 import { haptic, suspendAudio, uiTick, unlockAudio, updateAudio } from './ui/audio';
 import { AngleDetent, LinearDetent, detentSlider, onFeel } from './ui/controls';
@@ -931,9 +932,20 @@ function renderShipList() {
     box.appendChild(b);
   }
 }
+/** Which group a scenario is listed under: its real-chart area, else schematic harbours or open water. */
+const OPEN_WATER = new Set(['escort', 'ice', 'rotor', 'dp', 'trials']);
+const groupOf = (s: Scenario) => s.area ? AREAS[s.area].meta.name : OPEN_WATER.has(s.id) ? 'Open water and special operations' : 'Schematic harbours and channels';
 function renderScenarioList() {
   const box = $('scenarios'); box.innerHTML = '';
+  let group = '';
   for (const s of SCENARIOS) {
+    const g = groupOf(s);
+    if (g !== group) {
+      group = g;
+      const h = document.createElement('h3'); h.className = 'scen-group';
+      h.textContent = s.area ? `${g} · real chart` : g;
+      box.appendChild(h);
+    }
     const b = document.createElement('button');
     b.className = s === S.sc ? 'cur' : '';
     const sp = S.shipId ? SHIPS[S.shipId] : null;

@@ -2,7 +2,7 @@
 // fetched when the area is first opened. Workers never fetch: the main thread posts them the same pack.
 import type { Scenario } from '../scenarios';
 import { installArea } from '../scenarios';
-import { fetchAreaPack } from './areas';
+import { fetchAreaPack } from './areafetch';
 import { parsePack } from './pack';
 
 /** What the predictor worker needs to install the same area: the inflated pack. */

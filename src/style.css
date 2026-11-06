@@ -161,6 +161,8 @@ h2 { font-family: var(--font-label); font-weight: 600; font-size: 14px; letter-s
 h2 .sub { text-transform: none; letter-spacing: 0; font-weight: 500; font-family: var(--font-body); font-size: 12px; margin-left: 6px; }
 .ship { margin: 0; font-size: 14px; color: var(--muted); line-height: 1.5; }
 .scen { display: flex; flex-direction: column; gap: 8px; }
+.scen-group { margin: 10px 0 0; font: 600 12px var(--font-label); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.scen-group:first-child { margin-top: 0; }
 .scen button {
   text-align: left; padding: 10px 12px; border-radius: 3px; cursor: pointer;
   border: 1px solid var(--rule); background: transparent; display: flex; flex-direction: column; gap: 3px;

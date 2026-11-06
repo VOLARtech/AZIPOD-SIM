@@ -467,7 +467,7 @@ test('Spirit-class: 100 % rpm gives 21.5–24.5 kn (22 kn service, ~24 kn trials
   assert.ok(Vs / KN > 21.5 && Vs / KN < 24.5, `${(Vs / KN).toFixed(1)} kn`);
 });
 console.log('real chart: PortMiami (NOAA ENC)');
-import { fetchAreaPack, fetchAreaChart } from '../src/scenes/areas';
+import { fetchAreaPack, fetchAreaChart } from '../src/scenes/areafetch';
 import { parsePack } from '../src/scenes/pack';
 import { installArea } from '../src/scenarios';
 import type { ChartModel as CM } from '../src/ui/chart/model';

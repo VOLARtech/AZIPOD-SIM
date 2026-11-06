@@ -380,12 +380,49 @@ print('berth faces', len(faces), 'total m', round(sum(f['len'] for f in faces)),
 # ---------------------------------------------------------------- the chart
 COL = {1: 'white', 2: 'black', 3: 'red', 4: 'green', 5: 'blue', 6: 'yellow', 7: 'grey', 8: 'brown', 9: 'amber', 10: 'violet', 11: 'orange', 12: 'magenta', 13: 'pink'}
 def ring(r, tol=0.8): return coords(LineString(r.coords).simplify(tol))
-chart = {'meta': {'datum': REG['datum'], 'iala': REG['iala'], 'source': ' + '.join(sorted({'NOAA ENC' if c['source'] == 'noaa' else 'Rijkswaterstaat IENC' for c in man['cells']})) + (' + RWS bathymetry' if rasters else '')},
+chart = {'meta': {'datum': REG['datum'], 'iala': REG['iala'], 'source': ' + '.join(sorted({'NOAA ENC' if c['source'] == 'noaa' else 'Rijkswaterstaat IENC' for c in man['cells']})) + (' + RWS bathymetry' if rasters else '') + (' + EMODnet' if emod is not None else '')},
          'fill': 'nonzero', 'depare': [], 'drgare': [], 'land': [], 'contours': [], 'soundings': [], 'slcons': [], 'aids': [], 'labels': [], 'bridges': []}
 for g, p in depare:
     for q in polys(orient(g.buffer(0), 1.0) if isinstance(g, Polygon) else g):
         q = orient(q, 1.0)
         chart['depare'].append({'d1': p.get('DRVAL1'), 'd2': p.get('DRVAL2'), 'rings': [ring(q.exterior)] + [ring(h) for h in q.interiors]})
+# water the chart gives no depth for (an inland ENC's "water, depth not given", the open sea beyond its
+# cells): depth areas filled from the depth grid instead, at the standard bands
+if emod is not None or rasters:
+    import contourpy
+    vague = [i for i, (g, p) in enumerate(depare) if not ((p.get('DRVAL1') or 0) > 0 or p.get('DRVAL2') is not None)]
+    given = unary_union([g for i, (g, p) in enumerate(depare) if i not in set(vague)] or [Polygon()])
+    need = water.difference(given).buffer(0)
+    if need.area > 1e5:
+        chart['depare'] = [d for d in chart['depare'] if (d['d1'] or 0) > 0 or d['d2'] is not None]
+        bands = [(-5, 0), (0, 2), (2, 5), (5, 10), (10, 15), (15, 20), (20, 30), (30, 500)]
+        added = 0
+        # finest grid first where it covers, each coarser one only beyond the finer ones
+        for gi, g0 in enumerate(reversed(grids)):
+            box_ = box(g0['e0'], g0['n0'], g0['e0'] + g0['nx'] * g0['cell'], g0['n0'] + g0['ny'] * g0['cell'])
+            finer = [box(h['e0'], h['n0'], h['e0'] + h['nx'] * h['cell'], h['n0'] + h['ny'] * h['cell']) for h in list(reversed(grids))[:gi]]
+            here = need.intersection(box_)
+            if finer: here = here.difference(unary_union(finer))
+            if here.area < 1e3: continue
+            hp = prep(here)
+            Zg = g0['data'].astype(float) / 100
+            xs = g0['e0'] + (np.arange(g0['nx']) + 0.5) * g0['cell']; ys = g0['n0'] + (np.arange(g0['ny']) + 0.5) * g0['cell']
+            cg = contourpy.contour_generator(xs, ys, Zg, fill_type='OuterOffset')
+            tol = max(2.0, g0['cell'] * 0.3)
+            for lo, hi in bands:
+                pts_, offs_ = cg.filled(lo, hi)
+                for P_, O_ in zip(pts_, offs_):
+                    rings_ = [P_[O_[k]:O_[k + 1]] for k in range(len(O_) - 1)]
+                    if len(rings_[0]) < 4: continue
+                    poly = Polygon(rings_[0], [r for r in rings_[1:] if len(r) >= 4]).buffer(0)
+                    if not hp.intersects(poly): continue
+                    for q in polys(poly.intersection(here)):
+                        if q.area < 4 * g0['cell'] ** 2: continue
+                        q = q.simplify(tol)
+                        if q.is_empty or q.geom_type != 'Polygon': continue
+                        q = orient(q, 1.0)
+                        chart['depare'].append({'d1': max(0, lo), 'd2': hi if hi < 500 else None, 'rings': [ring(q.exterior, tol)] + [ring(h, tol) for h in q.interiors]}); added += 1
+        print('depth areas filled from the grid where the chart gives none', added, 'km2', round(need.area / 1e6, 1))
 for g, p in drgare:
     for q in polys(g):
         q = orient(q, 1.0)

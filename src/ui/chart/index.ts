@@ -2,7 +2,8 @@
 import type { Scenario } from '../../scenarios';
 import type { ChartModel } from './model';
 import { synthChart } from '../../scenes/synth';
-import { AREAS, fetchAreaChart } from '../../scenes/areas';
+import { AREAS } from '../../scenes/areas';
+import { fetchAreaChart } from '../../scenes/areafetch';
 export type { ChartModel } from './model';
 export { drawChartBase, drawChartMarks, chartInfo } from './render';
 
