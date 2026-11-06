@@ -386,6 +386,11 @@ for g, p in depare:
     for q in polys(orient(g.buffer(0), 1.0) if isinstance(g, Polygon) else g):
         q = orient(q, 1.0)
         chart['depare'].append({'d1': p.get('DRVAL1'), 'd2': p.get('DRVAL2'), 'rings': [ring(q.exterior)] + [ring(h) for h in q.interiors]})
+def chart_z(g):
+    """The depths the chart is drawn from: the grid with single-cell spikes (a pile the survey saw as a shoal)
+    smoothed out by a 3 × 3 median, as a chart generalises; the physics keeps the grid as it is."""
+    from scipy.ndimage import median_filter
+    return median_filter(g['data'].astype(float) / 100, size=3, mode='nearest')
 # water the chart gives no depth for (an inland ENC's "water, depth not given", the open sea beyond its
 # cells): depth areas filled from the depth grid instead, at the standard bands
 if emod is not None or rasters:
@@ -405,7 +410,7 @@ if emod is not None or rasters:
             if finer: here = here.difference(unary_union(finer))
             if here.area < 1e3: continue
             hp = prep(here)
-            Zg = g0['data'].astype(float) / 100
+            Zg = chart_z(g0)
             xs = g0['e0'] + (np.arange(g0['nx']) + 0.5) * g0['cell']; ys = g0['n0'] + (np.arange(g0['ny']) + 0.5) * g0['cell']
             cg = contourpy.contour_generator(xs, ys, Zg, fill_type='OuterOffset')
             tol = max(2.0, g0['cell'] * 0.3)
@@ -421,7 +426,10 @@ if emod is not None or rasters:
                         q = q.simplify(tol)
                         if q.is_empty or q.geom_type != 'Polygon': continue
                         q = orient(q, 1.0)
-                        chart['depare'].append({'d1': max(0, lo), 'd2': hi if hi < 500 else None, 'rings': [ring(q.exterior, tol)] + [ring(h, tol) for h in q.interiors]}); added += 1
+                        # a pile or a dolphin is a hole in the water: on the chart it would be a speck of
+                        # background, rows of them a grid of dots; the land layer draws the structure instead
+                        holes = [ring(h, tol) for h in q.interiors if Polygon(h).area > 2500]
+                        chart['depare'].append({'d1': max(0, lo), 'd2': hi if hi < 500 else None, 'rings': [ring(q.exterior, tol)] + holes}); added += 1
         print('depth areas filled from the grid where the chart gives none', added, 'km2', round(need.area / 1e6, 1))
 for g, p in drgare:
     for q in polys(g):
@@ -437,7 +445,7 @@ if len(chart['contours']) < 20:
     import contourpy
     wp = prep(water.buffer(-2))
     for gi, g in enumerate(reversed(grids)):
-        Zg = g['data'].astype(float) / 100
+        Zg = chart_z(g)
         xs = g['e0'] + (np.arange(g['nx']) + 0.5) * g['cell']; ys = g['n0'] + (np.arange(g['ny']) + 0.5) * g['cell']
         finer = [box(h['e0'], h['n0'], h['e0'] + h['nx'] * h['cell'], h['n0'] + h['ny'] * h['cell']) for h in list(reversed(grids))[:gi]]
         cg = contourpy.contour_generator(xs, ys, Zg)
@@ -445,6 +453,7 @@ if len(chart['contours']) < 20:
             for ln in cg.lines(v):
                 if len(ln) < 4: continue
                 L_ = LineString(ln).simplify(g['cell'] * 0.4)
+                if L_.length < 80: continue                     # a ring round a pile or a single odd cell
                 for part in lines(L_.difference(unary_union(finer)) if finer else L_):
                     keep = [q for q in part.coords]
                     if len(keep) >= 3 and wp.contains(Point(keep[len(keep) // 2])): chart['contours'].append({'v': v, 'pts': [[r1(y), r1(x)] for x, y in keep]})
@@ -458,10 +467,19 @@ for g, p in layers('SOUNDG'):
     seen.add(k); chart['soundings'].append([r1(g.y), r1(g.x), round(float(d), 1)])
 # surveyed depths where the chart has few: thinned spot depths from the bathymetry (every ~60 m)
 if rasters:
-    res, xy, d = min(rasters, key=lambda r: abs(r[0] - 10))
+    # every tile of the survey nearest 10 m resolution (not just the first of them)
+    res = min((r[0] for r in rasters), key=lambda x: abs(x - 10))
+    same = [r for r in rasters if abs(r[0] - res) < 0.25 * res]           # tiles' cell sizes differ in the last digits
+    xy = np.concatenate([r[1] for r in same]); d = np.concatenate([r[2] for r in same])
+    print('survey soundings from', len(same), 'tiles at', round(res, 2), 'm')
     k = np.floor(xy / 60).astype(int); _, first_i = np.unique(k[:, 0] * 100000 + k[:, 1], return_index=True)
-    for i in first_i:
-        if d[i] > 0.5: chart['soundings'].append([r1(xy[i, 1]), r1(xy[i, 0]), round(float(d[i]), 1)])
+    # where the survey was taken, the depth the simulator has there (the survey held to the chart's ranges), and
+    # none on land the chart shows where the survey still had water
+    pts_ = xy[first_i]; wet = ~shapely.contains_xy(land, pts_[:, 0], pts_[:, 1])
+    for (x_, y_), ok in zip(pts_, wet):
+        if not ok: continue
+        z_ = zat(y_, x_)
+        if z_ > 0.5: chart['soundings'].append([r1(y_), r1(x_), round(float(z_), 1)])
 for g, p in slcons:
     for ln in lines(g):
         if ln.length > 3: chart['slcons'].append({'c': first(p.get('CATSLC')), 'pts': coords(ln.simplify(0.5))})

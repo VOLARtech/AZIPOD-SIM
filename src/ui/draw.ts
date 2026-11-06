@@ -183,7 +183,8 @@ export function drawStructures() {
   ctx.strokeStyle = C['land-edge']; ctx.lineWidth = px(1.2);
   // bollards: drawn once they are big enough to see
   const bol = new Path2D(), r = Math.max(0.9, px(1.6));
-  if (S.view.scale > 0.25 || editing) for (const [n, e] of S.sc.bollards) if (inView(n, e)) { bol.moveTo(e + r, n); bol.arc(e, n, r, 0, Math.PI * 2); }
+  // (a real-chart area has thousands, its quays would read as dotted lines: there, only once close enough to berth)
+  if (S.view.scale > (charted ? 0.7 : 0.25) || editing) for (const [n, e] of S.sc.bollards) if (inView(n, e)) { bol.moveTo(e + r, n); bol.arc(e, n, r, 0, Math.PI * 2); }
   ctx.stroke(bol);
   if (editing) {
     // berth editor: every bollard and fender ringed, so they can be found and tapped at any zoom
