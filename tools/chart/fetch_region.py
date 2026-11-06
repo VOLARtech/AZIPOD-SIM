@@ -17,6 +17,8 @@ import io, json, os, re, sys, time, urllib.parse, urllib.request, zipfile
 import xml.etree.ElementTree as ET
 
 REG = json.load(open(sys.argv[1])); OUT = sys.argv[2]
+ONLY = sys.argv[3].split(',') if len(sys.argv) > 3 else None          # e.g. 'wcs' to fetch just the bathymetry again
+def want(k): return ONLY is None or k in ONLY
 S, W, N, E = REG['bbox']
 os.makedirs(OUT, exist_ok=True)
 UA = {'User-Agent': 'shipshape-chart-fetch/2.0 (github.com/Theseasparky/AZIPOD-SIM)'}
@@ -83,9 +85,13 @@ def extract(base, cell, info):
     except Exception as ex: print('no DSID', cell, ex)
 
 manifest = {'bbox': [S, W, N, E], 'region': REG['id'], 'fetched': time.strftime('%Y-%m-%d'), 'cells': [], 'bathymetry': [], 'buoys': None}
+if ONLY and os.path.exists(os.path.join(OUT, 'manifest.json')):
+    old = json.load(open(os.path.join(OUT, 'manifest.json')))
+    for k in ('cells', 'bathymetry', 'buoys'): manifest[k] = old.get(k, manifest[k])
+    if 'wcs' in ONLY: manifest['bathymetry'] = []
 
 # ---------------------------------------------------------------- NOAA ENC
-if 'noaa' in REG['sources']:
+if 'noaa' in REG['sources'] and want('noaa'):
     root = ET.fromstring(get('https://www.charts.noaa.gov/ENCs/ENCProdCat.xml'))
     tag = lambda el: el.tag.rsplit('}', 1)[-1].lower()
     cells = []
@@ -114,7 +120,7 @@ if 'noaa' in REG['sources']:
 # ---------------------------------------------------------------- Rijkswaterstaat
 if 'rws' in REG['sources']:
     R = REG['sources']['rws']
-    if R.get('ienc'):
+    if R.get('ienc') and want('ienc'):
         lst = json.loads(get('https://www.vaarweginformatie.nl/frp/api/webcontent/downloads?pageId=infra/enc'))
         f = next(x for x in lst if x['name'].startswith(R['ienc']['file']))
         print('inland ENC:', f['name'], f['fileId'])
@@ -129,7 +135,7 @@ if 'rws' in REG['sources']:
             info = {'cell': name, 'source': 'rws-ienc', 'file': f['name'], 'layers': {}}
             extract(base, name, info)
             manifest['cells'].append(info); print(name, info.get('DSPM_CSCL'), info['layers'])
-    if R.get('wcs'):
+    if R.get('wcs') and want('wcs'):
         import numpy as np, tifffile
         from pyproj import Transformer
         tr = Transformer.from_crs('EPSG:4326', 'EPSG:28992', always_xy=True)
@@ -147,8 +153,8 @@ if 'rws' in REG['sources']:
                     bx0, by0 = max(x0, tx * T), max(y0, ty * T); bx1, by1 = min(x1, (tx + 1) * T), min(y1, (ty + 1) * T)
                     if bx1 - bx0 < res or by1 - by0 < res: continue
                     q = urllib.parse.urlencode([('service', 'WCS'), ('version', '2.0.1'), ('request', 'GetCoverage'), ('coverageId', cov),
-                        ('format', 'image/tiff'), ('subset', f'x({bx0:.0f},{bx1:.0f})'), ('subset', f'y({by0:.0f},{by1:.0f})'),
-                        ('scalesize', f'x({round((bx1 - bx0) / res)}),y({round((by1 - by0) / res)})')])
+                        ('format', 'image/tiff'), ('subset', f'X({bx0:.0f},{bx1:.0f})'), ('subset', f'Y({by0:.0f},{by1:.0f})'),
+                        ('scalesize', f'http://www.opengis.net/def/axis/OGC/1/i({round((bx1 - bx0) / res)}),http://www.opengis.net/def/axis/OGC/1/j({round((by1 - by0) / res)})')])
                     try: b = get('https://geo.rijkswaterstaat.nl/services/ogc/gdr/bodemhoogte_1mtr/ows?' + q)
                     except Exception as ex: print('tile failed', cov, ex); continue
                     if not b.startswith(b'II') and not b.startswith(b'MM'): print('not a tiff', cov, b[:300]); continue
@@ -159,7 +165,7 @@ if 'rws' in REG['sources']:
             if not tiles: continue
             np.savez_compressed(os.path.join(OUT, f'wcs_{cov}_{res}m.npz'), **{f't{i}_{k}': v for i, t in enumerate(tiles) for k, v in t.items()})
             manifest['bathymetry'].append({'coverage': cov, 'tiles': len(tiles), 'res': res, 'crs': 'EPSG:28992'})
-    if R.get('buoys'):
+    if R.get('buoys') and want('buoys'):
         feats = []
         for coll in ('vaarweg_markeringen_drijvend_rd', 'vaarweg_markeringen_vast_rd'):
             url = f'https://api.pdok.nl/rws/vaarwegmarkeringen-nederland/ogc/v1/collections/{coll}/items?f=json&limit=1000&bbox={W},{S},{E},{N}'

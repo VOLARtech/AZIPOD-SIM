@@ -2,11 +2,12 @@
 //   'AZP1' · u32 header length · header JSON · padding to 4 bytes
 //   per depth grid: Int16 depth below datum [cm], row-major, row 0 south (padded to 4 bytes)
 //   per contact tile: u32 point count · Int32 [n, e] decimetres
+//   charted bollards (header.bollards of them): Int32 [n, e] decimetres
 import type { Pt } from '../physics/contact';
 import type { DepthField } from '../physics/harbour';
 
 export interface PackGrid { e0: number; n0: number; cell: number; nx: number; ny: number; data: Int16Array }
-export interface AreaPack { id: string; origin: [number, number]; datum: string; grids: PackGrid[]; tiles: Pt[][] }
+export interface AreaPack { id: string; origin: [number, number]; datum: string; grids: PackGrid[]; tiles: Pt[][]; bollards: Pt[] }
 
 /** gunzip in the browser (DecompressionStream) or in Node (zlib). */
 export async function gunzip(buf: ArrayBuffer): Promise<ArrayBuffer> {
@@ -36,7 +37,9 @@ export function parsePack(raw: ArrayBuffer): AreaPack {
     const t: Pt[] = []; for (let i = 0; i < m; i++) t.push([q[2 * i] / 10, q[2 * i + 1] / 10]);
     tiles.push(t);
   }
-  return { id: hdr.id, origin: hdr.origin, datum: hdr.datum, grids, tiles };
+  const nb = hdr.bollards ?? 0, bq = new Int32Array(raw.slice(o, o + 8 * nb)), bollards: Pt[] = [];
+  for (let i = 0; i < nb; i++) bollards.push([bq[2 * i] / 10, bq[2 * i + 1] / 10]);
+  return { id: hdr.id, origin: hdr.origin, datum: hdr.datum, grids, tiles, bollards };
 }
 
 /** Depth from the finest grid that covers a point (bilinear), plus the height of the water above datum.

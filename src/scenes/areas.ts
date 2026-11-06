@@ -5,8 +5,10 @@ import type { BerthKind, BerthSpec } from '../physics/berths';
 import type { Pt } from '../physics/contact';
 import { gunzip } from './pack';
 import MIAMI_META from './miami/miami.meta.json';
+import LALB_META from './lalb/lalb.meta.json';
+import IJM_META from './ijmuiden/ijmuiden.meta.json';
 
-export interface AreaFace { a: Pt; b: Pt; nrm: Pt; depth: number; len: number; name: string; place?: string | null }
+export interface AreaFace { a: Pt; b: Pt; nrm: Pt; depth: number; len: number; name: string; place?: string | null; whole?: boolean }
 export interface AreaMeta {
   id: string; name: string; origin: [number, number]; datum: string; iala: 'A' | 'B'; landHeight: number;
   bounds: [number, number, number, number]; fetched?: string;
@@ -19,6 +21,8 @@ export interface AreaDef {
   meta: AreaMeta; pack: string; chart: string;
   /** Berth kinds by name (first match wins); the rest are general cargo berths, small faces tug berths. */
   kinds?: { match: RegExp; kind: BerthKind; design?: string }[];
+  /** Berths the chart shows only in fragments (a tanker jetty's platform and dolphins): laid out by the rules. */
+  extra?: BerthSpec[];
 }
 
 export const AREAS: Record<string, AreaDef> = {
@@ -27,17 +31,41 @@ export const AREAS: Record<string, AreaDef> = {
     meta: MIAMI_META as unknown as AreaMeta, pack: new URL('./miami/miami.azp', import.meta.url).href, chart: new URL('./miami/miami.azc', import.meta.url).href,
     kinds: [{ match: /Berth [1-9H J]|\(V\)|Bays/, kind: 'cruise' }],
   },
+  lalb: {
+    meta: LALB_META as unknown as AreaMeta, pack: new URL('./lalb/lalb.azp', import.meta.url).href, chart: new URL('./lalb/lalb.azc', import.meta.url).href,
+    // Long Beach Pier T, Berth T121 (crude): the jetty's line in the 22–24 m basin east of the pier's tip
+    extra: [{ id: 'T121', name: 'Pier T · Berth T121 (crude)', kind: 'dolphins', a: [2000, 700], b: [2380, 700], nrm: [0, 1], charted: true }],
+    kinds: [
+      // crude and product berths (Pier 400 Berth 408 takes VLCCs; Long Beach T121; Los Angeles 238–240)
+      { match: /Berths? (408|T?121|23[89]|240)\b/, kind: 'tanker' },
+      { match: /Berths? (9[1-3]|8[89]|90)\b/, kind: 'cruise' },
+      { match: /Berths? (40[1-6]|30[1-6]|1[0-3]\d|2[1-7]\d)\b|Pier (J|E|G|T|A|400|300)\b/, kind: 'container' },
+    ],
+  },
+  ijmuiden: {
+    meta: IJM_META as unknown as AreaMeta, pack: new URL('./ijmuiden/ijmuiden.azp', import.meta.url).href, chart: new URL('./ijmuiden/ijmuiden.azc', import.meta.url).href,
+    kinds: [
+      { match: /[Cc]ruise|Passenger/, kind: 'cruise' },
+      { match: /[Oo]lie|Tank|LNG|Petroleum/, kind: 'tanker' },
+      { match: /[Cc]ontainer|ACT|Terminal/, kind: 'container' },
+      { match: /Binnenvaart|loswal|steiger|Steiger/, kind: 'general' },
+    ],
+  },
 };
+/** Chart names to app names: "PIER T" and bare pier letters as "Pier T"; "Berth Berth" once. */
+const tidy = (n: string) => n.replace(/Berth Berth/, 'Berth').replace(/ \(Bays [^)]*\)/, '').replace(/^PIER /, 'Pier ').replace(/^([A-Z]|\d{1,3}) · /, 'Pier $1 · ');
 
 /** The area's berth faces as berth specs (ids F1…), named and kinded. */
 export function areaBerths(id: string): BerthSpec[] {
   const def = AREAS[id];
-  return def.meta.faces.map((f, i) => {
-    const k = def.kinds?.find(x => x.match.test(f.name));
+  // whole wharves first: their fenders are sized for the biggest ship, and the numbered berths along them share them
+  const order = def.meta.faces.map((f, i) => [f, i] as const).sort((x, y) => Number(!!y[0].whole) - Number(!!x[0].whole) || x[1] - y[1]);
+  return order.map(([f, i]) => {
+    const name = tidy(f.name);
+    const k = def.kinds?.find(x => x.match.test(name));
     const kind: BerthKind = f.len < 60 ? 'tug' : k?.kind ?? 'general';
-    const name = f.name.replace(/Berth Berth/, 'Berth').replace(/ \(Bays [^)]*\)/, '');
-    return { id: `F${i + 1}`, name, kind, a: f.a, b: f.b, nrm: f.nrm, charted: true, ...(k?.design ? { design: k.design } : {}) };
-  });
+    return { id: `F${i + 1}`, name, kind, a: f.a, b: f.b, nrm: f.nrm, charted: true, ...(k?.design ? { design: k.design } : {}) } as BerthSpec;
+  }).concat(def.extra ?? []);
 }
 
 /** Read a pack or chart: fetch in the browser, the file itself under Node. */

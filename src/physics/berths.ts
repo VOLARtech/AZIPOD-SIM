@@ -11,6 +11,8 @@ import type { Fender, Obstacle, Pt } from './contact';
 import { fenderReaction } from './contact';
 import type { DepthField } from './harbour';
 import type { ShipSpec } from './ship';
+import { BoxIndex } from './spatial';
+const bboxOfPoly = (p: Pt[]): [number, number, number, number] => { let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity; for (const [n, e] of p) { if (n < a) a = n; if (e < b) b = e; if (n > c) c = n; if (e > d) d = e; } return [a, b, c, d]; };
 
 export type BerthKind = 'container' | 'tanker' | 'cruise' | 'ferry' | 'roro' | 'general' | 'bulk' | 'tug' | 'yacht'
   | 'pontoon' | 'lockwall' | 'waiting' | 'dolphins';
@@ -130,8 +132,11 @@ export interface EquipOpts {
   top: number;                 // default deck height above the water [m]
   fleet: ShipSpec[];
   tide?: number;
+  /** A new structure the rules put up (a dolphin berth's breasting and mooring dolphins and platform). */
+  addSolid?: (poly: Pt[]) => void;
 }
 
+const geomCache = new WeakMap<BerthSpec, { depthAt: DepthField; sp: BerthSpec; len: number; dir: Pt; nrm: Pt; profile: [number, number][]; room: [number, number] }>();
 /** How far past each end of a face a ship may stick out, at most, as a fraction of its length. */
 const ROOM = 0.35;
 /** …and in metres: no further than her head and stern lines still reach the last bollards. */
@@ -157,6 +162,7 @@ function trimShallowEnds(sp: BerthSpec, depthAt: DepthField): BerthSpec {
 /** Points along [s0, s1] at most `step` apart, around the ones already there (sorted). */
 export function fillAlong(kept: number[], s0: number, s1: number, step: number): number[] {
   const out: number[] = [];
+  step = Math.max(1, step);
   if (!kept.length) {
     const n = Math.max(2, Math.ceil((s1 - s0) / step - 1e-9) + 1);
     for (let i = 0; i < n; i++) out.push(s0 + (s1 - s0) * i / (n - 1));
@@ -169,10 +175,14 @@ export function fillAlong(kept: number[], s0: number, s1: number, step: number):
     if (g > 1.5 * step) { const m = Math.ceil(g / step - 1e-9); for (let j = 1; j < m; j++) out.push(k[i - 1] + g * j / m); }
   }
   for (let x = k[k.length - 1] + step; x <= s1 + 1e-6; x += step) out.push(x);
+  // and one at each end if the steps left a gap there of more than half a step
+  const all = [...k, ...out], lo = Math.min(...all), hi = Math.max(...all);
+  if (lo > s0 + 0.5 * step) out.push(s0);
+  if (hi < s1 - 0.5 * step) out.push(s1);
   return out;
 }
 const median = (a: number[]) => { if (!a.length) return Infinity; const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
-const gaps = (a: number[]) => { const s = [...a].sort((x, y) => x - y); return s.slice(1).map((x, i) => x - s[i]); };
+const gaps = (a: number[]) => { const s = [...a].sort((x, y) => x - y); return s.slice(1).map((x, i) => x - s[i]).filter(g => g > 1); };
 
 /** Along-face and off-face coordinates of a point (off > 0 on the water side). */
 export const faceCoords = (b: Pick<Berth, 'a' | 'dir' | 'nrm'>, n: number, e: number): [number, number] => {
@@ -196,30 +206,52 @@ export const bollardOn = (b: Berth, p: Pt) => {
 export function equipBerths(specs: BerthSpec[], fenders: Fender[], bollards: Pt[], o: EquipOpts, info: BollardInfo[] = []) {
   const berths: Berth[] = [];
   const nKeptF = fenders.length, nKeptB = bollards.length;
+  // a 64 m hash of the gear, so each berth finds what already stands on it (its own, or a neighbour's on the
+  // same wharf) without looking at every fender and bollard of the port
+  const H = 64, key = (n: number, e: number) => Math.floor(n / H) * 100003 + Math.floor(e / H);
+  const fh = new Map<number, number[]>(), bh = new Map<number, number[]>();
+  const put = (h: Map<number, number[]>, i: number, n: number, e: number) => { const k = key(n, e); let a = h.get(k); if (!a) h.set(k, a = []); a.push(i); };
+  const near = (h: Map<number, number[]>, bb: [number, number, number, number]) => {
+    const out: number[] = [];
+    for (let i = Math.floor(bb[0] / H); i <= Math.floor(bb[2] / H); i++) for (let j = Math.floor(bb[1] / H); j <= Math.floor(bb[3] / H); j++) { const a = h.get(i * 100003 + j); if (a) out.push(...a); }
+    return out.sort((x, y) => x - y);
+  };
+  fenders.forEach((f, i) => put(fh, i, f.n, f.e)); bollards.forEach((p, i) => put(bh, i, p[0], p[1]));
+  const pushF = (f: Fender) => { fenders.push(f); put(fh, fenders.length - 1, f.n, f.e); };
+  const pushB = (p: Pt) => { bollards.push(p); put(bh, bollards.length - 1, p[0], p[1]); };
   for (let i = info.length; i < nKeptB; i++) info.push({ berth: '', z: o.top + 0.5, kind: 'bollard', swl: 50 });
   const byId = new Map(o.fleet.map(s => [s.id, s]));
   for (const sp0 of specs) {
-    const sp = sp0.charted ? trimShallowEnds(sp0, o.depthAt) : sp0;
-    const dn = sp.b[0] - sp.a[0], de = sp.b[1] - sp.a[1], len = Math.hypot(dn, de) || 1;
-    const nl = Math.hypot(sp.nrm[0], sp.nrm[1]) || 1;
-    const b: Berth = { ...sp, len, dir: [dn / len, de / len], nrm: [sp.nrm[0] / nl, sp.nrm[1] / nl], depth: 0, designShip: '', E: { normal: 0, design: 0, v: 0 }, fenderLat: 0, kept: false, room: [0, 0], profile: [] };
+    // the face's own geometry (trimmed ends, the water along and past it) depends on the land and the depths
+    // only: worked out once per spec, even when the gear is laid out again
+    let g = geomCache.get(sp0);
+    if (!g || g.depthAt !== o.depthAt) {
+      const sp = sp0.charted ? trimShallowEnds(sp0, o.depthAt) : sp0;
+      const dn = sp.b[0] - sp.a[0], de = sp.b[1] - sp.a[1], len = Math.hypot(dn, de) || 1;
+      const nl = Math.hypot(sp.nrm[0], sp.nrm[1]) || 1;
+      const dir: Pt = [dn / len, de / len], nrm: Pt = [sp.nrm[0] / nl, sp.nrm[1] / nl];
+      const at = (s: number, off: number): Pt => [sp.a[0] + dir[0] * s + nrm[0] * off, sp.a[1] + dir[1] * s + nrm[1] * off];
+      // water alongside: the least depth along the face at each distance off it
+      const OFFS = [1, 2, 4, 6, 8, 10, 13, 16, 20, 25, 30, 40, 50, 60, 70], step = Math.max(1, Math.min(2.5, (len - 2) / 4));
+      const least = (s0: number, s1: number, off: number) => { let d = Infinity; for (let s = s0; s <= s1 + 1e-6; s += step) { const p = at(s, off); d = Math.min(d, o.depthAt(p[0], p[1])); } return d; };
+      const profile = OFFS.map(off => [off, least(1, len - 1, off)] as [number, number]);
+      // how far a ship lying here may stick out past each end: up to 35 % of the face (45 m), less where a quay
+      // or pier stands across her way (an inside corner) or the water there is shallower than along the face
+      const probe = (s0: number, sgn: number) => {
+        const cap = Math.min(ROOM * len, ROOM_MAX);
+        for (let x = 0; x <= cap + 1e-6; x += 2.5) {
+          for (const w of [3, 12, 24]) { const p = at(s0 + sgn * x, w); if (o.solid(p[0], p[1])) return Math.max(0, x - 2.5); }
+          for (const [w, z] of profile) { if (w > 40) break; const p = at(s0 + sgn * x, w); if (o.depthAt(p[0], p[1]) < z) return Math.max(0, x - 2.5); }
+        }
+        return cap;
+      };
+      g = { depthAt: o.depthAt, sp, len, dir, nrm, profile, room: [probe(0, -1), probe(len, 1)] };
+      geomCache.set(sp0, g);
+    }
+    const { sp, len } = g;
+    const b: Berth = { ...sp, len, dir: g.dir, nrm: g.nrm, depth: 0, designShip: '', E: { normal: 0, design: 0, v: 0 }, fenderLat: 0, kept: false, room: [...g.room] as [number, number], profile: g.profile.map(x => [x[0], x[1]] as [number, number]) };
     const rule = RULES[b.kind];
     const at = (s: number, off: number): Pt => [b.a[0] + b.dir[0] * s + b.nrm[0] * off, b.a[1] + b.dir[1] * s + b.nrm[1] * off];
-    // water alongside: the least depth along the face at each distance off it
-    const OFFS = [1, 2, 4, 6, 8, 10, 13, 16, 20, 25, 30, 40, 50, 60, 70], step = Math.max(1, Math.min(2.5, (len - 2) / 4));
-    const least = (s0: number, s1: number, off: number) => { let d = Infinity; for (let s = s0; s <= s1 + 1e-6; s += step) { const p = at(s, off); d = Math.min(d, o.depthAt(p[0], p[1])); } return d; };
-    b.profile = OFFS.map(off => [off, least(1, len - 1, off)] as [number, number]);
-    // how far a ship lying here may stick out past each end: up to 15 % of the face, less where a quay or
-    // pier stands across her way (an inside corner) or the water there is shallower than along the face
-    const probe = (s0: number, sgn: number) => {
-      const cap = Math.min(ROOM * len, ROOM_MAX);
-      for (let x = 0; x <= cap + 1e-6; x += 2.5) {
-        for (const w of [3, 12, 24]) { const p = at(s0 + sgn * x, w); if (o.solid(p[0], p[1])) return Math.max(0, x - 2.5); }
-        for (const [w, z] of b.profile) { if (w > 40) break; const p = at(s0 + sgn * x, w); if (o.depthAt(p[0], p[1]) < z) return Math.max(0, x - 2.5); }
-      }
-      return cap;
-    };
-    b.room = [probe(0, -1), probe(len, 1)];
     // a charted depth given for the berth holds alongside it
     if (sp.depth !== undefined) b.profile = b.profile.map(([off, z]) => [off, off <= 15 ? sp.depth! : z]);
     b.depth = sp.depth ?? Math.min(...b.profile.filter(([off]) => off <= 15).map(([, z]) => z));
@@ -232,10 +264,11 @@ export function equipBerths(specs: BerthSpec[], fenders: Fender[], bollards: Pt[
     b.designShip = ds.id;
     const M = displacement(ds), v = approachSpeed(M), En = berthingEnergy(ds, v);
     b.E = { normal: En, design: En * rule.cab, v };
-    // the berth's own fenders (kept), and the size any new ones take
-    const keptF: number[] = [];
-    for (let i = 0; i < nKeptF; i++) if (fenderOn(b, fenders[i])) keptF.push(i);
-    b.kept = keptF.length > 0;
+    // the fenders already on this face (the scenario's own, or a whole wharf's this part of it shares), and the
+    // size any new ones take
+    const fbb: [number, number, number, number] = [Math.min(b.a[0], b.b[0]) - 125, Math.min(b.a[1], b.b[1]) - 125, Math.max(b.a[0], b.b[0]) + 125, Math.max(b.a[1], b.b[1]) + 125];
+    const keptF = near(fh, fbb).filter(i => fenderOn(b, fenders[i]) && (i < nKeptF || ((s0: number) => s0 > 1 && s0 < len - 1)(faceCoords(b, fenders[i].n, fenders[i].e)[0])));
+    b.kept = keptF.some(i => i < nKeptF);
     const sAlong = keptF.map(i => faceCoords(b, fenders[i].n, fenders[i].e)[0]);
     let tmpl: Omit<Fender, 'n' | 'e' | 'nn' | 'ne'>, lat: number;
     if (keptF.length) {
@@ -246,41 +279,102 @@ export function equipBerths(specs: BerthSpec[], fenders: Fender[], bollards: Pt[
     } else { tmpl = fenderClass(b.E.design, rule.hMin); lat = tmpl.height; }
     b.fenderLat = lat;
     const gen = sp.generate !== false;
-    if (gen) {
+    const dolphins = gen && b.kind === 'dolphins';
+    const f0 = fenders.length, b0 = bollards.length;
+    if (dolphins) {
+      // a tanker jetty out in deep water (OCIMF practice): four breasting dolphins on the berth line, at about
+      // ±0.18 and ±0.38 of the design ship's length from the middle, two fenders each; mooring dolphins set back
+      // abreast of her ends for the breast lines and beyond them for head and stern lines; a loading platform
+      const mid = len / 2, Lpp = ds.L, loa = ds.LOA;
+      const box = (s0: number, s1: number, o0: number, o1: number): Pt[] => [at(s0, o0), at(s1, o0), at(s1, o1), at(s0, o1)];
+      for (const k of [-0.38, -0.18, 0.18, 0.38]) {
+        const s = mid + k * Lpp;
+        o.addSolid?.(box(s - 7, s + 7, -14, 0));
+        for (const d2 of [-3, 3]) { const p = at(s + d2, lat); pushF({ n: p[0], e: p[1], nn: b.nrm[0], ne: b.nrm[1], ...tmpl }); }
+      }
+      o.addSolid?.(box(mid - 20, mid + 20, -50, -18));
+      for (const [s, off] of [[mid - 0.42 * loa, -40], [mid + 0.42 * loa, -40], [mid - 0.5 * loa - 30, -15], [mid + 0.5 * loa + 30, -15]] as [number, number][])
+        o.addSolid?.(box(s - 6, s + 6, off - 6, off + 6));
+    }
+    if (gen && !dolphins) {
       // new fenders at the spacing of the berth's own, if it has some close to the rule's
       const ks = median(gaps(sAlong)), step = ks <= 1.35 * rule.fs ? ks : rule.fs;
       const pad = Math.min(rule.fs / 2, len / 6);
       for (const s of fillAlong(sAlong, pad, len - pad, step)) {
         const p = at(s, lat);
-        fenders.push({ n: p[0], e: p[1], nn: b.nrm[0], ne: b.nrm[1], ...tmpl });
+        pushF({ n: p[0], e: p[1], nn: b.nrm[0], ne: b.nrm[1], ...tmpl });
       }
     }
     // bollards behind the face, and on past each end while there is quay to stand them on
     const swl = bollardSWL(M), z = (sp.top ?? o.top) + 0.5;
-    const keptB: number[] = [];
-    for (let i = 0; i < nKeptB; i++) if (bollardOn(b, bollards[i])) keptB.push(i);
+    if (dolphins) {
+      // quick-release hooks: both ends of each breasting dolphin (springs), each mooring dolphin, the platform
+      const mid = len / 2, Lpp = ds.L, loa = ds.LOA;
+      const hooks: Pt[] = [
+        ...[-0.38, -0.18, 0.18, 0.38].flatMap(k => [at(mid + k * Lpp - 5, -4), at(mid + k * Lpp + 5, -4)]),
+        at(mid - 12, -20), at(mid + 12, -20),
+        ...([[mid - 0.42 * loa, -40], [mid + 0.42 * loa, -40], [mid - 0.5 * loa - 30, -15], [mid + 0.5 * loa + 30, -15]] as [number, number][]).map(([s, off]) => at(s, off)),
+      ];
+      for (const p of hooks) { pushB(p); info.push({ berth: b.id, z, kind: 'hook', swl }); }
+    }
+    const keptB = near(bh, fbb).filter(i => bollardOn(b, bollards[i]));
     const bAlong = keptB.map(i => faceCoords(b, bollards[i][0], bollards[i][1])[0]);
     for (const i of keptB) if (!info[i].berth) info[i] = { berth: b.id, z, kind: b.kind === 'dolphins' ? 'hook' : 'bollard', swl };
-    if (gen) {
+    if (gen && !dolphins) {
       const kb = median(gaps(bAlong)), step = kb <= 1.2 * rule.bs ? kb : rule.bs;
       const ext = Math.min(0.5 * ds.LOA, 120);
-      const set = keptB.length ? -faceCoords(b, bollards[keptB[0]][0], bollards[keptB[0]][1])[1] : rule.set;
-      const cand = keptB.length ? fillAlong(bAlong, -ext, len + ext, step)
+      // set back as the scenario's own are (not as a neighbouring face's that reach round the corner)
+      const ownB = keptB.find(i => i < nKeptB);
+      const set = ownB !== undefined ? Math.max(0.5, -faceCoords(b, bollards[ownB][0], bollards[ownB][1])[1]) : rule.set;
+      const cand = keptB.length ? fillAlong(bAlong, -ext, len + ext, step).concat([1, len - 1].filter(x => bAlong.every(y => Math.abs(y - x) > 0.5 * step)))
         : fillAlong([], 1, len - 1, rule.bs).concat(fillAlong([1], -ext, 1, rule.bs), fillAlong([len - 1], len - 1, len + ext, rule.bs));   // 1 m in from the corners
       for (const s0 of cand) {
         // one that falls on a corner moves 1 m in, onto the quay
         const s = Math.abs(s0 - len) < 1 ? len - 1 : Math.abs(s0) < 1 ? 1 : s0;
         let p = at(s, -set);
         const q = at(s, 2);
-        // a narrow pier or catwalk: nearer the edge
-        if (!o.solid(p[0], p[1])) for (const k of [0.6, 0.35]) { const p2 = at(s, -set * k); if (o.solid(p2[0], p2[1])) { p = p2; break; } }
+        // a narrow pier or catwalk: nearer the edge; a notch in the quay: a few metres along
+        if (!o.solid(p[0], p[1])) {
+          search: for (const ds of [0, -2.5, 2.5, -5, 5]) for (const k of [1, 0.6, 0.35]) {
+            if (s + ds < -1 && s >= -1) continue;
+            const p2 = at(s + ds, -set * k); if (o.solid(p2[0], p2[1])) { p = p2; break search; }
+          }
+        }
         // on the quay, and past the ends only while the quay edge runs on (not round a corner, not inland)
         if (!o.solid(p[0], p[1]) || ((s < -1 || s > len + 1) && o.solid(q[0], q[1]))) continue;
         // one bollard where two berths meet at a corner
-        if (bollards.some(q => Math.abs(q[0] - p[0]) < 1.5 && Math.abs(q[1] - p[1]) < 1.5)) continue;
-        bollards.push(p);
+        if (near(bh, [p[0] - 1.5, p[1] - 1.5, p[0] + 1.5, p[1] + 1.5]).some(i => Math.abs(bollards[i][0] - p[0]) < 1.5 && Math.abs(bollards[i][1] - p[1]) < 1.5)) continue;
+        pushB(p);
         info.push({ berth: b.id, z, kind: 'bollard', swl });
       }
+    }
+    // repair: wherever the bollard line still leaves an end or a stretch uncovered (a notch, a neighbour's
+    // bollards that set the spacing), one more where there is quay for it, a few metres either way if need be
+    if (gen && !dolphins) {
+      const set = rule.set;
+      for (let it = 0; it < 8; it++) {
+        const ss = near(bh, fbb).filter(i => bollardOn(b, bollards[i])).map(i => faceCoords(b, bollards[i][0], bollards[i][1])[0]).sort((x, y) => x - y);
+        const want: number[] = [];
+        if (!ss.length || ss[0] > 0.6 * rule.bs) want.push(1);
+        if (!ss.length || ss[ss.length - 1] < len - 0.6 * rule.bs) want.push(len - 1);
+        for (let k = 1; k < ss.length; k++) if (ss[k] - ss[k - 1] > 1.2 * rule.bs) want.push((ss[k] + ss[k - 1]) / 2);
+        let placed = 0;
+        for (const t of want) {
+          search: for (const ds of [0, -2.5, 2.5, -5, 5, -7.5, 7.5]) for (const k of [1, 0.6, 0.35]) {
+            const s2 = Math.max(0.5, Math.min(len - 0.5, t + ds)), p = at(s2, -set * k);
+            if (!o.solid(p[0], p[1]) || near(bh, [p[0] - 1.5, p[1] - 1.5, p[0] + 1.5, p[1] + 1.5]).some(i => Math.abs(bollards[i][0] - p[0]) < 1.5 && Math.abs(bollards[i][1] - p[1]) < 1.5)) continue;
+            pushB(p); info.push({ berth: b.id, z, kind: 'bollard', swl }); placed++; break search;
+          }
+        }
+        if (!placed) break;
+      }
+    }
+    // a charted face with nowhere to stand two bollards (a catwalk, a sliver) is no berth: take back its gear
+    if (sp.charted && !dolphins && near(bh, fbb).filter(i => bollardOn(b, bollards[i])).length < 2) {
+      const drop = (h: Map<number, number[]>, from: number, pts: (i: number) => Pt) => { for (let i = from; i < (h === fh ? fenders.length : bollards.length); i++) { const k = key(...pts(i)); const a = h.get(k); if (a) h.set(k, a.filter(x => x !== i)); } };
+      drop(fh, f0, i => [fenders[i].n, fenders[i].e]); drop(bh, b0, i => bollards[i]);
+      fenders.length = f0; bollards.length = b0; info.length = b0;
+      continue;
     }
     berths.push(b);
   }
@@ -291,8 +385,10 @@ export function equipBerths(specs: BerthSpec[], fenders: Fender[], bollards: Pt[
 /** Point-in-solid test over a harbour's structures (quays, piers, dolphins; not banks, not ships). */
 export function solidTest(obstacles: Obstacle[]) {
   const hard = obstacles.filter(o => o.kind !== 'bank' && o.kind !== 'ship');
+  const idx = hard.length > 64 ? new BoxIndex(hard.map(o => o.bbox ?? bboxOfPoly(o.poly))) : null;
   return (n: number, e: number) => {
-    for (const o of hard) {
+    for (const k of idx ? idx.query(n, e, n, e) : hard.keys()) {
+      const o = hard[k];
       const bb = o.bbox;
       if (bb && (n < bb[0] || n > bb[2] || e < bb[1] || e > bb[3])) continue;
       let ins = false; const p = o.poly;

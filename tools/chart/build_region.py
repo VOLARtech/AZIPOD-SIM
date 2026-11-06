@@ -111,6 +111,10 @@ solid += [g for g, p in slcons if g.geom_type in ('Polygon', 'MultiPolygon')]
 solid += [g for g, p in layers('PONTON', 'HULKES', 'FLODOC', 'DRYDOC', 'ponton', 'hulkes') if g.geom_type in ('Polygon', 'MultiPolygon')]
 dolph = [g if g.geom_type != 'Point' else g.buffer(3.5) for g, p in layers('MORFAC') if first(p.get('CATMOR')) == 1]
 solid += dolph
+# mooring piles stand in the water as small solid structures; charted bollards are the berths' own
+solid += [g.buffer(0.8) for g, p in layers('MORFAC') if first(p.get('CATMOR')) == 5 and g.geom_type == 'Point']
+charted_bollards = [(g.y, g.x) for g, p in layers('MORFAC') if first(p.get('CATMOR')) == 3 and g.geom_type == 'Point']
+print('charted bollards', len(charted_bollards))
 land = unary_union([land] + solid).intersection(reg).buffer(0).simplify(0.5, preserve_topology=True)
 water = reg.difference(land)
 print('land km2', round(land.area / 1e6, 1), 'dolphins', len(dolph))
@@ -130,7 +134,7 @@ def depth_points():
         for ln in lines(g):
             for s in np.arange(0, ln.length, 15.0): q = ln.interpolate(s); pts.append((q.x, q.y)); vals.append(float(v))
     # the shore dries at 0 m; a wharf or pier face does not: the water keeps its depth up to the wall
-    walls = unary_union([g for g, p in slcons if first(p.get('CATSLC')) in (4, 6, 14, 15, 16, 18) and g.geom_type in ('LineString', 'MultiLineString', 'Polygon', 'MultiPolygon')] + dolph or [LineString()]).buffer(4.0)
+    walls = unary_union([g for g, p in slcons if first(p.get('CATSLC')) in (4, 6, 10, 14, 15, 16, 18) and g.geom_type in ('LineString', 'MultiLineString', 'Polygon', 'MultiPolygon')] + dolph or [LineString()]).buffer(4.0)
     wp = prep(walls)
     for ln in lines(land.boundary):
         for s in np.arange(0, ln.length, 20.0):
@@ -245,10 +249,10 @@ def zat(n, e):
         j = int((e - g['e0']) / g['cell']); i = int((n - g['n0']) / g['cell'])
         if 0 <= i < g['ny'] and 0 <= j < g['nx']: return g['data'][i, j] / 100
     return 0.0
-FACE_SLC = (3, 4, 6, 14, 15, 16, 18)                           # moles, piers, wharves, fenders, lock walls
+FACE_SLC = (3, 4, 6, 10, 14, 15, 16, 18)                       # moles, piers, wharves, sea walls, fenders, lock walls
 face_lines = unary_union([g for g, p in slcons if first(p.get('CATSLC')) in FACE_SLC and g.geom_type in ('LineString', 'MultiLineString')] or [LineString()])
 face_lines = face_lines.buffer(3.0) if not face_lines.is_empty else Polygon()
-named = [(g if g.geom_type == 'Point' else g.representative_point(), p.get('OBJNAM')) for g, p in layers('BERTHS', 'berths') if p.get('OBJNAM')]
+named = [(g, re.sub(r'^Ligplaats\s+', '', p.get('OBJNAM'))) for g, p in layers('BERTHS', 'berths') if p.get('OBJNAM')]
 piers = [(g, p.get('OBJNAM')) for g, p in slcons + layers('LNDARE') if p.get('OBJNAM')]
 faces = []
 def merged(cs):
@@ -277,8 +281,11 @@ for poly in polys(land):
             ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
             nx_, ny_ = -uy, ux
             mid = seg.interpolate(0.5, normalized=True)
-            if land.contains(Point(mid.x + nx_ * 6, mid.y + ny_ * 6)): nx_, ny_ = -nx_, -ny_
-            if land.contains(Point(mid.x + nx_ * 6, mid.y + ny_ * 6)): continue
+            # the land side is the one just behind the edge (a thin pier has water a few metres either side)
+            behind = [sum(land.contains(Point(q.x - nx_ * 0.6, q.y - ny_ * 0.6)) for q in (seg.interpolate(t, normalized=True) for t in (0.25, 0.5, 0.75))),
+                      sum(land.contains(Point(q.x + nx_ * 0.6, q.y + ny_ * 0.6)) for q in (seg.interpolate(t, normalized=True) for t in (0.25, 0.5, 0.75)))]
+            if behind[1] > behind[0]: nx_, ny_ = -nx_, -ny_
+            if max(behind) < 2 or land.contains(Point(mid.x + nx_ * 6, mid.y + ny_ * 6)): continue
             # along a charted wharf, pier or dolphin face (not a beach, a bank or a breakwater)
             on = sum(face_lines.contains(seg.interpolate(t, normalized=True)) for t in (0.1, 0.3, 0.5, 0.7, 0.9)) + (any(d.distance(seg) < 6 for d in dolph) * 5)
             if on < 4: continue
@@ -288,7 +295,7 @@ for poly in polys(land):
             pier = min(piers, key=lambda q: q[0].distance(seg), default=(None, None))
             place = pier[1] if pier[0] is not None and pier[0].distance(seg) < 60 else None
             # the charted berths along it: one berth each, from halfway to the one before to halfway to the next
-            on_face = sorted([(seg.project(q), nm_) for q, nm_ in named if q.distance(seg) < 40 and 0 <= seg.project(q) <= L], key=lambda x: x[0])
+            on_face = sorted([(seg.project(q.centroid), nm_) for q, nm_ in named if q.distance(seg) < (40 if q.geom_type == 'Point' else 12) and 0 <= seg.project(q.centroid) <= L], key=lambda x: x[0])
             cuts = [0.0] + [(on_face[k][0] + on_face[k + 1][0]) / 2 for k in range(len(on_face) - 1)] + [L]
             parts = [(cuts[k], cuts[k + 1], on_face[k][1] if on_face else None) for k in range(max(1, len(on_face)))]
             # pieces too short to be a berth go to their neighbour
@@ -296,9 +303,14 @@ for poly in polys(land):
                 k = min(range(len(parts)), key=lambda i: parts[i][1] - parts[i][0]); j = k - 1 if k > 0 else k + 1
                 lo, hi = min(k, j), max(k, j)
                 parts[lo:hi + 1] = [(parts[lo][0], parts[hi][1], parts[lo][2] or parts[hi][2])]
+            if len(parts) > 1:
+                # the whole wharf too, for a ship longer than any one of its numbered berths
+                nms = [str(x) for _, _, x in parts if x]
+                whole = f"Berths {nms[0]}–{nms[-1]}" if len(nms) > 1 else None
+                faces.append({'a': [r1(a[1]), r1(a[0])], 'b': [r1(b[1]), r1(b[0])], 'nrm': [round(ny_, 5), round(nx_, 5)], 'depth': round(float(np.percentile(ds, 10)), 1), 'len': r1(L), 'name': whole, 'place': place, 'whole': True})
             for p0, p1, nm_ in parts:
                 pa, pb = seg.interpolate(p0), seg.interpolate(p1)
-                name = (nm_ if str(nm_).lower().startswith('berth') else f'Berth {nm_}') if nm_ else None
+                name = (nm_ if not re.match(r'^[0-9A-Z]{1,5}$', str(nm_)) else f'Berth {nm_}') if nm_ else None
                 faces.append({'a': [r1(pa.y), r1(pa.x)], 'b': [r1(pb.y), r1(pb.x)], 'nrm': [round(ny_, 5), round(nx_, 5)], 'depth': round(float(np.percentile(ds, 10)), 1), 'len': r1(p1 - p0), 'name': name, 'place': place})
 # names for the rest, one counter per place
 cnt = {}
@@ -327,6 +339,23 @@ for q in polys(land):
     chart['land'].append([ring(q.exterior, 0.5)] + [ring(h, 0.5) for h in q.interiors])
 for g, p in layers('DEPCNT', 'depcnt'):
     for ln in lines(g): chart['contours'].append({'v': p.get('VALDCO'), 'pts': coords(ln.simplify(1.0))})
+if len(chart['contours']) < 20:
+    # no contours charted (inland ENC): drawn from the surveyed depths, finest grid where it covers, in the water only
+    import contourpy
+    wp = prep(water.buffer(-2))
+    for gi, g in enumerate(reversed(grids)):
+        Zg = g['data'].astype(float) / 100
+        xs = g['e0'] + (np.arange(g['nx']) + 0.5) * g['cell']; ys = g['n0'] + (np.arange(g['ny']) + 0.5) * g['cell']
+        finer = [box(h['e0'], h['n0'], h['e0'] + h['nx'] * h['cell'], h['n0'] + h['ny'] * h['cell']) for h in list(reversed(grids))[:gi]]
+        cg = contourpy.contour_generator(xs, ys, Zg)
+        for v in (2, 5, 10, 15, 20, 25):
+            for ln in cg.lines(v):
+                if len(ln) < 4: continue
+                L_ = LineString(ln).simplify(g['cell'] * 0.4)
+                for part in lines(L_.difference(unary_union(finer)) if finer else L_):
+                    keep = [q for q in part.coords]
+                    if len(keep) >= 3 and wp.contains(Point(keep[len(keep) // 2])): chart['contours'].append({'v': v, 'pts': [[r1(y), r1(x)] for x, y in keep]})
+    print('contours drawn from the depth grids', len(chart['contours']))
 seen = set()
 for g, p in layers('SOUNDG'):
     d = p.get('DEPTH')
@@ -356,7 +385,7 @@ AID_LAYERS = ('BOYLAT', 'BOYCAR', 'BOYISD', 'BOYSAW', 'BOYSPP', 'BOYINB', 'BCNLA
 for L in AID_LAYERS:
     for g, p in layer(L):
         if g.geom_type != 'Point': continue
-        if L == 'MORFAC' and first(p.get('CATMOR')) not in (1, 3): continue
+        if L == 'MORFAC' and first(p.get('CATMOR')) != 1: continue
         k = L.upper().replace('WTW', 'LAT')
         k = {'BOYINB': 'BOYSPP'}.get(k, k)
         a = {'k': k, 'n': r1(g.y), 'e': r1(g.x), 'col': [COL.get(c, 'grey') for c in ints(p.get('COLOUR'))]}
@@ -397,7 +426,14 @@ for g, p in layers('FOGSIG'):
 for g, p in layers('LNDMRK'):
     k = near_key(g, 8) if g.geom_type == 'Point' else None
     if k and marks[k]['k'] == 'LIGHTS' and p.get('OBJNAM') and 'name' not in marks[k]: marks[k]['name'] = p['OBJNAM']
-# Rijkswaterstaat buoys and beacons (PDOK), already S-57 coded
+# Rijkswaterstaat buoys and beacons (PDOK): colours, shapes, topmarks and lights, partly as Dutch text
+NL = {'rood': 'red', 'groen': 'green', 'geel': 'yellow', 'zwart': 'black', 'wit': 'white', 'grijs': 'grey', 'oranje': 'orange', 'blauw': 'blue'}
+TOPNL = [('2 kegels, punten naar boven', 13), ('2 kegels, punten naar beneden', 14), ('2 kegels punten van elkaar af', 11), ('2 kegels, punten naar elkaar', 10),
+         ('2 bollen', 4), ('kegel boven bol', 1), ('kegel, punt naar boven', 1), ('kegel, punt naar beneden', 2), ('bol', 3), ('cilinder', 5), ('liggend kruis', 7), ('kruis', 7)]
+SHPNL = {'spits': 1, 'stomp': 2, 'bol': 3, 'pilaar': 4, 'spar': 5, 'ton': 6}
+def nl_cols(t):
+    if not t or t in ('Niet toegewezen', 'X'): return []
+    return [NL[w] for w in re.split(r'[/\s]+', t.lower()) if w in NL]
 bfn = f'{RAW}/pdok_buoys.geojson'
 if os.path.exists(bfn):
     for ft in json.load(open(bfn))['features']:
@@ -405,18 +441,42 @@ if os.path.exists(bfn):
         if not gj or gj['type'] != 'Point': continue
         g = P(shape(gj))
         if not reg.contains(g) or near_key(g, 6): continue
-        floating = p.get('_collection', '').find('drijvend') >= 0
-        kind = str(p.get('iala_categ') or p.get('obj_soort') or '').lower()
-        k = ('BOY' if floating else 'BCN') + ('CAR' if 'card' in kind else 'ISD' if 'gevaar' in kind or 'isol' in kind else 'SAW' if 'vaarwater' in kind or 'safe' in kind else 'SPP' if 'bijzonder' in kind or 'special' in kind else 'LAT')
-        a = {'k': k, 'n': r1(g.y), 'e': r1(g.x), 'col': [COL.get(c, 'grey') for c in ints(p.get('obj_kleur_') or p.get('obj_kleur_c'))]}
-        if first(p.get('kleurpatr_') or p.get('kleurpatr_c')): a['colpat'] = first(p.get('kleurpatr_') or p.get('kleurpatr_c'))
-        if first(p.get('obj_vorm_c')): a['shp'] = first(p.get('obj_vorm_c'))
+        floating = 'drijvend' in p.get('_collection', '')
+        cols = nl_cols(p.get('obj_kleur'))
+        shp = first(p.get('obj_vorm_c')) or first(p.get('object_vorm_c')) or SHPNL.get(str(p.get('obj_vorm') or '').lower())
+        top = next((v for k, v in TOPNL if k in str(p.get('tt_toptek') or p.get('v_toptek') or '').lower()), None)
+        cs = set(cols)
+        if cs <= {'black', 'yellow'} and len(cols) >= 2:
+            k = 'CAR'; cat = {('black', 'yellow'): 1, ('black', 'yellow', 'black'): 2, ('yellow', 'black'): 3, ('yellow', 'black', 'yellow'): 4}.get(tuple(cols))
+        elif cs == {'black', 'red'}: k, cat = 'ISD', None
+        elif cs == {'red', 'white'} and 'vertic' in str(p.get('kleurpatr') or '').lower(): k, cat = 'SAW', None
+        elif cs == {'yellow'}: k, cat = 'SPP', None
+        elif cols and cols[0] in ('red', 'green'):
+            k = 'LAT'
+            first_col, iala_a = cols[0], REG['iala'] == 'A'
+            two = 'green' in cs and 'red' in cs
+            cat = (4 if (first_col == 'red') == iala_a else 3) if two else (1 if (first_col == 'red') == iala_a else 2)
+        elif not floating and not cols: k, cat = None, None
+        else: k, cat = 'SPP', None
+        lit_chr = first(p.get('sign_kar_c'))
+        lt = None
+        if lit_chr:
+            lt = {'chr': lit_chr, 'col': nl_cols(p.get('licht_klr')) or (['yellow'] if k == 'SPP' else [cols[0]] if k == 'LAT' and cols else ['white'])}
+            if str(p.get('sign_groep') or '').startswith('('): lt['grp'] = p['sign_groep']
+            try: lt['per'] = float(str(p.get('sign_perio')).replace(',', '.'))
+            except ValueError: pass
+        if k is None:
+            if not lt: continue
+            a = {'k': 'LIGHTS', 'n': r1(g.y), 'e': r1(g.x), 'col': lt['col'][:1]}
+        else:
+            a = {'k': ('BOY' if floating else 'BCN') + k, 'n': r1(g.y), 'e': r1(g.x), 'col': cols}
+            if len(cols) > 1: a['colpat'] = 2 if 'vertic' in str(p.get('kleurpatr') or '').lower() else 1
+            if shp: a['shp'] = shp
+            if cat: a['cat'] = cat
+            if top: a['top'] = top; a['topCol'] = nl_cols(p.get('tt_kleur')) or (['black'] if k == 'CAR' else cols[:1])
         if p.get('benaming'): a['name'] = p['benaming']
-        chr_ = first(p.get('sign_kar_c'))
-        if chr_: a['light'] = {'chr': chr_, 'col': [COL.get(c, 'white') for c in ints(p.get('sign_kleur') or p.get('licht_kleu'))] or ['white'], **({'grp': p['sign_groep']} if p.get('sign_groep') else {}), **({'per': float(p['sign_perio'])} if p.get('sign_perio') else {})}
-        if k.endswith('LAT') and a['col']:
-            a['cat'] = 1 if a['col'][0] == ('red' if REG['iala'] == 'A' else 'green') else 2 if a['col'][0] == ('green' if REG['iala'] == 'A' else 'red') else None
-        marks[at(g)] = {x: v for x, v in a.items() if v is not None}
+        if lt: a['light'] = lt
+        marks[at(g)] = a
 chart['aids'] = list(marks.values())
 for L in ('BERTHS', 'FAIRWY', 'berths', 'HRBARE', 'hrbare', 'termnl', 'LOKBSN', 'lokbsn'):
     for g, p in layer(L):
@@ -439,7 +499,7 @@ for k, v in chart.items():
     if isinstance(v, list): print('chart', k, len(v))
 
 # ---------------------------------------------------------------- write
-hdr = {'v': 1, 'id': ID, 'origin': [LAT0, LON0], 'datum': REG['datum'], 'grids': [{k: g[k] for k in ('e0', 'n0', 'cell', 'nx', 'ny')} for g in grids], 'unit': 0.01, 'tiles': len(tiles)}
+hdr = {'v': 1, 'id': ID, 'origin': [LAT0, LON0], 'datum': REG['datum'], 'grids': [{k: g[k] for k in ('e0', 'n0', 'cell', 'nx', 'ny')} for g in grids], 'unit': 0.01, 'tiles': len(tiles), 'bollards': len(charted_bollards)}
 hb = json.dumps(hdr, separators=(',', ':')).encode()
 body = bytearray(b'AZP1') + struct.pack('<I', len(hb)) + hb
 while len(body) % 4: body += b' '
@@ -447,6 +507,8 @@ for g in grids: body += g['data'].astype('<i2').tobytes(); body += b'\0\0' * (le
 # tiles: count of points (u32) then Int32 decimetres n, e
 for t in tiles:
     body += struct.pack('<I', len(t)); body += np.round(np.array(t) * 10).astype('<i4').tobytes()
+# charted bollards: Int32 decimetres n, e
+if charted_bollards: body += np.round(np.array(charted_bollards) * 10).astype('<i4').tobytes()
 open(f'{OUTD}/{ID}.azp', 'wb').write(gzip.compress(bytes(body), 9, mtime=0))
 open(f'{OUTD}/{ID}.azc', 'wb').write(gzip.compress(json.dumps(chart, separators=(',', ':')).encode(), 9, mtime=0))
 editions = {c['cell']: {'edition': c.get('DSID_EDTN'), 'update': c.get('DSID_UPDN'), 'issued': c.get('DSID_ISDT'), 'scale': c.get('DSPM_CSCL'), 'source': c['source']} for c in man['cells'] if not own[c['cell']].is_empty}

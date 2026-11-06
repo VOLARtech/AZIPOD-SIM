@@ -18,7 +18,7 @@ import { AisMap, computeAis } from './ui/ais';
 import { drawDamagePlan, renderDamage } from './ui/dmgpanel';
 import { EditMode, editAt, loadBerth, resetBerth } from './ui/berthedit';
 import { initBerthPicker, renderBerthPicker, targetFor } from './ui/berthpicker';
-import { nearestBerth } from './physics/berths';
+import { nearestBerth, type BerthSpec } from './physics/berths';
 import { IceState } from './physics/ice';
 import { buildDpStation, buildJetStation, buildStation, buildTugStation, initialOrders, Station } from './ui/stations';
 import { buildHull, setHull } from './physics/contact';
@@ -129,7 +129,8 @@ async function openScenario(sc: Scenario) {
   if (sc.needsData || sc.chart) {
     try {
       const [data] = await Promise.all([ensureScenario(sc), sc.chart ? loadChart(sc.chart) : null]);
-      if (data && !postedData.has(data.area)) { pw.postMessage({ kind: 'area', id: data.area, pack: data.pack.slice(0) }); postedData.add(data.area); }
+      // the worker installs the same pack with the berths the main thread settled on (no checking twice)
+      if (data && !postedData.has(data.area)) { pw.postMessage({ kind: 'area', id: data.area, pack: data.pack.slice(0), specs: sc.berthSpecs?.map(({ match: _m, ...b }: BerthSpec & { match?: unknown }) => b) }); postedData.add(data.area); }
     } catch (err) {
       if (seq !== openSeq) return;
       console.error(err); toast(`Could not load the chart for ${sc.name}.`); if (S.rt) return; sc = SCENARIOS.find(s => !s.needsData)!;

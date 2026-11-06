@@ -8,15 +8,16 @@ import { Shoal, depthField, DepthField, DepthGrid, gridField } from './physics/h
 import { bboxOf } from './physics/contact';
 import { HarbourIndex, harbourIndex, indexFresh } from './physics/spatial';
 import { type Berth, type BerthKind, type BerthSpec, type BollardInfo, equipBerths, ratedEnergy, solidTest } from './physics/berths';
-import { SHIPS } from './physics/ship';
+import { SHIPS, type ShipSpec } from './physics/ship';
 import type { Aid } from './ui/chart/model';
-import { berthFits, berthPose } from './physics/berths';
+import { berthFits, berthPose, nearestBerth } from './physics/berths';
 import { HULL, buildHull, contactForces, setHull, type ContactInfo } from './physics/contact';
 import { AREAS, areaBerths } from './scenes/areas';
 import { type AreaPack, type PackGrid, multiGridField } from './scenes/pack';
 import { cardinal, lateral, pierLight, platformLight, safeWater } from './ui/chart/marks';
 import { AMSTERDAM, Building } from './scenes/amsterdam';
-import { MIAMI } from './scenes/miami';
+import { MIAMI, MIAMI_APPROACH, MIAMI_CARGO } from './scenes/miami';
+import { LALB_SCENARIOS } from './scenes/lalb';
 export type { Building };
 
 /** One scripted DP fault: at time t a unit trips, the switchboard blacks out, or a reference drifts (toward dir, deg). */
@@ -69,8 +70,9 @@ export interface Scenario {
   /** A real-chart area (scenes/areas.ts): its pack brings the depth grids, the land and the berths. */
   area?: string;
   depthGrids?: PackGrid[];
-  /** The berth to make for, found by name among the area's berths once it is installed, and the side to lie. */
-  berthRef?: { match: RegExp; side: -1 | 1; along?: number };
+  /** The berth to make for, found among the area's berths once it is installed (by name, or the nearest to a
+   *  point that takes the ship), and the side to lie. */
+  berthRef?: { match?: RegExp; near?: Pt; side: -1 | 1; along?: number };
   bollardInfo?: BollardInfo[];                    // what each bollard is (height, fitting, SWL), parallel to bollards
 }
 
@@ -101,7 +103,8 @@ export function currentField(sc: Scenario, kn: number, setDeg: number): CurrentF
 }
 
 export const SCENARIOS: Scenario[] = [
-  MIAMI,
+  MIAMI, MIAMI_APPROACH, MIAMI_CARGO,
+  ...LALB_SCENARIOS,
   AMSTERDAM,
   {
     id: 'quai27', name: 'Quai 27 · port side to',
@@ -399,68 +402,115 @@ for (const sc of SCENARIOS) for (const f of sc.fenders) f.Er = ratedEnergy(f);
 export function equipScenario(sc: Scenario) {
   const top = sc.landHeight ?? 2;
   sc.ownGear ??= { fenders: sc.fenders.length, bollards: sc.bollards.length };
+  sc.bollardInfo = undefined;
   if (!sc.berthSpecs?.length) { sc.berths = []; sc.bollardInfo = sc.bollards.map(() => ({ berth: '', z: top + 0.5, kind: 'bollard', swl: 50 })); return; }
-  const r = equipBerths(sc.berthSpecs, sc.fenders, sc.bollards, { depthAt: depthAt(sc), solid: solidTest(sc.obstacles), top, fleet: Object.values(SHIPS), tide: sc.tide });
+  const r = equipBerths(sc.berthSpecs, sc.fenders, sc.bollards, { depthAt: depthAt(sc), solid: solidTest(sc.obstacles), top, fleet: Object.values(SHIPS), tide: sc.tide,
+    addSolid: poly => sc.obstacles.push({ poly, ...CONCRETE, kind: 'pier', bbox: bboxOf(poly) }) });
   sc.berths = r.berths; sc.bollardInfo = r.info;
 }
 for (const sc of SCENARIOS) equipScenario(sc);
 
 /** Charted berths where a ship that fits would not lie clear (of a quay, a pier, another berth's fenders): the
  *  length each may still take (0: none). The contact model itself decides, with each ship's own hull. */
-function clearance(sc: Scenario) {
+function clearance(sc: Scenario, only?: (b: Berth) => boolean) {
   const lim = new Map<string, number>(), idx = harbourIndex(sc.obstacles, sc.fenders, sc.bollards), h0 = HULL;
-  const ci: ContactInfo = { active: false, points: [], fenders: [] }, fleet = Object.values(SHIPS);
+  const ci: ContactInfo = { active: false, points: [], fenders: [] }, fleet = Object.values(SHIPS), d = depthAt(sc);
   try {
     for (const b of sc.berths ?? []) {
-      if (!b.charted) continue;
-      const ships = fleet.filter(sp => !berthFits(b, sp, sc.tide ?? 0)).sort((x, y) => x.LOA - y.LOA);
-      let bad = Infinity;
-      for (const sp of ships) {
-        if (sp.LOA >= bad) break;
-        setHull(buildHull(sp.L, sp.B, sp.xg, sp.LOA));
+      if (!b.charted || (only && !only(b))) continue;
+      const ships = fleet.filter(sp => !berthFits(b, sp, sc.tide ?? 0)).sort((x, y) => x.LOA - y.LOA || x.B - y.B);
+      if (!ships.length) continue;
+      // lying alongside, either side to: touching nothing, and afloat with 5 % under her keel
+      const bad = (sp: ShipSpec) => {
+        const hull = buildHull(sp.L, sp.B, sp.xg, sp.LOA);
+        setHull(hull);
         for (const side of [-1, 1] as const) {
-          const p = berthPose(b, side, sp);
+          const p = berthPose(b, side, sp), c = Math.cos(p.psi * DEG), s2 = Math.sin(p.psi * DEG);
           contactForces({ n: p.n, e: p.e, psi: p.psi * DEG, u: 0, v: 0, r: 0 } as ShipState, sc.obstacles, sc.fenders, ci, idx);
-          if (ci.active) { bad = Math.min(bad, sp.LOA); break; }
+          if (ci.active) return true;
+          let least = d(p.n, p.e);
+          for (const [x, y] of hull) least = Math.min(least, d(p.n + x * c - y * s2, p.e + x * s2 + y * c));
+          if (least < 1.05 * sp.T) return true;
         }
-      }
-      if (bad < Infinity) lim.set(b.id, ships[0] && ships[0].LOA < bad ? bad - 0.01 : 0);
+        return false;
+      };
+      // the shortest ship that does not lie clear, by bisection between one that does and one that does not
+      if (bad(ships[0])) { lim.set(b.id, 0); continue; }
+      const di = ships.findIndex(x => x.id === b.designShip), q = ships.length - 1;
+      let hi = [q, di, q >> 1].find(i => i > 0 && bad(ships[i])) ?? -1;
+      if (hi < 0) continue;
+      let lo = 0;
+      while (hi - lo > 1) { const m = (lo + hi) >> 1; if (bad(ships[m])) hi = m; else lo = m; }
+      lim.set(b.id, ships[hi].LOA - 0.01);
     }
   } finally { setHull(h0); }
   return lim;
 }
+/** The berth a scenario names (berthRef) for this ship: by name, or the nearest to its point that she fits. */
+export function refBerth(sc: Scenario, sp: ShipSpec): Berth | undefined {
+  const r = sc.berthRef; if (!r || !sc.berths?.length) return undefined;
+  let list = sc.berths.filter(b => !r.match || r.match.test(b.name));
+  if (r.near) {
+    const ok = list.filter(b => !berthFits(b, sp, sc.tide ?? 0));
+    list = (ok.length ? ok : list).map(b => ({ b, d: nearestBerth([b], r.near![0], r.near![1])!.d })).sort((x, y) => x.d - y.d).map(x => x.b);
+  }
+  return list[0];
+}
 /** Put an area pack into every scenario of that area: depths, land and quays, and its berths fitted out by the
  *  same rules as everywhere else (the main thread and the predictor worker do this alike, so both hold the
  *  same fenders and bollards in the same order). */
-export function installArea(id: string, pack: AreaPack) {
+export function installArea(id: string, pack: AreaPack, final?: BerthSpec[]) {
+  // scenarios of one area at the same water level share one fitting-out: worked out for the first, copied after
+  const done = new Map<number, Scenario>();
   for (const sc of SCENARIOS) {
     if (sc.area !== id || sc.depthGrids === pack.grids) continue;
+    const twin = done.get(sc.tide ?? 0);
+    if (twin) {
+      sc.depthGrids = pack.grids; fields.delete(sc); indexes.delete(sc);
+      sc.obstacles.splice(0, sc.obstacles.length, ...twin.obstacles);
+      sc.fenders.splice(0, sc.fenders.length, ...twin.fenders.map(f => ({ ...f })));
+      sc.bollards.splice(0, sc.bollards.length, ...twin.bollards.map(p => [p[0], p[1]] as Pt));
+      sc.bollardInfo = twin.bollardInfo!.map(x => ({ ...x }));
+      sc.ownGear = { ...twin.ownGear! }; sc.berthSpecs = twin.berthSpecs; sc.berths = twin.berths;
+      sc.landHeight ??= AREAS[id].meta.landHeight;
+      aimAtBerth(sc);
+      continue;
+    }
+    done.set(sc.tide ?? 0, sc);
     sc.depthGrids = pack.grids;
     fields.delete(sc); indexes.delete(sc);
     sc.obstacles.length = 0;
     for (const poly of pack.tiles) sc.obstacles.push({ poly, ...CONCRETE, kind: 'quay', bbox: bboxOf(poly) });
-    const own = sc.ownGear ?? { fenders: 0, bollards: 0 };
-    sc.fenders.length = own.fenders; sc.bollards.length = own.bollards;
-    sc.berthSpecs = areaBerths(id);
+    // the charted bollards are the area's own (first, kept by the berth editor's reset); the rules fill the gaps
+    sc.fenders.length = 0; sc.bollards.splice(0, sc.bollards.length, ...pack.bollards.map(p => [p[0], p[1]] as Pt));
+    const own = sc.ownGear = { fenders: 0, bollards: pack.bollards.length };
+    sc.berthSpecs = final ? final.map(b => ({ ...b })) : areaBerths(id);
     sc.landHeight ??= AREAS[id].meta.landHeight;
     // every ship that fits a charted face must lie there clear of everything: where a structure stands in front
     // of part of it, the face takes only shorter ships; where not even the smallest is clear, it is no berth
+    const nTiles = sc.obstacles.length;
+    let near: ((b: Berth) => boolean) | undefined;
     for (let pass = 0; pass < 4; pass++) {
-      sc.fenders.length = own.fenders; sc.bollards.length = own.bollards;
+      sc.fenders.length = own.fenders; sc.bollards.length = own.bollards; sc.obstacles.length = nTiles;
       equipScenario(sc);
-      const lim = clearance(sc);
+      // after the first pass only the berths near one that changed can have changed
+      // berths already checked (the predictor worker is handed the main thread's): equipped once, as they are
+      const lim = final ? new Map<string, number>() : clearance(sc, near);
       if (!lim.size) break;
+      const moved = sc.berthSpecs.filter(b => lim.has(b.id)).map(b => bboxOf([b.a, b.b]));
+      near = b => moved.some(m => b.a[0] > m[0] - 600 && b.a[0] < m[2] + 600 && b.a[1] > m[1] - 600 && b.a[1] < m[3] + 600);
       sc.berthSpecs = sc.berthSpecs.flatMap(b => !lim.has(b.id) ? [b] : lim.get(b.id)! > 0 ? [{ ...b, maxLOA: lim.get(b.id)! }] : []);
     }
-    if (sc.berthRef) {
-      const b = sc.berths!.find(x => sc.berthRef!.match.test(x.name));
-      if (b) {
-        const sp = SHIPS[sc.ship ?? 'becancour'];
-        const p = berthPose(b, sc.berthRef.side, sp, sc.berthRef.along);
-        sc.berth = { n: p.n, e: p.e, psi: p.psi };
-      }
-    }
+    aimAtBerth(sc);
   }
+}
+/** The scenario's own berth mark, for its own ship, at the berth it names. */
+function aimAtBerth(sc: Scenario) {
+  if (!sc.berthRef) return;
+  const sp = SHIPS[sc.ship ?? 'becancour'], b = refBerth(sc, sp);
+  if (!b) return;
+  const p = berthPose(b, sc.berthRef.side, sp, sc.berthRef.along);
+  sc.berth = { n: p.n, e: p.e, psi: p.psi };
 }
 
 /** Berth pose (CG mark) for a ship of beam B and CG offset xg, from the scenario's fender face. */

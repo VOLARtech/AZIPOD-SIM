@@ -3,7 +3,7 @@
 import { S } from './state';
 import { SHIP, SHIPS } from '../physics/ship';
 import { KIND_LABEL, berthFits, bollardOn, bollardSWL, displacement, fenderOn, nearestBerth, berthPose, type Berth } from '../physics/berths';
-import type { Scenario } from '../scenarios';
+import { refBerth, type Scenario } from '../scenarios';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -12,7 +12,7 @@ export function targetFor(sc: Scenario): typeof S.berth.target {
   const pk = S.berth.pick?.sc === sc.id ? sc.berths?.find(b => b.id === S.berth.pick!.id) : undefined;
   if (pk) return { ...berthPose(pk, S.berth.pick!.side, SHIP), name: pk.name, id: pk.id, side: S.berth.pick!.side };
   // a scenario's berth named on a real chart: posed for the ship in use
-  const ref = sc.berthRef && sc.berths?.find(b => sc.berthRef!.match.test(b.name));
+  const ref = refBerth(sc, SHIP);
   if (ref) return { ...berthPose(ref, sc.berthRef!.side, SHIP, sc.berthRef!.along), name: ref.name, id: ref.id, side: sc.berthRef!.side };
   if (!sc.berth) return null;
   const nb = sc.berths?.length ? nearestBerth(sc.berths, sc.berth.n, sc.berth.e, 90) : null;
