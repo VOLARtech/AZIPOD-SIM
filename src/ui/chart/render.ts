@@ -133,11 +133,16 @@ function tile(b: Built, i: number, j: number, lod: number): Tile | null {
   const fill = (p: Path2D, it: Item) => { const r = simp(it, true); if (r.length < 3) return; const c = inside(it.bb) ? r : clipRing(r, box); if (c.length >= 3) ring(p, c); };
   const edge = (p: Path2D, it: Item, closed: boolean) => { const r = simp(it, closed); if (r.length < 2) return; if (inside(it.bb)) { if (closed) ring(p, r); else line(p, r); } else for (const run of clipLine(r, box, closed)) line(p, run); };
   for (const k of x.areas) fill(t.shade[b.areas[k].cls], b.areas[k]);
-  for (const k of x.land) { fill(t.land, b.land[k]); edge(t.landEdge, b.land[k], true); }
+  // small structures (a dolphin, a pile) only when zoomed in, as on an ECDIS (S-52 SCAMIN): further out a row of
+  // them reads as a grid of dots
+  const minLand = lod === 0 ? 0 : lod === 1 ? 12 : 40;
+  for (const k of x.land) { const it = b.land[k]; if (minLand && Math.max(it.bb[2] - it.bb[0], it.bb[3] - it.bb[1]) < minLand) continue; fill(t.land, it); edge(t.landEdge, it, true); }
   for (const k of x.drg) edge(t.drg, b.drg[k], true);
   for (const k of x.bridges) edge(t.bridges, b.bridges[k], true);
   for (const k of x.slc) edge(t.slc, b.slc[k], false);
-  for (const k of x.contours) edge(b.contours[k].safety ? t.safety : t.contours, b.contours[k], false);
+  // a contour ringing a speck (a pile the survey saw as a shoal) is noise at any scale, a small one zoomed out
+  const minCnt = lod === 0 ? 12 : lod === 1 ? 40 : 150;
+  for (const k of x.contours) { const c = b.contours[k]; if (Math.max(c.bb[2] - c.bb[0], c.bb[3] - c.bb[1]) < minCnt) continue; edge(c.safety ? t.safety : t.contours, c, false); }
   b.tiles[lod].set(key, t);
   return t;
 }
@@ -170,58 +175,80 @@ export function drawChartBase(model: ChartModel, v: ChartView) {
   ctx.setLineDash([px(3), px(3)]); ctx.lineWidth = px(1); ctx.strokeStyle = C.ink; for (const t of ts) ctx.stroke(t.bridges); ctx.setLineDash([]);
 }
 
+/** Screen boxes already written on, hashed in 48 px cells: nothing is drawn over a name, a light's
+ *  characteristic or a sounding already placed. */
+class Room {
+  private g = new Map<number, [number, number, number, number][]>();
+  private cells(b: [number, number, number, number], f: (k: number) => boolean | void) {
+    for (let i = Math.floor(b[0] / 48); i <= Math.floor(b[2] / 48); i++) for (let j = Math.floor(b[1] / 48); j <= Math.floor(b[3] / 48); j++) if (f(i * 131071 + j)) return true;
+    return false;
+  }
+  /** Take the box if it is free; false if something is already there. */
+  take(b: [number, number, number, number]) {
+    const hit = this.cells(b, k => (this.g.get(k) ?? []).some(o => o[0] < b[2] && o[2] > b[0] && o[1] < b[3] && o[3] > b[1]));
+    if (hit) return false;
+    this.cells(b, k => { let a = this.g.get(k); if (!a) this.g.set(k, a = []); a.push(b); });
+    return true;
+  }
+}
+// names from the inland ENC come as "Ligplaats <harbour> <quay> <town>": the berth, without the boilerplate
+const TOWN = /\s+(IJmuiden|Velsen-Noord|Velsen-Zuid|Velsen|Amsterdam|Zaandam|Spaarndam|Beverwijk|Assendelft|Haarlem|Halfweg|Zaanstad|Westzaan|Oostzaan|Wijk aan Zee)$/;
+export function labelText(t: string) {
+  let s = t.replace(/ \(Bays [^)]*\)/, '').replace(/^Berth Ligplaats /, '').replace(/^Ligplaats /, '').replace(/^Sluiskolk /, '');
+  for (let k = 0; k < 2; k++) s = s.replace(TOWN, '');
+  return s.length > 34 ? s.slice(0, 32).replace(/\s+\S*$/, '') + '…' : s;
+}
+// which names go first where they compete: locks and harbours, then fairways and terminals, then berths
+const RANK: Record<string, number> = { LOKBSN: 0, HRBARE: 1, FAIRWY: 2, WTWAXS: 2, TERMNL: 3, BERTHS: 4 };
+
 /** Soundings, aids to navigation and names. Screen space: call with the context at device-pixel scale. */
 export function drawChartMarks(model: ChartModel, v: ChartView) {
   const b = get(model);
   const { ctx, scale, C, bounds: [n0, e0, n1, e1], toScr } = v;
-  // spot soundings once there is room for them (≈ 1:6 000 and closer)
+  const room = new Room();
+  // aids to navigation first (their names and light characteristics only where there is room for them)
+  const P: SymbolPalette = { ink: C.ink, port: C.port, stbd: C.stbd, light: C['aid-light'], muted: C.muted, fontNum: C.fontNum, panel: C['panel-solid'] };
+  const m = 60 / Math.max(scale, 1e-3);
+  const inView = b.aids.filter(a => !(a.n < n0 - m || a.n > n1 + m || a.e < e0 - m || a.e > e1 + m));
+  for (const a of inView) { const [x, y] = toScr(a.n, a.e); room.take([x - 7, y - 16, x + 7, y + 5]); }
+  for (const a of inView) { const [x, y] = toScr(a.n, a.e); drawAid(ctx, a, x, y, P, scale, v.rot ?? 0, bx => room.take(bx)); }
+  // names, the important ones first, each only where it does not run into another
+  if (scale > 0.25) {
+    ctx.font = `italic 500 11px ${C.fontLabel}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = C.muted;
+    const ls = b.model.labels.filter(l => l.n >= n0 && l.n <= n1 && l.e >= e0 && l.e <= e1 && (scale > 0.5 || (RANK[l.k] ?? 4) < 4))
+      .map(l => ({ l, t: labelText(l.t), r: RANK[l.k] ?? 4 })).sort((x, y) => x.r - y.r || x.t.length - y.t.length);
+    const seen = new Set<string>();
+    for (const { l, t } of ls) {
+      if (!t || seen.has(t)) continue;
+      const [x, y] = toScr(l.n, l.e), w = ctx.measureText(t).width;
+      if (!room.take([x - w / 2 - 3, y - 8, x + w / 2 + 3, y + 8])) continue;
+      seen.add(t);
+      ctx.fillText(t, x, y);
+    }
+  }
+  // spot soundings once there is room for them (≈ 1:6 000 and closer): the shoalest first, as on a paper
+  // chart, each where it overlaps nothing already written
   if (scale > 0.22) {
-    const big = scale > 0.6, step = big ? 0 : 18;      // thin out when zoomed further out
-    // thinning on a screen grid of step × 0.7 step cells: a sounding is dropped when one already
-    // placed lies within the box around it, which only the 3 × 3 neighbouring cells can hold
-    const sx = step, sy = step * 0.7, taken = new Map<number, [number, number][]>();
-    const cell = (cx: number, cy: number) => cx * 65536 + cy;
+    const big = scale > 0.6, cand: [number, number, number][] = [];
+    for (let i = Math.floor(n0 / 200); i <= Math.floor(n1 / 200); i++) for (let j = Math.floor(e0 / 200); j <= Math.floor(e1 / 200); j++)
+      for (const s of b.soundGrid.get(tkey(i, j)) ?? []) if (s[0] >= n0 && s[0] <= n1 && s[1] >= e0 && s[1] <= e1) cand.push(s);
+    cand.sort((x, y) => x[2] - y[2]);
+    const padX = big ? 5 : 9, padY = big ? 3 : 6;
     const whole: [number, number, string, boolean][] = [], decs: [number, number, string, boolean][] = [];
-    for (let i = Math.floor(n0 / 200); i <= Math.floor(n1 / 200); i++) for (let j = Math.floor(e0 / 200); j <= Math.floor(e1 / 200); j++) {
-      for (const [n, e, d] of b.soundGrid.get(tkey(i, j)) ?? []) {
-        const [x, y] = toScr(n, e);
-        if (step) {
-          const cx = Math.floor(x / sx), cy = Math.floor(y / sy);
-          let near = false;
-          for (let a = -1; a <= 1 && !near; a++) for (let c = -1; c <= 1 && !near; c++)
-            near = (taken.get(cell(cx + a, cy + c)) ?? []).some(([px2, py2]) => Math.abs(px2 - x) < sx && Math.abs(py2 - y) < sy);
-          if (near) continue;
-          const k = cell(cx, cy); (taken.get(k) ?? taken.set(k, []).get(k)!).push([x, y]);
-        }
-        const shallow = d < b.safetyDepth;
-        const w = Math.floor(d), dec = Math.round((d - w) * 10);
-        // chart style: whole metres with the decimetres as a lowered digit
-        whole.push([x - (dec ? 3 : 0), y, String(w), shallow]);
-        if (dec && w < 21) decs.push([x + (w >= 10 ? 9 : 5), y + 4, String(dec), shallow]);
-      }
+    for (const [n, e, d] of cand) {
+      const [x, y] = toScr(n, e);
+      const w = Math.floor(d), dec = Math.round((d - w) * 10), wd = (w >= 10 ? 13 : 7) + (dec ? 5 : 0);
+      if (!room.take([x - wd / 2 - padX, y - 6 - padY, x + wd / 2 + padX, y + 7 + padY])) continue;
+      const shallow = d < b.safetyDepth;
+      // chart style: whole metres with the decimetres as a lowered digit
+      whole.push([x - (dec ? 3 : 0), y, String(w), shallow]);
+      if (dec && w < 21) decs.push([x + (w >= 10 ? 9 : 5), y + 4, String(dec), shallow]);
     }
     // two passes, one font each: switching fonts per sounding is what made this slow
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     const text = (list: typeof whole) => { for (const [x, y, t, sh] of list) { ctx.fillStyle = sh ? C['sound-sh'] : C.sound; ctx.fillText(t, x, y); } };
     ctx.font = `500 ${big ? 11 : 10}px ${C.fontNum}`; text(whole);
     ctx.font = `500 ${big ? 8 : 7}px ${C.fontNum}`; text(decs);
-  }
-  // aids to navigation
-  const P: SymbolPalette = { ink: C.ink, port: C.port, stbd: C.stbd, light: C['aid-light'], muted: C.muted, fontNum: C.fontNum, panel: C['panel-solid'] };
-  const m = 60 / Math.max(scale, 1e-3);
-  for (const a of b.aids) {
-    if (a.n < n0 - m || a.n > n1 + m || a.e < e0 - m || a.e > e1 + m) continue;
-    const [x, y] = toScr(a.n, a.e);
-    drawAid(ctx, a, x, y, P, scale, v.rot ?? 0);
-  }
-  // names: berths and fairways once zoomed in
-  if (scale > 0.25) {
-    ctx.font = `italic 500 11px ${C.fontLabel}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = C.muted;
-    for (const l of b.model.labels) {
-      if (l.n < n0 || l.n > n1 || l.e < e0 || l.e > e1) continue;
-      const [x, y] = toScr(l.n, l.e);
-      ctx.fillText(l.t.replace(/ \(Bays [^)]*\)/, ''), x, y);
-    }
   }
 }
 

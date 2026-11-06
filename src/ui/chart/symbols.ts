@@ -100,7 +100,7 @@ function sectors(ctx: Ctx, a: Aid, x: number, y: number, r: number, P: SymbolPal
 
 /** One aid: body, topmark, light flare; with its light's characteristic and name once zoomed in. `rot`: the
  *  chart's rotation (head-up), so sectors keep their true bearings. */
-export function drawAid(ctx: Ctx, a: Aid, x: number, y: number, P: SymbolPalette, zoom: number, rot = 0) {
+export function drawAid(ctx: Ctx, a: Aid, x: number, y: number, P: SymbolPalette, zoom: number, rot = 0, room?: (box: [number, number, number, number]) => boolean) {
   if (a.k === 'MORFAC') { ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.strokeStyle = P.ink; ctx.lineWidth = 1; ctx.stroke(); return; }
   if (a.light?.sectors?.length && zoom > 0.12) { ctx.save(); ctx.translate(x, y); ctx.rotate(-rot); sectors(ctx, a, 0, 0, 34, P); ctx.restore(); }
   if (a.light) flare(ctx, a, x, y, P);
@@ -115,7 +115,11 @@ export function drawAid(ctx: Ctx, a: Aid, x: number, y: number, P: SymbolPalette
     const t = [a.light ? lightText(a.light) : '', a.fog ? 'Horn' : ''].filter(Boolean).join(' · ');
     const nm = a.name?.replace(/^(Miami (Harbor|Main Channel)|Port of [A-Z][a-z]+) /, '').slice(0, 26);
     ctx.font = `italic 500 10px ${P.fontNum}`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillStyle = P.ink;
-    if (nm) ctx.fillText(nm, x + 9, y - 6);
-    if (t) { ctx.fillStyle = P.muted; ctx.fillText(t, x + 9, nm ? y + 5 : y - 4); }
+    // where names crowd, the characteristic is kept and the name dropped, and nothing written over another
+    const w = Math.max(nm ? ctx.measureText(nm).width : 0, t ? ctx.measureText(t).width : 0);
+    const both = !!nm && !!t && (!room || room([x + 8, y - 12, x + 10 + w, y + 11]));
+    if (both) { ctx.fillText(nm!, x + 9, y - 6); ctx.fillStyle = P.muted; ctx.fillText(t, x + 9, y + 5); }
+    else if (t && (!room || room([x + 8, y - 10, x + 10 + ctx.measureText(t).width, y + 2]))) { ctx.fillStyle = P.muted; ctx.fillText(t, x + 9, y - 4); }
+    else if (nm && !t && (!room || room([x + 8, y - 12, x + 10 + w, y]))) ctx.fillText(nm, x + 9, y - 6);
   }
 }
