@@ -474,6 +474,7 @@ import type { ChartModel as CM } from '../src/ui/chart/model';
 const MIA_PACK = parsePack(await fetchAreaPack('miami'));
 installArea('miami', MIA_PACK);
 installArea('lalb', parsePack(await fetchAreaPack('lalb')));
+installArea('ijmuiden', parsePack(await fetchAreaPack('ijmuiden')));
 const MIAMI_CHART = await fetchAreaChart('miami') as CM;
 test('PortMiami chart: depth grid honours the charted soundings (within 0.6 m at 90 % of them)', () => {
   const mia = SCENARIOS.find(s => s.id === 'miami-terminal-v')!;
@@ -1140,7 +1141,7 @@ import { LINE as LN } from '../src/physics/mooring';
   test('every berth: the smallest, design and largest ship that fit lie alongside clear of the quay, afloat, and all six lines reach', () => {
     let n = 0;
     for (const [sc, b] of all) {
-      const ok = fleet.filter(sp => !berthFits(b, sp, sc.tide ?? 0)).sort((x, y) => x.LOA - y.LOA);
+      const ok = fleet.filter(sp => !berthFits(b, sp)).sort((x, y) => x.LOA - y.LOA);
       const ships = [...new Set([ok[0], FLEET[b.designShip], ok[ok.length - 1]])].filter(Boolean);
       const d = depthAt(sc), idx = harbourIndex(sc.obstacles, sc.fenders, sc.bollards);
       for (const sp of ships) for (const side of [-1, 1] as const) withHull(sp, () => {
@@ -1150,7 +1151,7 @@ import { LINE as LN } from '../src/physics/mooring';
         cF(st, sc.obstacles, sc.fenders, ci as never, idx);
         assert.ok(!ci.active, `${tag}: touches ${ci.points.map(q => q.with ?? 'a fender').join(', ')}`);
         const least = Math.min(...hullWorld(st).map(([pn, pe]) => d(pn, pe)), d(st.n, st.e));
-        assert.ok(least + (sc.tide ?? 0) >= 1.05 * sp.T - 1e-6, `${tag}: ${least.toFixed(1)} m under her, draught ${sp.T}`);
+        assert.ok(least >= 1.05 * sp.T - 1e-6, `${tag}: ${least.toFixed(1)} m under her, draught ${sp.T}`);
         for (const l of makeLines(sp.L, sp.B, sp.xg, side)) assert.ok(pickBollard(st, l, sc.bollards, idx) >= 0, `${tag}: ${l.name} has no bollard within ${LN.reach} m`);
         n++;
       });
@@ -1322,5 +1323,159 @@ test('PortMiami rebuilt from the ENC matches the old harbour grid in open water 
   }
   assert.ok(a / n >= 0.80 && b / n >= 0.90, `${(100 * a / n).toFixed(1)} % within 0.15 m, ${(100 * b / n).toFixed(1)} % within 0.5 m of ${n}`);
 });
+
+console.log('IJmuiden and the Zeesluis');
+import { waterOf } from '../src/scenarios';
+import { LockSim, lockLimits, perMil, type LockDef } from '../src/physics/lock';
+import { IJMUIDEN_TIDE, tideAt } from '../src/physics/levels';
+import { ZEESLUIS, ijmZoneAt } from '../src/scenes/ijmuiden';
+import { lineForces, passLine, updateWinches } from '../src/physics/mooring';
+{
+  const IJM = SCENARIOS.filter(s => s.area === 'ijmuiden');
+  const lockIn = IJM.find(s => s.id === 'ijm-lock-in')!;
+  const P = (L: LockSim, s: number, w = 0) => ({ n: ZEESLUIS.a[0] + L.u[0] * s + L.w[0] * w, e: ZEESLUIS.a[1] + L.u[1] * s + L.w[1] * w });
+  const axis = Math.atan2(ZEESLUIS.b[1] - ZEESLUIS.a[1], ZEESLUIS.b[0] - ZEESLUIS.a[0]) / DEG;
+  test('Zeesluis from the chart: 500 m between the gates in a 544 × 70 m chamber, sill NAP −18 m; the walls are lock walls with floating bollards', () => {
+    const L = new LockSim(ZEESLUIS, () => 0);
+    assert.ok(Math.abs(ZEESLUIS.width - 70) < 1.5 && L.L > 530 && L.L < 560, `${ZEESLUIS.width} × ${L.L.toFixed(0)} m`);
+    const walls = lockIn.berths!.filter(b => b.kind === 'lockwall' && L.inChamber((b.a[0] + b.b[0]) / 2 + 5 * b.nrm[0], (b.a[1] + b.b[1]) / 2 + 5 * b.nrm[1]));
+    assert.equal(walls.length, 2, 'both chamber walls');
+    for (const b of walls) {
+      const kinds = lockIn.bollards.map((p, i) => [p, lockIn.bollardInfo![i].kind] as const).filter(([p]) => bollardOn(b, p)).map(([, k]) => k);
+      assert.ok(kinds.filter(k => k === 'floating').length >= 7, `${b.id}: ${kinds.filter(k => k === 'floating').length} floating bollards`);
+      assert.ok(kinds.filter(k => k !== 'floating').length >= 17, `${b.id}: ${kinds.length} bollards`);
+    }
+  });
+  test('levels: the sea has the tide (HW ≈ +1.0, LW ≈ −0.7 NAP), the canal NAP −0.40; the flood fill puts each approach on its side of the locks', () => {
+    let hi = -9, lo = 9;
+    for (let t = 0; t < 25 * 3600; t += 300) { const h = tideAt(IJMUIDEN_TIDE, t); hi = Math.max(hi, h); lo = Math.min(lo, h); }
+    assert.ok(Math.abs(hi - 1.0) < 0.15 && Math.abs(lo + 0.7) < 0.15, `HW ${hi.toFixed(2)} LW ${lo.toFixed(2)}`);
+    const L = new LockSim(ZEESLUIS, () => 0);
+    assert.equal(ijmZoneAt(P(L, -400).n, P(L, -400).e), 'outer', 'the Zeesluis outer approach');
+    assert.equal(ijmZoneAt(P(L, L.L + 400).n, P(L, L.L + 400).e), 'inner', 'the Zeesluis canal approach');
+    assert.equal(ijmZoneAt(3964, -5111), 'inner', 'the Middensluis canal approach, west of the Zeesluis');
+    assert.equal(ijmZoneAt(4300, -6500), 'outer', 'the outer harbour');
+    const w = waterOf(lockIn, () => 0)!;
+    assert.equal(w.zoneAt(P(L, 272).n, P(L, 272).e), 'chamber');
+    const d = w.depthAt(P(L, 272).n, P(L, 272).e);
+    assert.ok(Math.abs(d - (18 + w.level('outer'))) < 1e-9, `chamber depth ${d.toFixed(2)} at the sea's level`);
+  });
+  test('IJmuiden starts: clear of every structure, afloat for her draught at the canal level, the scenario fits her', () => {
+    for (const sc of IJM) {
+      const sp = FLEET[sc.ship!]; setHull(buildHull(sp.L, sp.B, sp.xg, sp.LOA));
+      const st = makeState(sp, sc.start.n, sc.start.e, sc.start.psi, 0), d = depthAt(sc);
+      const ci = { active: false, points: [] as { with?: string }[], fenders: [] };
+      cF(st, sc.obstacles, sc.fenders, ci as never);
+      assert.ok(!ci.active, `${sc.id}: start touches ${ci.points.map(q => q.with).join(', ')}`);
+      const least = Math.min(...hullWorld(st).map(([n, e]) => d(n, e)));
+      assert.ok(least >= 1.1 * sp.T, `${sc.id}: ${least.toFixed(1)} m under ${sp.name} (T ${sp.T})`);
+      assert.ok(fits(sc, sp.T), `${sc.id}: fits`);
+    }
+    setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+  });
+  test('the lock master: the laden VLCC, the 16 m ULCV and the laden Panamax cannot pass (sill, canal); the ballast VLCC and every other ship can; a deep ship waits for the tide', () => {
+    const L = new LockSim(ZEESLUIS, z => (z === 'outer' ? 0.9 : -0.4), null);
+    const no = new Set(['kvlcc2', 'ulcv', 'panamax', 'panamax-rotor']);
+    for (const sp of Object.values(FLEET)) {
+      const v = L.verdict(sp);
+      if (no.has(sp.id)) assert.ok(v && /cannot pass/.test(v), `${sp.id}: ${v}`);
+      else assert.equal(v, null, `${sp.id}: ${v}`);
+    }
+    // the outer harbour (14.4 m) at low water: a 12.8 m ship waits for the tide; at high water she goes
+    const deep = { name: 'Deep', LOA: 250, B: 40, T: 12.8 };
+    assert.match(new LockSim(ZEESLUIS, z => (z === 'outer' ? -0.7 : -0.4), null).verdict(deep)!, /Wait for the tide/);
+    assert.equal(new LockSim(ZEESLUIS, z => (z === 'outer' ? 0.9 : -0.4), null).verdict(deep), null);
+    assert.ok(lockLimits(ZEESLUIS, 0.9, -0.4).every(l => l.best >= l.now));
+  });
+  // a lockage of the Spirit, moved through it: called, in, made fast, levelled, out
+  const cycle = (def: LockDef, sp = FLEET.spirit, outer = 0.9) => {
+    let t = 0;
+    const L = new LockSim(def, z => (z === 'outer' ? outer : -0.4), null);
+    const st = makeState(sp, P(L, -400).n, P(L, -400).e, axis, 0);
+    const sig: string[] = [L.signals().a], eta: number[] = [];
+    let tLev = 0, tRel = 0, peak = 0;
+    L.call(sp, st);
+    for (; t < 5000 && L.phase !== 'done'; t += 0.5) {
+      if (L.phase === 'entering') Object.assign(st, P(L, 272));
+      if (L.phase === 'leaving') Object.assign(st, P(L, L.L + 300));
+      L.step(0.5, t, st, sp, L.phase === 'leaving' ? 0 : 4);
+      if (sig[sig.length - 1] !== L.signals().a) sig.push(L.signals().a);
+      if (L.phase === 'levelling') { if (!tLev) tLev = t; eta.push(L.eta); peak = Math.max(peak, perMil(L.force.F, sp)); }
+      if (L.phase === 'releasing' && !tRel) tRel = t;
+    }
+    return { L, sig, eta, peak, min: (tRel - tLev) / 60 };
+  };
+  test('levelling 1.3 m with the Spirit in the chamber: 9–22 min, the level falls steadily and ends on the canal\'s; the surge stays under PIANC\'s 1 ‰, fast valves break it', () => {
+    const c = cycle(ZEESLUIS);
+    assert.equal(c.L.phase, 'done', c.L.log.map(m => m.text).join(' / '));
+    assert.ok(c.min >= 9 && c.min <= 22, `${c.min.toFixed(1)} min`);
+    for (let i = 1; i < c.eta.length; i++) assert.ok(c.eta[i] <= c.eta[i - 1] + 1e-9, `level rose at ${i}`);
+    assert.ok(Math.abs(c.L.eta + 0.4) < 0.05, `ends at ${c.L.eta.toFixed(3)}`);
+    assert.ok(c.peak > 0 && c.peak <= 1, `${c.peak.toFixed(2)} ‰`);
+    const fast = cycle({ ...ZEESLUIS, valveTime: 10, valveArea: 200 });
+    assert.ok(fast.peak > 1, `fast valves ${fast.peak.toFixed(2)} ‰`);
+    // the same again is the same
+    const c2 = cycle(ZEESLUIS);
+    assert.deepEqual(c2.eta, c.eta); assert.deepEqual(c2.L.log, c.L.log);
+  });
+  test('signals at the sea end through a lockage: red, red and green, green, red', () => {
+    assert.deepEqual(cycle(ZEESLUIS).sig, ['red', 'redgreen', 'green', 'red']);
+  });
+  test('coming in with the far gate shut she pushes the water ahead of her: a force against her, none with it open', () => {
+    const sp = FLEET['kvlcc2-ballast'];
+    const L = new LockSim(ZEESLUIS, z => (z === 'outer' ? 0.9 : -0.4), 'a');
+    const st = makeState(sp, P(L, 200).n, P(L, 200).e, axis, 1);
+    L.call(sp, st); assert.equal(L.phase, 'entering');
+    L.step(0.05, 0, st, sp, 0);
+    const F1 = L.force.F;
+    L.gates.b.pos = L.gates.b.target = 1;
+    L.step(0.05, 0.05, st, sp, 0);
+    assert.ok(F1 < -5e3, `far gate shut: ${(F1 / 1e3).toFixed(0)} kN`);
+    assert.equal(L.force.F, 0, 'far gate open');
+  });
+  test('a shut gate is solid ("lock gate"): the Spirit at 1 kn stops against it; a closing gate stops for a hull in its way', () => {
+    const sp = FLEET.spirit; setHull(buildHull(sp.L, sp.B, sp.xg, sp.LOA));
+    const w = waterOf(lockIn, () => 0)!, L = w.lock!;
+    const p = P(L, -(sp.LOA / 2 - sp.xg) - 15);
+    const st = makeState(sp, p.n, p.e, axis, 1);
+    const rt = new Runtime(sp, st, { pods: sp.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0 }, { ...calm, depth: 20 }, { obstacles: lockIn.obstacles, fenders: lockIn.fenders, bollards: lockIn.bollards, depthAt: w.depthAt, lock: L });
+    const hit = new Set<string>();
+    for (let i = 0; i < 20 * 120; i++) { rt.step(); for (const q of rt.ci.points) if (q.with) hit.add(q.with); }
+    assert.ok(hit.has('lock gate'), `hit: ${[...hit].join(', ')}`);
+    assert.ok(L.local(rt.state.n, rt.state.e)[0] < 0, 'she is still outside');
+    assert.ok(Math.abs(rt.state.u) < 0.25 * KN, `${(rt.state.u / KN).toFixed(2)} kn`);
+    // the canal gate open, the ship across its line: told to shut, it stays where it is until she is clear
+    const L2 = new LockSim(ZEESLUIS, () => -0.4, 'b'), q = P(L2, L2.L - 5);
+    const s2 = makeState(sp, q.n, q.e, axis, 0);
+    L2.gates.b.target = 0; L2.step(1, 0, s2, sp, 0);
+    assert.ok(L2.gates.b.blocked && L2.gates.b.pos === 1, 'gate stopped');
+    Object.assign(s2, P(L2, 272)); L2.step(1, 1, s2, sp, 0);
+    assert.ok(!L2.gates.b.blocked && L2.gates.b.pos < 1, 'gate runs once she is clear');
+    setHull(buildHull(ACTIVE.L, ACTIVE.B, ACTIVE.xg, ACTIVE.LOA));
+  });
+  test('lines in the chamber as it rises 1.3 m: on a wall-top bollard the line tightens on the brake and is held near its setting on auto; on a floating bollard it does not change', () => {
+    const sp = FLEET.spirit, st = makeState(sp, 0, 0, 0, 0);
+    const run = (mode: 'brake' | 'auto', floating: boolean) => {
+      const l = makeLines(sp.L, sp.B, sp.xg, 1)[0], bol: [number, number][] = [[l.fair[0] + 4, sp.B / 2 + 18]];
+      const z = (rise: number) => ({ fair: rise + sp.look.freeboard, bol: () => 3.5 + (floating ? rise : 0) });
+      assert.ok(passLine(st, l, bol, undefined, z(0)));
+      l.L0 -= 3; l.mode = mode;                          // made taut
+      const out = [0];
+      let peak = 0;
+      for (let t = 0; t <= 900; t += 0.05) { lineForces(st, [l], bol, out, z(1.3 * Math.min(1, t / 750))); l.T = out[0]; updateWinches([l], 0.05); peak = Math.max(peak, l.T); }
+      return { T: l.T, peak };
+    };
+    const brake = run('brake', false), auto = run('auto', false), flo = run('brake', true), flo0 = run('brake', true);
+    assert.ok(brake.T > 1.5e5, `brake ${(brake.T / 9.81e3).toFixed(0)} t`);
+    assert.ok(auto.peak < 1.6 * 1e5 && auto.T > 0.5e5, `auto ${(auto.T / 9.81e3).toFixed(0)} t, peak ${(auto.peak / 9.81e3).toFixed(0)} t`);
+    assert.ok(Math.abs(flo.T - flo0.T) < 1 && flo.peak < 1e3, `floating ${(flo.T / 9.81e3).toFixed(1)} t`);
+  });
+  test('the predictor sees the lock as it stands: its gates and the levels now', () => {
+    const w = waterOf(lockIn, () => 0)!, base = scenarioWorld('ijm-lock-in'), now = scenarioWorld('ijm-lock-in', w.snap());
+    assert.equal(now.obstacles.length, base.obstacles.length + 2);
+    const L = w.lock!, c = P(L, 272);
+    assert.ok(Math.abs(now.depthAt(c.n, c.e) - (18 + w.level('outer'))) < 1e-9);
+  });
+}
 
 console.log(`\n${pass} passed${process.exitCode ? ', some failed' : ''}`);

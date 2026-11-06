@@ -45,6 +45,9 @@ export interface World {
   obstacles: Obstacle[]; fenders: Fender[];
   contact?: boolean;                          // false: skip hull contact (predictor)
   lines?: MooringLine[]; bollards?: Pt[];     // mooring lines (force evaluated inside RK4)
+  /** Heights of the fairleads and of each bollard [m above datum], where water levels change (a lock):
+   *  the lines are then measured in three dimensions. */
+  lineZ?: { fair: number; bol: (i: number) => number };
   lineT?: number[];                           // out: tensions at last evaluation
   ext?: Wrench;                               // body wrench held over the step (tugs, bank, wash)
   tow?: { line: Towline; anchor: [number, number, number, number] };   // towline to a moving fairlead
@@ -292,7 +295,7 @@ export class Model {
         if (bd) { bd.contact.X = c.X; bd.contact.Y = c.Y; bd.contact.N = c.N; }
       }
       if (w.lines && w.bollards) {
-        const l = lineForces(st, w.lines, w.bollards, w.lineT);
+        const l = w.lineZ ? lineForces(st, w.lines, w.bollards, w.lineT, w.lineZ) : lineForces(st, w.lines, w.bollards, w.lineT);
         X += l.X; Y += l.Y; N += l.N;
       }
       if (w.ext) { X += w.ext.X; Y += w.ext.Y; N += w.ext.N; }

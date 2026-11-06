@@ -14,9 +14,10 @@ export class HarbourKit {
   readonly lampHeads: THREE.InstancedMesh | null = null;
   private fenders: THREE.InstancedMesh | null = null;
   private squeezed = new Set<number>();
+  private floatIdx: number[] = []; private floating: THREE.InstancedMesh | null = null; private floatY: number[] = [];
   private m = new THREE.Matrix4(); private q = new THREE.Quaternion(); private s = new THREE.Vector3();
 
-  constructor(private sc: Scenario, private LH: number, mats: { fender: THREE.Material; bollard: THREE.Material; pole: THREE.Material; lamp: THREE.Material }) {
+  constructor(private sc: Scenario, private LH: number, mats: { fender: THREE.Material; bollard: THREE.Material; pole: THREE.Material; lamp: THREE.Material; floating?: THREE.Material }) {
     const F = sc.fenders;
     if (F.length) {
       const fm = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), mats.fender, F.length);
@@ -29,9 +30,19 @@ export class HarbourKit {
     const B = sc.bollards;
     if (B.length) {
       const bm = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.32, 0.4, 0.9, 10), mats.bollard, B.length);
-      B.forEach(([n, e], i) => { this.m.makeTranslation(tp(n, e, LH + 0.45)); bm.setMatrixAt(i, this.m); });
+      B.forEach(([n, e], i) => {
+        // floating bollards (in a lock wall's slots) are drawn on their own, riding the water
+        if (sc.bollardInfo?.[i]?.kind === 'floating') { this.floatIdx.push(i); this.m.makeScale(0, 0, 0); } else this.m.makeTranslation(tp(n, e, LH + 0.45));
+        bm.setMatrixAt(i, this.m);
+      });
       bm.computeBoundingSphere();
       this.group.add(bm);
+      if (this.floatIdx.length) {
+        const fm = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.35, 0.35, 1.0, 10), mats.floating ?? mats.bollard, this.floatIdx.length);
+        fm.instanceMatrix.setUsage(THREE.DynamicDrawUsage); fm.frustumCulled = false;
+        this.floating = fm; this.ride(() => 0);
+        this.group.add(fm);
+      }
     }
     // quay lamps: every 45 m along each berth, on the quay 9 m back from the edge (4 m on small-craft berths)
     const solid = solidTest(sc.obstacles), lamps: [number, number, number][] = [];
@@ -63,6 +74,20 @@ export class HarbourKit {
     this.q.setFromAxisAngle(UP, Math.atan2(f.ne, -f.nn));
     this.m.compose(tp(f.n - f.nn * (dd + len / 2), f.e - f.ne * (dd + len / 2), this.LH - 0.3 - tall / 2), this.q, this.s.set(f.width, tall, len));
     this.fenders!.setMatrixAt(i, this.m);
+  }
+
+  /** Floating bollards at the water where they are (`y`: the water's height there in scene units). */
+  ride(y: (n: number, e: number) => number) {
+    const fm = this.floating; if (!fm) return;
+    const B = this.sc.bollards;
+    let dirty = false;
+    this.floatIdx.forEach((i, k) => {
+      const [n, e] = B[i], h = y(n, e);
+      if (Math.abs(h - (this.floatY[k] ?? NaN)) < 0.005) return;
+      this.floatY[k] = h; dirty = true;
+      this.m.makeTranslation(tp(n, e, h + 0.9)); fm.setMatrixAt(k, this.m);
+    });
+    if (dirty) fm.instanceMatrix.needsUpdate = true;
   }
 
   /** Squeeze the fenders the hull is loading this step (and let go of the ones it no longer does). */

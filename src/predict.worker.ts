@@ -23,7 +23,7 @@ self.onmessage = (e: MessageEvent<Msg>) => {
   const job = m;
   try {
     if (job.shipId !== SHIP.id) { setShip(job.shipId); setHull(buildHull(SHIP.L, SHIP.B, SHIP.xg, SHIP.LOA)); }
-    const tracks = runPrediction(SHIP, job, scenarioWorld(job.scenarioId));
+    const tracks = runPrediction(SHIP, job, scenarioWorld(job.scenarioId, job.water));
     (self as unknown as Worker).postMessage({ id: job.id, tracks });
   } catch (err) {
     // always answer, so the main thread never waits for a reply that will not come

@@ -51,7 +51,7 @@ export function renderBerthPicker() {
   const cur = S.berth.pick?.sc === sc.id ? S.berth.pick.id : '';
   const own = sc.berth ? `<option value="">The scenario's berth${S.berth.target && !cur ? ` · ${S.berth.target.name}` : ''}</option>` : '<option value="">None</option>';
   sel.innerHTML = own + bs.map(b => {
-    const why = berthFits(b, SHIP, sc.tide ?? 0);
+    const why = berthFits(b, SHIP);
     return `<option value="${b.id}"${why ? ' disabled' : ''}${b.id === cur ? ' selected' : ''}>${b.name} · ${b.len.toFixed(0)} m · ${b.depth.toFixed(1)} m${why ? ` · ${why}` : ''}</option>`;
   }).join('');
   sel.value = cur;

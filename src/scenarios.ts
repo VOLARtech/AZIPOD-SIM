@@ -11,6 +11,8 @@ import { type Berth, type BerthKind, type BerthSpec, type BollardInfo, equipBert
 import { SHIPS, type ShipSpec } from './physics/ship';
 import type { Aid } from './ui/chart/model';
 import { berthFits, berthPose, nearestBerth } from './physics/berths';
+import { type TideDef, tideAt } from './physics/levels';
+import { LockSim, type LockDef } from './physics/lock';
 import { HULL, buildHull, contactForces, setHull, type ContactInfo } from './physics/contact';
 import { AREAS, areaBerths } from './scenes/areas';
 import { type AreaPack, type PackGrid, multiGridField } from './scenes/pack';
@@ -18,6 +20,7 @@ import { cardinal, lateral, pierLight, platformLight, safeWater } from './ui/cha
 import { AMSTERDAM, Building } from './scenes/amsterdam';
 import { MIAMI, MIAMI_APPROACH, MIAMI_CARGO } from './scenes/miami';
 import { LALB_SCENARIOS } from './scenes/lalb';
+import { IJM_SCENARIOS } from './scenes/ijmuiden';
 export type { Building };
 
 /** One scripted DP fault: at time t a unit trips, the switchboard blacks out, or a reference drifts (toward dir, deg). */
@@ -73,6 +76,15 @@ export interface Scenario {
   /** The berth to make for, found among the area's berths once it is installed (by name, or the nearest to a
    *  point that takes the ship), and the side to lie. */
   berthRef?: { match?: RegExp; near?: Pt; side: -1 | 1; along?: number };
+  /** Water levels that change: the tide outside (scenario time 0 at tideT0 s into the tide), a held level
+   *  inside, and which applies where. Depths are then the bed below datum plus the level. */
+  levels?: { tide?: TideDef; tideT0?: number; inner: number; zoneAt: (n: number, e: number) => string };
+  /** A lock worked by a lock master, and which of its gates stands open at the start. */
+  lockDef?: LockDef; lockOpen?: 'a' | 'b' | null;
+  /** Structures to add to the area's land: shut gates of the locks that are not worked. */
+  extraSolids?: Pt[][];
+  /** Key the berth editor keeps this device's changes under (default: the id). */
+  editKey?: string;
   bollardInfo?: BollardInfo[];                    // what each bollard is (height, fitting, SWL), parallel to bollards
 }
 
@@ -105,6 +117,7 @@ export function currentField(sc: Scenario, kn: number, setDeg: number): CurrentF
 export const SCENARIOS: Scenario[] = [
   MIAMI, MIAMI_APPROACH, MIAMI_CARGO,
   ...LALB_SCENARIOS,
+  ...IJM_SCENARIOS,
   AMSTERDAM,
   {
     id: 'quai27', name: 'Quai 27 · port side to',
@@ -370,6 +383,7 @@ export function depthAt(sc: Scenario): DepthField {
   if (!f) {
     if (sc.needsData && !sc.depthGrid && !sc.depthGrids) return () => sc.depth;     // not loaded yet: never cache the placeholder
     f = sc.depthGrids ? multiGridField(sc.depthGrids, sc.tide ?? 0) : sc.depthGrid ? gridField(sc.depthGrid, sc.tide ?? 0) : depthField(sc.depth, sc.shoals);
+    if (sc.lockDef) { const g = f, ch = chamberTest(sc.lockDef), sill = sc.lockDef.sill + (sc.tide ?? 0); f = (n, e) => (ch(n, e) ? sill : g(n, e)); }
     fields.set(sc, f);
   }
   return f;
@@ -389,9 +403,14 @@ export function worldOf(sc: Scenario) {
     current: (kn: number, set: number) => currentField(sc, kn, set), index: indexOf(sc),
   };
 }
-/** The predictor worker's world for a live scenario, rebuilt from its id. */
-export function scenarioWorld(id: string) {
-  return worldOf(SCENARIOS.find(s => s.id === id)!);
+/** Water levels as they stand (for the predictor: they hardly change over its horizon), and the lock's gates. */
+export interface WaterSnap { outer: number; inner: number; chamber: number; gates: Obstacle[] }
+/** The predictor worker's world for a live scenario, rebuilt from its id (with the levels and gates now). */
+export function scenarioWorld(id: string, water?: WaterSnap) {
+  const sc = SCENARIOS.find(s => s.id === id)!, w = worldOf(sc);
+  if (!water || !sc.levels) return w;
+  const lv = (z: string) => (z === 'chamber' ? water.chamber : z === 'outer' ? water.outer : water.inner);
+  return { ...w, obstacles: w.obstacles.concat(water.gates), depthAt: levelDepth(sc, lv) };
 }
 
 export { ratedEnergy };
@@ -418,7 +437,7 @@ function clearance(sc: Scenario, only?: (b: Berth) => boolean) {
   try {
     for (const b of sc.berths ?? []) {
       if (!b.charted || (only && !only(b))) continue;
-      const ships = fleet.filter(sp => !berthFits(b, sp, sc.tide ?? 0)).sort((x, y) => x.LOA - y.LOA || x.B - y.B);
+      const ships = fleet.filter(sp => !berthFits(b, sp)).sort((x, y) => x.LOA - y.LOA || x.B - y.B);
       if (!ships.length) continue;
       // lying alongside, either side to: touching nothing, and afloat with 5 % under her keel
       const bad = (sp: ShipSpec) => {
@@ -446,12 +465,34 @@ function clearance(sc: Scenario, only?: (b: Berth) => boolean) {
   } finally { setHull(h0); }
   return lim;
 }
+/** Is a point inside a lock's chamber? */
+function chamberTest(d: LockDef) {
+  const dn = d.b[0] - d.a[0], de = d.b[1] - d.a[1], L = Math.hypot(dn, de), u = [dn / L, de / L];
+  return (n: number, e: number) => { const pn = n - d.a[0], pe = e - d.a[1], s = pn * u[0] + pe * u[1], w = -pn * u[1] + pe * u[0]; return s >= 0 && s <= L && Math.abs(w) <= d.width / 2; };
+}
+/** Depth with the water where it is: the bed below datum (a lock's chamber floor at its sill) plus the level
+ *  of the zone the point is in ('chamber' inside the lock's chamber). */
+function levelDepth(sc: Scenario, level: (zone: string) => number): DepthField {
+  const L = sc.levels!, bed = multiGridField(sc.depthGrids!, 0), ch = sc.lockDef ? chamberTest(sc.lockDef) : null, sill = sc.lockDef?.sill ?? 0;
+  return (n, e) => (ch?.(n, e) ? sill + level('chamber') : bed(n, e) + level(L.zoneAt(n, e)));
+}
+/** The water of a scenario with changing levels: its lock (if any), the level of each zone at the clock's
+ *  time, and the depth field with the water where it is. */
+export function waterOf(sc: Scenario, clock: () => number) {
+  const L = sc.levels; if (!L || !sc.depthGrids) return null;
+  let lock: LockSim | null = null;
+  const level = (zone: string) => zone === 'chamber' ? lock!.eta : zone === 'outer' ? (L.tide ? tideAt(L.tide, clock() + (L.tideT0 ?? 0)) : L.inner) : L.inner;
+  if (sc.lockDef) lock = new LockSim(sc.lockDef, level, sc.lockOpen === undefined ? 'a' : sc.lockOpen);
+  const zoneAt = (n: number, e: number) => (lock?.inChamber(n, e) ? 'chamber' : L.zoneAt(n, e));
+  return { lock, level, zoneAt, depthAt: levelDepth(sc, level), snap: (): WaterSnap => ({ outer: level('outer'), inner: L.inner, chamber: lock?.eta ?? L.inner, gates: lock?.obstacles() ?? [] }) };
+}
+export type Water = NonNullable<ReturnType<typeof waterOf>>;
 /** The berth a scenario names (berthRef) for this ship: by name, or the nearest to its point that she fits. */
 export function refBerth(sc: Scenario, sp: ShipSpec): Berth | undefined {
   const r = sc.berthRef; if (!r || !sc.berths?.length) return undefined;
   let list = sc.berths.filter(b => !r.match || r.match.test(b.name));
   if (r.near) {
-    const ok = list.filter(b => !berthFits(b, sp, sc.tide ?? 0));
+    const ok = list.filter(b => !berthFits(b, sp));
     list = (ok.length ? ok : list).map(b => ({ b, d: nearestBerth([b], r.near![0], r.near![1])!.d })).sort((x, y) => x.d - y.d).map(x => x.b);
   }
   return list[0];
@@ -481,6 +522,7 @@ export function installArea(id: string, pack: AreaPack, final?: BerthSpec[]) {
     fields.delete(sc); indexes.delete(sc);
     sc.obstacles.length = 0;
     for (const poly of pack.tiles) sc.obstacles.push({ poly, ...CONCRETE, kind: 'quay', bbox: bboxOf(poly) });
+    for (const poly of sc.extraSolids ?? []) sc.obstacles.push({ poly, ...CONCRETE, kind: 'pier', bbox: bboxOf(poly), name: 'lock gate' });
     // the charted bollards are the area's own (first, kept by the berth editor's reset); the rules fill the gaps
     sc.fenders.length = 0; sc.bollards.splice(0, sc.bollards.length, ...pack.bollards.map(p => [p[0], p[1]] as Pt));
     const own = sc.ownGear = { fenders: 0, bollards: pack.bollards.length };

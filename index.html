@@ -55,6 +55,7 @@
     <button id="b-follow" class="mb on" aria-pressed="true">FOLLOW</button>
     <button id="b-lines" class="mb" hidden>LINES</button>
     <button id="b-tugs" class="mb" hidden>TUGS</button>
+    <button id="b-lock" class="mb" hidden aria-label="The lock: call the lock master, levels and signals">LOCK</button>
     <button id="b-ais" class="mb" hidden aria-label="AIS targets">AIS</button>
     <button id="b-dmg" class="mb" hidden aria-label="Damage control">DAMAGE</button>
     <span class="zoom"><button id="b-zin" class="mb sq" aria-label="Zoom in">+</button><button id="b-zout" class="mb sq" aria-label="Zoom out">−</button></span>
@@ -84,6 +85,13 @@
     <canvas class="dmg-plan" id="dmg-plan" aria-label="Hull plan: damage by section, flooding, propulsion"></canvas>
     <div class="stat dmg-stat" id="dmg-stat"></div>
     <div class="dmg-log" id="dmg-log"></div>
+  </section>
+  <section class="panel" id="p-lock" hidden aria-label="The lock">
+    <div class="panel-head"><span class="tag" id="lock-head">LOCK</span><button class="x" data-close="p-lock" aria-label="Close">×</button></div>
+    <button class="cb" id="lock-call">CALL LOCK ON VHF</button>
+    <div id="lock-state"></div>
+    <div class="lk-log" id="lock-log" aria-live="polite"></div>
+    <p class="hint">Call before you reach the gate. Enter on green at no more than 2 knots, make fast at least two lines, and tend them while the chamber levels. Red and green together: get ready, the gate is opening.</p>
   </section>
   <section class="panel" id="p-tugs" hidden aria-label="Tugs">
     <div class="panel-head"><span class="tag" id="tug-head">TUGS</span><button class="x" data-close="p-tugs" aria-label="Close">×</button></div>

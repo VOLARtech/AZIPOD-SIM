@@ -17,6 +17,7 @@ import { Traffic, hullsTouch, interaction } from './traffic';
 import { IceState } from './ice';
 import { HULL } from './contact';
 import { HarbourIndex, harbourIndex } from './spatial';
+import type { LockSim } from './lock';
 
 export const DT = 0.05;
 /** Joystick auto heading (HDG HOLD), rate gain × ship length in m/s: 1.7 /s on the 47 m yacht, 0.32 /s on a
@@ -38,6 +39,10 @@ export type LeverMode = 'twin' | 'indep' | 'joy';
 export interface HarbourSetup {
   obstacles: Obstacle[]; fenders: Fender[]; bollards: Pt[]; depthAt: DepthField;
   mooringSide?: -1 | 1; tugSide?: -1 | 1; tugBP?: number; confined?: number;
+  /** A lock worked by a lock master (its gates are moving obstacles, its levelling pulls on the ship). */
+  lock?: LockSim;
+  /** Where water levels change: the fairlead and bollard heights, for three-dimensional mooring lines. */
+  lineZ?: (st: ShipState) => { fair: number; bol: (i: number) => number };
 }
 
 export class Runtime {
@@ -75,7 +80,7 @@ export class Runtime {
   inter = { X: 0, Y: 0, N: 0 };            // ship-ship interaction on own ship, this step
   private touching = new Set<Traffic>();
   dpScript: { t: number; kind: string; unit?: number; ref?: string; dir?: number; done?: boolean }[] = [];
-  private trailT = 0; private hydroT = 0; private hydroDepth = NaN;
+  private trailT = 0; private hydroT = 0; private hydroDepth = NaN; private lockSaid = 0;
 
   constructor(public spec: ShipSpec, public state: ShipState, public cmd: Command,
               public env: Env, public harbour: HarbourSetup) {
@@ -135,7 +140,7 @@ export class Runtime {
   index!: HarbourIndex;
 
   passLine(i: number) {
-    const ok = passLine(this.state, this.lines[i], this.harbour.bollards, this.index);
+    const ok = passLine(this.state, this.lines[i], this.harbour.bollards, this.index, this.harbour.lineZ?.(this.state));
     this.alert(ok ? `${this.lines[i].name} ashore` : `${this.lines[i].name}: no bollard within ${LINE.reach} m`, ok ? 'good' : '');
     return ok;
   }
@@ -208,6 +213,15 @@ export class Runtime {
     }
 
     updateActuators(spec, st, this.cmd, dt, this.status, cur);
+    // the lock: gates, levelling and the lock master; what he says goes up as an alert
+    const lock = this.harbour.lock;
+    if (lock) {
+      lock.step(dt, st.t, st, spec, this.lines.filter(l => l.state === 'fast').length);
+      const nNew = lock.said - this.lockSaid;
+      for (const m of lock.log.slice(Math.max(0, lock.log.length - nNew))) this.alert(`VHF · ${m.from}: ${m.text}`, m.from === spec.name ? '' : 'good');
+      this.lockSaid = lock.said;
+    }
+    if (this.harbour.lineZ) this.world.lineZ = this.harbour.lineZ(st);
     this.gust.step(dt, this.env.gusts && this.env.windSpeed > 0.1);
 
     // harbour effects held over the step
@@ -235,17 +249,19 @@ export class Runtime {
     this.iceF = ice;
     // other ships are hard: their hulls are obstacles moving with them, so a collision pushes, stops and damages
     const near = this.traffic.filter(t => Math.hypot(t.st.n - st.n, t.st.e - st.e) < (spec.LOA + t.spec.LOA) / 2 + 30);
-    this.world.obstacles = near.length ? this.harbour.obstacles.concat(near.map(t => {
+    const base = lock ? this.harbour.obstacles.concat(lock.obstacles()) : this.harbour.obstacles;
+    this.world.obstacles = near.length ? base.concat(near.map(t => {
       const c = Math.cos(t.st.psi), sn = Math.sin(t.st.psi);
       return { poly: t.hull.map(([x, y]) => [t.st.n + x * c - y * sn, t.st.e + x * sn + y * c] as Pt), k: 4e6, c: 1.2e6, mu: 0.3, unload: 0.05, kind: 'ship' as const,
         vel: [t.st.u * c, t.st.u * sn] as Pt, name: `collision with ${t.setup.label}` };
-    })) : this.harbour.obstacles;
+    })) : base;
     // damage: thrust lost on hit units, flooding sinks and trims her (grounding sees it), and drags
     const dmg = this.damage, dmgX = this.damageOn ? dmg.resistance(st.u) : 0;
     if (this.damageOn) { this.model.health = dmg.health; this.model.btHealth = dmg.btHealth; this.world.dmgDraught = dmg.water > 0 ? (x: number) => dmg.draughtAt(x) : undefined; }
     ext.X = tug.X + this.bank.X + this.wash.X + it.X + ice.X + dmgX;
     ext.Y = tug.Y + this.bank.Y + this.wash.Y + it.Y + ice.Y;
     ext.N = tug.N + this.bank.N + this.wash.N + it.N + ice.N;
+    if (lock) { ext.X += lock.force.X; ext.Y += lock.force.Y; }
     this.world.squat = this.sq;
     // hydrodynamics follow the water under the keel (1 Hz)
     this.hydroT -= dt;

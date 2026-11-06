@@ -159,10 +159,11 @@ export function drawStructures() {
   // the chart draws the land; structures the berth rules put up (a jetty's dolphins and platform) are drawn here
   const charted = !!chartOf(S.sc);
   for (const o of S.sc.obstacles) {
-    if (charted && o.name !== 'dolphin') continue;
+    if (charted && o.name !== 'dolphin' && o.name !== 'lock gate') continue;
     polyPath(o.poly); ctx.fillStyle = C.land; ctx.fill();
     ctx.strokeStyle = C['land-edge']; ctx.lineWidth = px(1.5); ctx.stroke();
   }
+  drawLock();
   // fender units at their live compression (only those in view; one path per state)
   const defl = new Map<number, number>();
   for (const f of rt.ci.fenders) defl.set(f.i, Math.max(defl.get(f.i) ?? 0, f.defl));
@@ -201,6 +202,33 @@ export function drawStructures() {
     hullPath(); ctx.setLineDash([px(6), px(5)]); ctx.strokeStyle = C.muted; ctx.lineWidth = px(1.3); ctx.stroke(); ctx.setLineDash([]);
     ctx.beginPath(); ctx.moveTo(-6, 0); ctx.lineTo(6, 0); ctx.moveTo(0, -6); ctx.lineTo(0, 6); ctx.stroke();
     ctx.restore();
+  }
+}
+
+/** A worked lock: its gates where they stand (running into their recesses), the chamber's water when it is not
+ *  at the level outside, and the CEVNI lights on the wall heads at each end. */
+function drawLock() {
+  const lock = S.water?.lock; if (!lock) return;
+  const d = lock.def, P = (s: number, w: number): [number, number] => [d.a[0] + lock.u[0] * s + lock.w[0] * w, d.a[1] + lock.u[1] * s + lock.w[1] * w];
+  // the chamber: tinted while its level differs from the water beyond the open (or the nearer) gate
+  const off = Math.abs(lock.eta - S.water!.level(d.outer)) > 0.05 && Math.abs(lock.eta - S.water!.level(d.inner)) > 0.05;
+  if (off) {
+    polyPath([P(0, -d.width / 2), P(lock.L, -d.width / 2), P(lock.L, d.width / 2), P(0, d.width / 2)]);
+    ctx.fillStyle = C.own; ctx.globalAlpha = 0.08; ctx.fill(); ctx.globalAlpha = 1;
+  }
+  for (const o of lock.obstacles()) {
+    polyPath(o.poly); ctx.fillStyle = C.ink; ctx.fill();
+    ctx.strokeStyle = C['land-edge']; ctx.lineWidth = px(1); ctx.stroke();
+  }
+  // lights: on the wall head on the entering side of each end, red over green
+  const sg = lock.signals(), r = Math.max(2.2, px(4));
+  for (const [end, s0, s1] of [['a', 0, -6], ['b', lock.L, lock.L + 6]] as const) {
+    const sig = sg[end], [n, e] = P(s1, -d.recess * (d.width / 2 + 4)), [n2, e2] = P(s0 + (s1 - s0) * 2.2, -d.recess * (d.width / 2 + 4));
+    for (const [on, col, pn, pe] of [[sig !== 'green', '#e5342b', n, e], [sig !== 'red', '#1fbf5b', n2, e2]] as const) {
+      ctx.beginPath(); ctx.arc(pe, pn, r, 0, Math.PI * 2);
+      ctx.fillStyle = on ? col : C['panel-solid']; ctx.fill();
+      ctx.strokeStyle = on ? col : C.muted; ctx.lineWidth = px(1); ctx.stroke();
+    }
   }
 }
 

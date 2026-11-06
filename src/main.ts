@@ -18,6 +18,7 @@ import { AisMap, computeAis } from './ui/ais';
 import { drawDamagePlan, renderDamage } from './ui/dmgpanel';
 import { EditMode, editAt, loadBerth, resetBerth } from './ui/berthedit';
 import { initBerthPicker, renderBerthPicker, targetFor } from './ui/berthpicker';
+import { initLockPanel, updateLockPanel } from './ui/lockpanel';
 import { nearestBerth, type BerthSpec } from './physics/berths';
 import { IceState } from './physics/ice';
 import { buildDpStation, buildJetStation, buildStation, buildTugStation, initialOrders, Station } from './ui/stations';
@@ -26,7 +27,7 @@ import { makeState, wrap } from './physics/sim';
 import { DT, LeverMode, Runtime } from './physics/runtime';
 import { LINE, WinchMode } from './physics/mooring';
 import type { Alt, PredictJob, Track } from './physics/predict';
-import { SCENARIOS, safeStart, Scenario, berthFor, currentField, depthAt, fits } from './scenarios';
+import { SCENARIOS, safeStart, Scenario, berthFor, currentField, depthAt, fits, waterOf, type Water } from './scenarios';
 import { ensureScenario } from './scenes/loaders';
 import { loadChart } from './ui/chart';
 import { haptic, suspendAudio, uiTick, unlockAudio, updateAudio } from './ui/audio';
@@ -80,9 +81,12 @@ function loadScenario(sc: Scenario, at?: { n: number; e: number; psi: number; kn
   });
   if (SHIP.sternThruster) S.cmd.sbt = 0;
   Object.assign(S.env, { windKn: sc.windKn, windFrom: sc.windFrom, curKn: sc.currentKn, curSet: sc.currentSet, gusts: sc.gusts });
+  // tide, canal and lock: the level where the ship is, and the lock master
+  const water = S.water = waterOf(sc, () => st.t);
   S.rt = new Runtime(SHIP, st, S.cmd,
     { windSpeed: 0, windFrom: 0, gusts: false, current: () => [0, 0], depth: sc.depth },
-    { obstacles: sc.obstacles, fenders: sc.fenders, bollards: sc.bollards, depthAt: depthAt(sc), tugBP: sc.tugBP,
+    { obstacles: sc.obstacles, fenders: sc.fenders, bollards: sc.bollards, depthAt: water?.depthAt ?? depthAt(sc), tugBP: sc.tugBP,
+      ...(water ? { lock: water.lock ?? undefined, lineZ: lineHeights(sc, water, SHIP) } : {}),
       // lines on the side she lies to at the berth she makes for; any berth with bollards can take them
       mooringSide: S.berth.target?.side ?? sc.mooringSide ?? (sc.bollards.length ? -1 : undefined),
       tugSide: SHIP.towPoints || !sc.tugSide ? undefined : S.berth.pick?.sc === sc.id ? (-S.berth.pick.side as -1 | 1) : sc.tugSide });
@@ -102,6 +106,7 @@ function loadScenario(sc: Scenario, at?: { n: number; e: number; psi: number; kn
   S.quay.forEach(q => { q.d = Infinity; q.rate = 0; });
   $('b-lines').hidden = !S.rt.lines.length; $('b-tugs').hidden = !S.rt.tugs.length;     // a tug as own ship does not call tugs
   $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = true;
+  initLockPanel();
   ($('bt') as HTMLInputElement).value = '0';
   setLever('twin');
   mountStation();
@@ -112,6 +117,24 @@ function loadScenario(sc: Scenario, at?: { n: number; e: number; psi: number; kn
   renderScenarioList();
   renderShipList();
   syncButtons();
+}
+
+/** Heights above datum of the fairleads (the level she floats at plus her freeboard) and of each bollard (the
+ *  quay's, given above the scenario's still level; a floating bollard rides with the water it is in). */
+function lineHeights(sc: Scenario, w: Water, sp: ShipSpec) {
+  const still = sc.tide ?? 0, lock = w.lock;
+  const levelBy = (n: number, e: number) => {
+    if (lock) { const [s, x] = lock.local(n, e); if (s >= 0 && s <= lock.L && Math.abs(x) <= lock.def.width / 2 + 3) return lock.eta; }
+    return w.level(w.zoneAt(n, e));
+  };
+  return (st: { n: number; e: number }) => ({
+    fair: levelBy(st.n, st.e) + sp.look.freeboard,
+    bol: (i: number) => {
+      const inf = sc.bollardInfo?.[i], p = sc.bollards[i];
+      if (!inf || !p) return still + (sc.landHeight ?? 2) + 0.5;
+      return inf.kind === 'floating' ? levelBy(p[0], p[1]) + inf.z : still + inf.z;
+    },
+  });
 }
 
 let sheetStarted = false;
@@ -262,6 +285,8 @@ function requestPrediction(now: number) {
     lines: rt.lines.map(l => ({ fair: l.fair, bollard: l.bollard, L0: l.L0, state: l.state, bp: l.state === 'fast' ? rt.harbour.bollards[l.bollard] : undefined })),
     ext: { ...rt.world.ext! },
     horizon: S.pred.horizon, alts,
+    ...(S.water ? { water: S.water.snap() } : {}),
+    ...(rt.harbour.lineZ ? (() => { const z = rt.harbour.lineZ!(rt.state); return { lineZ: { fair: z.fair, bol: rt.lines.map(l => (l.state === 'fast' ? z.bol(l.bollard) : z.fair)) } }; })() : {}),
   };
   S.pred.pending = true; S.pred.lastSend = now;
   pw.postMessage(job);
@@ -669,14 +694,15 @@ function updateTugsPanel() {
   });
 }
 function placePanels() {
-  for (const id of ['p-lines', 'p-tugs', 'p-dmg']) {
+  for (const id of ['p-lines', 'p-tugs', 'p-dmg', 'p-lock']) {
     const el = $(id);
     el.style.bottom = `${innerHeight - D.LAY.trayTop + 8}px`;
     el.style.maxHeight = `${Math.max(140, D.LAY.trayTop - D.LAY.chipsBottom - 16)}px`;
   }
 }
 document.querySelectorAll<HTMLButtonElement>('[data-close]').forEach(b => (b.onclick = () => ($(b.dataset.close!).hidden = true)));
-$('b-lines').onclick = () => { const p = $('p-lines'); p.hidden = !p.hidden; $('p-tugs').hidden = $('p-dmg').hidden = true; buildLines(); placePanels(); };
+$('b-lines').onclick = () => { const p = $('p-lines'); p.hidden = !p.hidden; $('p-tugs').hidden = $('p-dmg').hidden = $('p-lock').hidden = true; buildLines(); placePanels(); };
+$('b-lock').onclick = () => { const p = $('p-lock'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = true; placePanels(); updateLockPanel(true); };
 // ---------------------------------------------------------------- random traffic and the AIS card
 /** (Re)draw the random traffic for this scenario round own ship; scripted scenario traffic stays. */
 function setRandomTraffic(rebuild3d = true) {
@@ -710,7 +736,7 @@ $('b-retraffic').onclick = () => {
 let editMode: EditMode | null = null;
 function setEdit(m: EditMode | null) {
   const was = editMode; editMode = m; D.setEditing(!!m);
-  if (m) $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = true;   // the chart clear to tap on
+  if (m) $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = $('p-lock').hidden = true;   // the chart clear to tap on
   $('edit-bar').hidden = !m;
   document.querySelectorAll<HTMLButtonElement>('[data-em]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.em === m)));
   if (m) $('edit-hint').textContent = m === 'remove' ? 'Tap a bollard or fender to take it away.' : `Tap near a quay edge to put a ${m} there.`;
@@ -747,7 +773,7 @@ initBerthPicker({
 
 // ---------------------------------------------------------------- damage control
 let lostShown = false;
-$('b-dmg').onclick = () => { const p = $('p-dmg'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-tugs').hidden = true; placePanels(); updateDamage(); };
+$('b-dmg').onclick = () => { const p = $('p-dmg'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-tugs').hidden = $('p-lock').hidden = true; placePanels(); updateDamage(); };
 function updateDamage() {
   const d = S.rt.damage;
   $('b-dmg').hidden = !S.rt.damageOn || !d.any;
@@ -759,7 +785,7 @@ function updateDamage() {
     $('p-dmg').hidden = false; placePanels();
   }
 }
-$('b-tugs').onclick = () => { const p = $('p-tugs'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-dmg').hidden = true; placePanels(); };
+$('b-tugs').onclick = () => { const p = $('p-tugs'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-dmg').hidden = $('p-lock').hidden = true; placePanels(); };
 
 // ---------------------------------------------------------------- map gestures
 const ptrs = new Map<number, { x: number; y: number }>();
@@ -1054,7 +1080,7 @@ function frame(now: number) {
   if (station) station.draw();
   else { for (const d of dials) d.draw(); for (const l of levers) l.draw(); }
   slowT -= dtReal;
-  if (slowT <= 0) { slowT = 0.1; updateHud(); updateLinesPanel(); updateTugsPanel(); updateDamage(); if (S.rt.traffic.length) computeAis(); }
+  if (slowT <= 0) { slowT = 0.1; updateHud(); updateLinesPanel(); updateTugsPanel(); updateLockPanel(); updateDamage(); if (S.rt.traffic.length) computeAis(); }
   if (S.rt.traffic.length && !$('ais').hidden && $('ais-head').getAttribute('aria-expanded') === 'true') aisMap.draw();
   // adaptive resolution: if frames run long for 2 s, render at a lower pixel density
   frameEma += (performance.now() - t0 - frameEma) * 0.05;
@@ -1099,7 +1125,17 @@ persist('azb-settings',
   });
 D.readTheme();
 resize();
-openScenario(SCENARIOS[0]).then(() => {
+// deep links: ?scenario=<id>&ship=<id>&view=2d|split|3d&cam=bridge|port|stbd|chase|pods&tod=day|dusk|night
+// &t=<s to run on>&zoom=<× the scenario's>
+const Q = new URLSearchParams(location.search);
+const qShip = Q.get('ship'), qView = Q.get('view'), qCam = Q.get('cam'), qTod = Q.get('tod');
+if (qShip && SHIPS[qShip]) S.shipId = qShip;
+if (qView === '2d' || qView === 'split' || qView === '3d') S.disp.view = qView;
+if (qCam && CAMS.some(([c]) => c === qCam)) S.disp.cam = qCam as typeof S.disp.cam;
+if (qTod === 'day' || qTod === 'dusk' || qTod === 'night') { S.disp.palette = qTod; document.documentElement.setAttribute('data-palette', qTod); D.readTheme(); }
+openScenario(SCENARIOS.find(s => s.id === Q.get('scenario')) ?? SCENARIOS[0]).then(() => {
+  for (let i = 0, n = Math.min(36000, +(Q.get('t') ?? 0) / DT); i < n; i++) S.rt.step(DT);
+  const qz = +(Q.get('zoom') ?? 0); if (qz > 0) S.view.scale *= qz;
   uiSyncs.forEach(f => f());
   ($('s-static') as HTMLInputElement).checked = S.pred.staticArc;
   ($('s-truth') as HTMLInputElement).checked = S.disp.truth;

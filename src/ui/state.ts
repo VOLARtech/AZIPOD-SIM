@@ -1,5 +1,5 @@
 import type { Traffic } from '../physics/traffic';
-import type { Scenario } from '../scenarios';
+import type { Scenario, Water } from '../scenarios';
 import type { Runtime } from '../physics/runtime';
 import type { Command } from '../physics/sim';
 import type { Alt, Track } from '../physics/predict';
@@ -12,6 +12,8 @@ export const S = {
   sc: null as unknown as Scenario,
   shipId: null as string | null,          // chosen ship; null = the scenario's own
   rt: null as unknown as Runtime,
+  /** Where water levels change (tide, a canal, a lock): the scenario's water, else null. */
+  water: null as Water | null,
   cmd: { pods: [{ alpha: 0, rpm: 0 }, { alpha: 0, rpm: 0 }], bt: 0, mode: 'twin' } as Command,
   env: { windKn: 0, windFrom: 0, curKn: 0, curSet: 0, gusts: false },
   view: { cN: 0, cE: 0, scale: 1, headUp: false, follow: true, rot: 0 },

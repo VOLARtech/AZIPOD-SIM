@@ -60,18 +60,40 @@ export function pickBollard(st: ShipState, line: MooringLine, bollards: Pt[], id
   return best;
 }
 
-export function passLine(st: ShipState, line: MooringLine, bollards: Pt[], idx?: HarbourIndex): boolean {
+export function passLine(st: ShipState, line: MooringLine, bollards: Pt[], idx?: HarbourIndex, z?: { fair: number; bol: (i: number) => number }): boolean {
   const b = pickBollard(st, line, bollards, idx);
   if (b < 0) return false;
   const [fn, fe] = fairWorld(st, line.fair);
   line.bollard = b; line.state = 'fast'; line.mode = 'slack';
-  line.L0 = Math.hypot(bollards[b][0] - fn, bollards[b][1] - fe) + 3;
+  line.L0 = (z ? Math.hypot(bollards[b][0] - fn, bollards[b][1] - fe, z.bol(b) - z.fair) : Math.hypot(bollards[b][0] - fn, bollards[b][1] - fe)) + 3;
   line.T = 0; line.peakT = 0;
   return true;
 }
 
+/** Line forces where the water level changes (a lock): the line runs from the fairlead up or down to the
+ *  bollard, so its length is three-dimensional; only the horizontal part of the pull acts on the hull. */
+function lineForces3(st: ShipState, lines: MooringLine[], bollards: Pt[], out: number[] | undefined, z: { fair: number; bol: (i: number) => number }): Wrench {
+  const c = Math.cos(st.psi), s = Math.sin(st.psi);
+  let X = 0, Y = 0, N = 0;
+  lines.forEach((l, i) => {
+    if (l.state !== 'fast') { if (out) out[i] = 0; return; }
+    const [fn, fe] = fairWorld(st, l.fair), [bn, be] = bollards[l.bollard];
+    const dn = bn - fn, de = be - fe, dz = z.bol(l.bollard) - z.fair, h = Math.hypot(dn, de) || 1e-6, d = Math.hypot(h, dz);
+    const strain = (d - l.L0) / l.L0;
+    if (strain <= 0) { if (out) out[i] = 0; return; }
+    const vN = c * st.u - s * st.v - st.r * (fe - st.e), vE = s * st.u + c * st.v + st.r * (fn - st.n);
+    const ddot = -(vN * dn + vE * de) / d;
+    const T = Math.max(0, LINE.EA * strain + 2e5 * ddot);
+    const FN = T * dn / d, FE = T * de / d;
+    const fx = c * FN + s * FE, fy = -s * FN + c * FE;
+    X += fx; Y += fy; N += l.fair[0] * fy - l.fair[1] * fx;
+    if (out) out[i] = T;
+  });
+  return { X, Y, N };
+}
 /** Line forces as a body wrench (used inside the integrator). */
-export function lineForces(st: ShipState, lines: MooringLine[], bollards: Pt[], out?: number[]): Wrench {
+export function lineForces(st: ShipState, lines: MooringLine[], bollards: Pt[], out?: number[], z?: { fair: number; bol: (i: number) => number }): Wrench {
+  if (z) return lineForces3(st, lines, bollards, out, z);
   const c = Math.cos(st.psi), s = Math.sin(st.psi);
   let X = 0, Y = 0, N = 0;
   lines.forEach((l, i) => {

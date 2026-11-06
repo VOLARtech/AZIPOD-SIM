@@ -60,10 +60,14 @@ export function areaBerths(id: string): BerthSpec[] {
   const def = AREAS[id];
   // whole wharves first: their fenders are sized for the biggest ship, and the numbered berths along them share them
   const order = def.meta.faces.map((f, i) => [f, i] as const).sort((x, y) => Number(!!y[0].whole) - Number(!!x[0].whole) || x[1] - y[1]);
+  // a face looking into a lock chamber is a lock wall
+  const chambers = def.meta.locks?.basins.map(b => b.ring) ?? [];
+  const inRing = (r: Pt[], n: number, e: number) => { let k = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) if ((r[i][1] > e) !== (r[j][1] > e) && n < (r[j][0] - r[i][0]) * (e - r[i][1]) / (r[j][1] - r[i][1]) + r[i][0]) k = !k; return k; };
   return order.map(([f, i]) => {
     const name = tidy(f.name);
     const k = def.kinds?.find(x => x.match.test(name));
-    const kind: BerthKind = f.len < 60 ? 'tug' : k?.kind ?? 'general';
+    const mn = (f.a[0] + f.b[0]) / 2 + 5 * f.nrm[0], me = (f.a[1] + f.b[1]) / 2 + 5 * f.nrm[1];
+    const kind: BerthKind = chambers.some(r => inRing(r, mn, me)) ? 'lockwall' : f.len < 60 ? 'tug' : k?.kind ?? 'general';
     return { id: `F${i + 1}`, name, kind, a: f.a, b: f.b, nrm: f.nrm, charted: true, ...(k?.design ? { design: k.design } : {}) } as BerthSpec;
   }).concat(def.extra ?? []);
 }

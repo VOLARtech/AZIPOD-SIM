@@ -221,6 +221,7 @@ export function equipBerths(specs: BerthSpec[], fenders: Fender[], bollards: Pt[
   const pushB = (p: Pt) => { bollards.push(p); put(bh, bollards.length - 1, p[0], p[1]); };
   for (let i = info.length; i < nKeptB; i++) info.push({ berth: '', z: o.top + 0.5, kind: 'bollard', swl: 50 });
   const byId = new Map(o.fleet.map(s => [s.id, s]));
+  const grown = new Set<number>();
   for (const sp0 of specs) {
     // the face's own geometry (trimmed ends, the water along and past it) depends on the land and the depths
     // only: worked out once per spec, even when the gear is laid out again
@@ -252,12 +253,13 @@ export function equipBerths(specs: BerthSpec[], fenders: Fender[], bollards: Pt[
     const b: Berth = { ...sp, len, dir: g.dir, nrm: g.nrm, depth: 0, designShip: '', E: { normal: 0, design: 0, v: 0 }, fenderLat: 0, kept: false, room: [...g.room] as [number, number], profile: g.profile.map(x => [x[0], x[1]] as [number, number]) };
     const rule = RULES[b.kind];
     const at = (s: number, off: number): Pt => [b.a[0] + b.dir[0] * s + b.nrm[0] * off, b.a[1] + b.dir[1] * s + b.nrm[1] * off];
-    // a charted depth given for the berth holds alongside it
-    if (sp.depth !== undefined) b.profile = b.profile.map(([off, z]) => [off, off <= 15 ? sp.depth! : z]);
-    b.depth = sp.depth ?? Math.min(...b.profile.filter(([off]) => off <= 15).map(([, z]) => z));
-    b.fenderLat = RULES[b.kind].hMin;                         // until the fenders are known: for the design ship's water
+    // a charted depth given for the berth (below datum: the tide on top) holds alongside it; the depths the
+    // depth field gives are the water as it stands, tide and all
     const tide = o.tide ?? 0;
-    const fit = designShipFor(usableLength(b), B => depthFor(b, B) + tide, o.fleet);
+    if (sp.depth !== undefined) b.profile = b.profile.map(([off, z]) => [off, off <= 15 ? sp.depth! + tide : z]);
+    b.depth = sp.depth !== undefined ? sp.depth + tide : Math.min(...b.profile.filter(([off]) => off <= 15).map(([, z]) => z));
+    b.fenderLat = RULES[b.kind].hMin;                         // until the fenders are known: for the design ship's water
+    const fit = designShipFor(usableLength(b), B => depthFor(b, B), o.fleet);
     // a charted face no ship of the fleet can lie at (too shallow, too short) is no berth
     if (!fit && sp.charted && !sp.design) continue;
     const ds = (sp.design && byId.get(sp.design)) || fit || [...o.fleet].sort((x, y) => x.T - y.T)[0];
@@ -276,6 +278,16 @@ export function equipBerths(specs: BerthSpec[], fenders: Fender[], bollards: Pt[
       const f = fenders[mid];
       tmpl = { width: f.width, height: f.height, Rr: f.Rr, Er: f.Er || ratedEnergy(f), dRated: f.dRated, mu: f.mu };
       lat = faceCoords(b, f.n, f.e)[1];
+      // a whole wharf's fenders, sized for the ship its shallowest stretch takes, on a deeper stretch that takes a
+      // bigger one: the bigger size, for the wharf's fenders here too (never the scenario's own)
+      if (!b.kept && tmpl.Er < b.E.design) {
+        const big = fenderClass(b.E.design, Math.max(rule.hMin, tmpl.height));
+        for (const i of keptF) if ((fenders[i].Er || ratedEnergy(fenders[i])) < big.Er) {
+          const p = at(faceCoords(b, fenders[i].n, fenders[i].e)[0], big.height);
+          Object.assign(fenders[i], big, { n: p[0], e: p[1] }); grown.add(i);
+        }
+        tmpl = big; lat = big.height;
+      }
     } else { tmpl = fenderClass(b.E.design, rule.hMin); lat = tmpl.height; }
     b.fenderLat = lat;
     const gen = sp.generate !== false;
@@ -348,6 +360,15 @@ export function equipBerths(specs: BerthSpec[], fenders: Fender[], bollards: Pt[
         info.push({ berth: b.id, z, kind: 'bollard', swl });
       }
     }
+    // a lock wall: floating bollards in slots in the wall face, every 60 m between the wall-top ones; they
+    // ride up and down with the chamber, so a line on them keeps its length while the level changes
+    if (gen && b.kind === 'lockwall') {
+      for (const s of fillAlong([], 16, len - 16, 60)) {
+        const p = at(s, -0.8);
+        if (!o.solid(p[0], p[1]) || near(bh, [p[0] - 1.5, p[1] - 1.5, p[0] + 1.5, p[1] + 1.5]).some(i => Math.hypot(bollards[i][0] - p[0], bollards[i][1] - p[1]) < 1.5)) continue;
+        pushB(p); info.push({ berth: b.id, z: 1.0, kind: 'floating', swl });
+      }
+    }
     // repair: wherever the bollard line still leaves an end or a stretch uncovered (a notch, a neighbour's
     // bollards that set the spacing), one more where there is quay for it, a few metres either way if need be
     if (gen && !dolphins) {
@@ -379,6 +400,13 @@ export function equipBerths(specs: BerthSpec[], fenders: Fender[], bollards: Pt[
     berths.push(b);
   }
   for (let i = nKeptF; i < fenders.length; i++) if (!fenders[i].Er) fenders[i].Er = ratedEnergy(fenders[i]);
+  // berths whose fenders grew for a neighbour: their fender line stands further out now
+  if (grown.size) for (const b of berths) {
+    if (b.kind === 'dolphins') continue;
+    const fb: [number, number, number, number] = [Math.min(b.a[0], b.b[0]) - 10, Math.min(b.a[1], b.b[1]) - 10, Math.max(b.a[0], b.b[0]) + 10, Math.max(b.a[1], b.b[1]) + 10];
+    const on = near(fh, fb).filter(i => fenderOn(b, fenders[i]));
+    if (on.some(i => grown.has(i))) b.fenderLat = Math.max(b.fenderLat, ...on.map(i => faceCoords(b, fenders[i].n, fenders[i].e)[1]));
+  }
   return { berths, info };
 }
 
@@ -439,10 +467,10 @@ export function nearestBerth(berths: Berth[], n: number, e: number, maxD = Infin
   }
   return best;
 }
-/** Can a ship lie at this berth? null if she can, else why not. */
-export function berthFits(b: Berth, ship: Pick<ShipSpec, 'T' | 'LOA' | 'B'>, tide = 0): string | null {
+/** Can a ship lie at this berth (its depths as the water stands)? null if she can, else why not. */
+export function berthFits(b: Berth, ship: Pick<ShipSpec, 'T' | 'LOA' | 'B'>): string | null {
   const d = depthFor(b, ship.B);
-  if (ship.T * 1.05 > d + tide) return `too shallow (${d.toFixed(1)} m)`;
+  if (ship.T * 1.05 > d) return `too shallow (${d.toFixed(1)} m)`;
   if (ship.LOA > usableLength(b)) return `too short (${b.len.toFixed(0)} m)`;
   return null;
 }

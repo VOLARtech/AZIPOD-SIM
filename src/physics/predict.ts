@@ -27,6 +27,10 @@ export interface PredictJob {
   lines: (Pick<MooringLine, 'fair' | 'bollard' | 'L0' | 'state'> & { bp?: Pt })[];
   ext: Wrench;
   horizon: number; alts: Alt[];
+  /** Where water levels change: the levels now and a lock's gates as they stand. */
+  water?: { outer: number; inner: number; chamber: number; gates: Obstacle[] };
+  /** Fairlead height and each line's bollard height (parallel to lines), for three-dimensional lines. */
+  lineZ?: { fair: number; bol: number[] };
 }
 export interface Pose { t: number; n: number; e: number; psi: number; u: number; v: number; r: number }
 export interface Track { alt: Alt; poses: Pose[]; stopT: number | null; stopDist: number; dist: number; contactT: number | null; groundT: number | null }
@@ -43,7 +47,8 @@ export function runPrediction(spec: ShipSpec, job: PredictJob, sw: ScenarioWorld
   const bollards: Pt[] = ownPts ? job.lines.map(l => l.bp ?? [0, 0]) : sw.bollards;
   const lines = job.lines.map((l, i) => ({ fair: l.fair, bollard: ownPts ? (l.bp ? i : -1) : l.bollard, L0: l.L0, state: ownPts && !l.bp && l.state === 'fast' ? 'stowed' : l.state,
     kind: 'head', name: '', lead: 0, mode: 'brake', T: 0, peakT: 0 })) as MooringLine[];
-  const world: World = { obstacles: [], fenders: [], contact: false, lines, bollards, ext: job.ext, depthAt: sw.depthAt, squat: 0 };
+  const world: World = { obstacles: [], fenders: [], contact: false, lines, bollards, ext: job.ext, depthAt: sw.depthAt, squat: 0 ,
+    ...(job.lineZ && ownPts ? { lineZ: { fair: job.lineZ.fair, bol: (i: number) => job.lineZ!.bol[i] ?? job.lineZ!.fair } } : {}) };
   const probe: ContactInfo = { active: false, points: [], fenders: [] };
   const startsInContact = (() => { contactForces(job.state, sw.obstacles, sw.fenders, probe, sw.index); return probe.active; })();
   const dt = job.horizon > 240 ? 1 : 0.5;

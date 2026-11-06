@@ -216,6 +216,19 @@ for gspec in sorted(REG['grids'], key=lambda g: -g['cell']):
         np.add.at(acc, i[m] * nx + j[m], d[m]); np.add.at(cnt, i[m] * nx + j[m], 1)
         hit = cnt > 0
         Zf = Z.ravel(); Zf[hit] = acc[hit] / cnt[hit]; Z = Zf.reshape(ny, nx)
+    # …but the chart's depth ranges bound it: a survey older than the chart's edition (a basin dredged since,
+    # a construction pit filled) must not show less water than the chart guarantees, nor far more
+    if rasters:
+        held = 0
+        for g, p in depare + drgare:
+            d1, d2 = p.get('DRVAL1'), p.get('DRVAL2')
+            if d1 is None or float(d1) <= 0 or not g.intersects(gb): continue
+            m = shapely.contains_xy(g, GX, GY)
+            if not m.any(): continue
+            lo, hi = float(d1) - 0.3, (float(d2) + 1.0) if d2 is not None else 999.0
+            held += int(((Z[m] < lo) | (Z[m] > hi)).sum())
+            Z[m] = np.clip(Z[m], lo, hi)
+        print('grid', cell, 'm: survey cells held to the chart\'s depth ranges:', held)
     landm = shapely.contains_xy(land, GX, GY)
     Z = np.where(np.isnan(Z), 0.0, Z)
     Z = np.clip(Z, -5, REG.get('cap', 40))
@@ -255,6 +268,16 @@ face_lines = face_lines.buffer(3.0) if not face_lines.is_empty else Polygon()
 named = [(g, re.sub(r'^Ligplaats\s+', '', p.get('OBJNAM'))) for g, p in layers('BERTHS', 'berths') if p.get('OBJNAM')]
 piers = [(g, p.get('OBJNAM')) for g, p in slcons + layers('LNDARE') if p.get('OBJNAM')]
 faces = []
+import collections
+rej = collections.Counter()
+from shapely.strtree import STRtree
+bol_pts = [Point(e, n) for n, e in charted_bollards]
+bol_tree = STRtree(bol_pts) if bol_pts else STRtree([Point(1e9, 1e9)])
+if not bol_pts: bol_pts = [Point(1e9, 1e9)]
+_bt = STRtree([q for q, _ in named]) if named else None
+def berth_idx_geoms(seg):
+    if _bt is None: return []
+    return [named[i][0] for i in _bt.query(seg.buffer(12))]
 def merged(cs):
     """Runs of the simplified ring: consecutive edges that bend less than 6° and stay within 1.5 m of the chord
     are one face (a long wharf with a slight bend is one berth)."""
@@ -277,7 +300,9 @@ for poly in polys(land):
         cs = list(r.coords)
         for a, b in merged(cs):
             seg = LineString([a, b]); L = seg.length
-            if L < 30: continue
+            if L < 30:
+                rej['shorter than 30 m'] += sum(1 for i in bol_tree.query(seg.buffer(6)) if seg.distance(bol_pts[i]) < 6) if L > 2 else 0
+                continue
             ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
             nx_, ny_ = -uy, ux
             mid = seg.interpolate(0.5, normalized=True)
@@ -285,13 +310,19 @@ for poly in polys(land):
             behind = [sum(land.contains(Point(q.x - nx_ * 0.6, q.y - ny_ * 0.6)) for q in (seg.interpolate(t, normalized=True) for t in (0.25, 0.5, 0.75))),
                       sum(land.contains(Point(q.x + nx_ * 0.6, q.y + ny_ * 0.6)) for q in (seg.interpolate(t, normalized=True) for t in (0.25, 0.5, 0.75)))]
             if behind[1] > behind[0]: nx_, ny_ = -nx_, -ny_
-            if max(behind) < 2 or land.contains(Point(mid.x + nx_ * 6, mid.y + ny_ * 6)): continue
-            # along a charted wharf, pier or dolphin face (not a beach, a bank or a breakwater)
+            nbol = sum(1 for i in bol_tree.query(seg.buffer(6)) if seg.distance(bol_pts[i]) < 6)
+            if max(behind) < 2 or land.contains(Point(mid.x + nx_ * 6, mid.y + ny_ * 6)): rej['no water off it'] += nbol; continue
+            # along a charted wharf, pier or dolphin face (not a beach, a bank or a breakwater); or an edge the chart
+            # draws as plain shore but gives bollards along (a quay is where ships make fast), or a charted berth
             on = sum(face_lines.contains(seg.interpolate(t, normalized=True)) for t in (0.1, 0.3, 0.5, 0.7, 0.9)) + (any(d.distance(seg) < 6 for d in dolph) * 5)
-            if on < 4: continue
+            if on < 4:
+                nb = sum(1 for i in bol_tree.query(seg.buffer(6)) if seg.distance(bol_pts[i]) < 6 and 1 <= seg.project(bol_pts[i]) <= L - 1)
+                berth_here = any(q.geom_type != 'Point' and q.distance(seg) < 12 for q in berth_idx_geoms(seg))
+                if nb < max(2, L / 60) and not (berth_here and nb >= 1): rej['plain shore, too few bollards'] += nbol; continue
             ds = [zat(mid.y + ny_ * off + uy * s, mid.x + nx_ * off + ux * s) for off in (6, 15) for s in np.linspace(-L / 2 + 3, L / 2 - 3, 5)]
-            dmin = min(ds)
-            if dmin < 3: continue
+            # water enough off most of it (a shallow end or corner is trimmed later, not the whole quay dropped)
+            if float(np.percentile(ds, 25)) < 3: rej['shallow'] += nbol; continue
+            rej['kept'] += nbol
             pier = min(piers, key=lambda q: q[0].distance(seg), default=(None, None))
             place = pier[1] if pier[0] is not None and pier[0].distance(seg) < 60 else None
             # the charted berths along it: one berth each, from halfway to the one before to halfway to the next
@@ -319,7 +350,7 @@ for f in sorted(faces, key=lambda f: (f['place'] or '~', f['a'][0], f['a'][1])):
         k = f['place'] or 'Quay'; cnt[k] = cnt.get(k, 0) + 1
         f['name'] = f"{k} · face {cnt[k]}"
     elif f['place'] and f['place'] not in f['name']: f['name'] = f"{f['place']} · {f['name']}"
-print('berth faces', len(faces), 'total m', round(sum(f['len'] for f in faces)))
+print('berth faces', len(faces), 'total m', round(sum(f['len'] for f in faces)), 'charted bollards by verdict on their edge:', dict(rej))
 
 # ---------------------------------------------------------------- the chart
 COL = {1: 'white', 2: 'black', 3: 'red', 4: 'green', 5: 'blue', 6: 'yellow', 7: 'grey', 8: 'brown', 9: 'amber', 10: 'violet', 11: 'orange', 12: 'magenta', 13: 'pink'}
@@ -495,6 +526,37 @@ for g, p in layers('LOKBSN', 'lokbsn'):
 for g, p in layers('GATCON', 'gatcon'):
     gl = lines(g) or [LineString(q.exterior.coords) for q in polys(g)]
     for ln in gl: locks['gates'].append({'name': p.get('OBJNAM'), 'cat': first(p.get('CATGAT')) or first(p.get('catgat')), 'pts': coords(ln.simplify(0.3))})
+# level zones around the locks: the water that reaches the sea without passing a lock chamber or a gate is
+# 'outer' (it has the tide), the rest 'inner' (the canal's level); one character per cell, run-length coded
+zones = None
+if REG.get('zones') and locks['basins']:
+    from scipy.ndimage import label
+    zs = REG['zones']; zc = float(zs['cell'])
+    zb = P(box(zs['bbox'][1], zs['bbox'][0], zs['bbox'][3], zs['bbox'][2]))
+    x0, y0, x1, y1 = zb.bounds
+    nx, ny = int(math.ceil((x1 - x0) / zc)), int(math.ceil((y1 - y0) / zc))
+    GX, GY = np.meshgrid(x0 + (np.arange(nx) + 0.5) * zc, y0 + (np.arange(ny) + 0.5) * zc)
+    chambers = unary_union([q for g, p in layers('LOKBSN', 'lokbsn') for q in polys(g)])
+    gates = unary_union([ln.buffer(zc) for g, p in layers('GATCON', 'gatcon') for ln in (lines(g) or [LineString(q.exterior.coords) for q in polys(g)])] or [Point(0, 0).buffer(0)])
+    dry = shapely.contains_xy(land, GX, GY)
+    inch = shapely.contains_xy(chambers.buffer(zc), GX, GY) | shapely.contains_xy(gates, GX, GY)
+    lab, nlab = label(~dry & ~inch)
+    sx, sy = _ll.transform(zs['sea'][1], zs['sea'][0])
+    si, sj = int((sy - y0) / zc), int((sx - x0) / zc)
+    sea = lab[si, sj]
+    assert sea > 0, 'the sea point is not in open water'
+    Zc = np.where(dry, '.', np.where(shapely.contains_xy(chambers, GX, GY), 'c', np.where(lab == sea, 'o', 'i')))
+    if 'canal' in zs:
+        cx, cy = _ll.transform(zs['canal'][1], zs['canal'][0])
+        assert Zc[int((cy - y0) / zc), int((cx - x0) / zc)] == 'i', 'the canal point reaches the sea: a leak in the lock complex'
+    flat = ''.join(Zc.ravel()); rle = []
+    i = 0
+    while i < len(flat):
+        j = i
+        while j < len(flat) and flat[j] == flat[i]: j += 1
+        rle.append(f'{j - i}{flat[i]}'); i = j
+    zones = {'e0': r1(x0), 'n0': r1(y0), 'cell': zc, 'nx': nx, 'ny': ny, 'rle': ''.join(rle)}
+    print('level zones', nx, 'x', ny, 'outer cells', int((Zc == 'o').sum()), 'inner', int((Zc == 'i').sum()), 'rle chars', len(zones['rle']))
 for k, v in chart.items():
     if isinstance(v, list): print('chart', k, len(v))
 
@@ -514,6 +576,6 @@ open(f'{OUTD}/{ID}.azc', 'wb').write(gzip.compress(json.dumps(chart, separators=
 editions = {c['cell']: {'edition': c.get('DSID_EDTN'), 'update': c.get('DSID_UPDN'), 'issued': c.get('DSID_ISDT'), 'scale': c.get('DSPM_CSCL'), 'source': c['source']} for c in man['cells'] if not own[c['cell']].is_empty}
 meta = {'id': ID, 'name': REG['name'], 'origin': [LAT0, LON0], 'datum': REG['datum'], 'iala': REG['iala'], 'landHeight': REG.get('landHeight', 2.5),
         'bounds': [r1(Y0), r1(X0), r1(Y1), r1(X1)], 'fetched': man.get('fetched'), 'cells': editions, 'latMinusNap': lat_minus_nap,
-        'faces': faces, 'locks': locks, 'buoys': man.get('buoys')}
+        'faces': faces, 'locks': locks, 'zones': zones, 'buoys': man.get('buoys')}
 json.dump(meta, open(f'{OUTD}/{ID}.meta.json', 'w'), separators=(',', ':'))
 for ext in ('azp', 'azc', 'meta.json'): print(ext, os.path.getsize(f'{OUTD}/{ID}.{ext}') // 1024, 'KB')
