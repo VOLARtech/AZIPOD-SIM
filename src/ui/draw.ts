@@ -156,7 +156,10 @@ export function drawChart() {
 
 export function drawStructures() {
   const rt = S.rt;
-  if (!chartOf(S.sc)) for (const o of S.sc.obstacles) {
+  // the chart draws the land; structures the berth rules put up (a jetty's dolphins and platform) are drawn here
+  const charted = !!chartOf(S.sc);
+  for (const o of S.sc.obstacles) {
+    if (charted && o.name !== 'dolphin') continue;
     polyPath(o.poly); ctx.fillStyle = C.land; ctx.fill();
     ctx.strokeStyle = C['land-edge']; ctx.lineWidth = px(1.5); ctx.stroke();
   }

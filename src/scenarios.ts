@@ -405,7 +405,7 @@ export function equipScenario(sc: Scenario) {
   sc.bollardInfo = undefined;
   if (!sc.berthSpecs?.length) { sc.berths = []; sc.bollardInfo = sc.bollards.map(() => ({ berth: '', z: top + 0.5, kind: 'bollard', swl: 50 })); return; }
   const r = equipBerths(sc.berthSpecs, sc.fenders, sc.bollards, { depthAt: depthAt(sc), solid: solidTest(sc.obstacles), top, fleet: Object.values(SHIPS), tide: sc.tide,
-    addSolid: poly => sc.obstacles.push({ poly, ...CONCRETE, kind: 'pier', bbox: bboxOf(poly) }) });
+    addSolid: poly => sc.obstacles.push({ poly, ...CONCRETE, kind: 'pier', bbox: bboxOf(poly), name: 'dolphin' }) });
   sc.berths = r.berths; sc.bollardInfo = r.info;
 }
 for (const sc of SCENARIOS) equipScenario(sc);

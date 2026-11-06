@@ -347,7 +347,7 @@ export class View3D {
       l.frustumCulled = false; l.visible = false; this.scene.add(l);
       return l;
     });
-    this.harbour.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.receiveShadow = true; o.castShadow = true; } });
+    this.harbour.traverse(o => { if ((o as THREE.Mesh).isMesh && !o.userData.noShadow) { o.receiveShadow = true; o.castShadow = true; } });
     for (const t of this.tugs) t.traverse(o => { if ((o as THREE.Mesh).isMesh) o.castShadow = o.receiveShadow = true; });
     if (!SHIP.look.model) this.ship.traverse(o => { if ((o as THREE.Mesh).isMesh) o.castShadow = o.receiveShadow = true; });
     const s = S.sc.start;
@@ -371,8 +371,32 @@ export class View3D {
       const m = new THREE.Mesh(geo, this.mat(f.h > 1 ? 0xdde6ec : 0xf1f5f8, { rough: 0.85 }));
       m.receiveShadow = true; g.add(m);
     }
+    const chartLand = !SCENERY[sc.id] && sc.area ? chartOf(sc)?.land : undefined;
     if (SCENERY[sc.id]) this.loadScenery(sc.id, LH);
-    else if (sc.obstacles.length <= 40) {
+    else if (chartLand?.length) {
+      // a real-chart area without its own scenery: the chart's land (all of it, not only the quays the contact
+      // model holds), and the structures the berth rules put up (a jetty's dolphins)
+      const shape = (rings: [number, number][][]) => {
+        const sh = new THREE.Shape(rings[0].map(([n, e]) => new THREE.Vector2(e, n)));
+        for (const h of rings.slice(1)) sh.holes.push(new THREE.Path(h.map(([n, e]) => new THREE.Vector2(e, n))));
+        return sh;
+      };
+      const geos: THREE.BufferGeometry[] = [];
+      for (const poly of chartLand) {
+        if (poly[0].length < 3) continue;
+        const geo = new THREE.ExtrudeGeometry(shape(poly as [number, number][][]), { depth: LH + 4, bevelEnabled: false, curveSegments: 1 });
+        geo.rotateX(-Math.PI / 2); geo.translate(0, -4, 0); geos.push(geo);
+      }
+      for (const ob of sc.obstacles) if (ob.name === 'dolphin') {
+        const geo = new THREE.ExtrudeGeometry(new THREE.Shape(ob.poly.map(([n, e]) => new THREE.Vector2(e, n))), { depth: LH + 4, bevelEnabled: false });
+        geo.rotateX(-Math.PI / 2); geo.translate(0, -4, 0); geos.push(geo);
+      }
+      if (geos.length) {
+        // kilometres of land: no shadows on it (the shadow map covers only the ship's surroundings)
+        const m = new THREE.Mesh(mergeGeometries(geos.map(x => x.index ? x.toNonIndexed() : x)), quayM);
+        m.userData.noShadow = true; g.add(m);
+      }
+    } else if (sc.obstacles.length <= 40) {
       for (const ob of sc.obstacles) {
         const sh = new THREE.Shape(ob.poly.map(([n, e]) => new THREE.Vector2(e, n)));
         const geo = new THREE.ExtrudeGeometry(sh, { depth: LH + 4, bevelEnabled: false });
@@ -1123,6 +1147,8 @@ export class View3D {
       this.underSurf.position.set(this.camera.position.x, -0.02, this.camera.position.z);
     }
     this.sky.position.copy(this.camera.position);
+    // the water goes where the camera goes (snapped, so nothing on it swims): a long passage never runs off its edge
+    if (this.water) this.water.mesh.position.set(Math.round(this.camera.position.x / 512) * 512, 0, Math.round(this.camera.position.z / 512) * 512);
     // lights of the buoys and beacons: flashing at dusk and night, a few pixels across however far
     this.aids?.update(rt.state.t, this.camera.position, this.tod !== 'day', this.renderer.domElement.clientHeight / (this.camera.fov * Math.PI / 180));
     if (this.pipeline) {

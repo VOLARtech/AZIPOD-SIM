@@ -21,7 +21,7 @@ export const LB_VLCC = {
   id: 'lb-vlcc', name: 'Long Beach · laden VLCC to the crude jetty',
   brief: "Real chart: NOAA ENC. A fully laden VLCC (KVLCC2, 20.8 m) through Queen's Gate and up the Long Beach Main Channel, dredged to 76 ft (23 m) for ships like her, to the crude jetty at the tip of Pier T: four breasting dolphins, mooring dolphins set back, quick-release hooks. Take the way off a mile out (she carries it for ever), turn into the basin on the tugs and land flat at a few centimetres a second, port side to. 10 kn south-westerly, weak flood, mid tide. Two 80 t tugs on the starboard side.",
   ship: 'kvlcc2',
-  start: { n: -3000, e: 4200, psi: 5, kn: 5 },
+  start: { n: -3050, e: 4190, psi: 5, kn: 5 },
   windKn: 10, windFrom: 225, gusts: true, currentKn: 0.3, currentSet: 20,
   mooringSide: -1 as const, tugSide: 1 as const, zoom: 0.2,
   berthRef: { match: /T121/, side: -1 as const },
