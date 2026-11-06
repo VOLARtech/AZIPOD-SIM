@@ -13,6 +13,12 @@ import { MODEL_URLS } from './models/urls';
 import MODELS from './models/models.json';
 import miamiScnUrl from './miami.scn.bin?url';
 import { buildScenery, parseScenery } from './scenery';
+import { HarbourKit } from './harbourkit';
+import { Aids3D } from './aids3d';
+import { Lock3D, chamberHole } from './lock3d';
+import { chartOf } from '../ui/chart';
+import { completeAid } from '../ui/chart/marks';
+import { solidTest } from '../physics/berths';
 const SCENERY: Record<string, string> = { 'miami-terminal-v': miamiScnUrl };
 export const sceneryCredit = (id: string) => (SCENERY[id] ? 'Buildings © OpenStreetMap contributors' : '');
 import { makeWater } from './water';
@@ -153,7 +159,9 @@ export class View3D {
   private navLights: THREE.Object3D[] = [];
   private lamps: THREE.Object3D[] = [];
   private lit: THREE.MeshStandardNodeMaterial[] = [];
-  private fenders: THREE.Mesh[] = [];
+  private kit: HarbourKit | null = null;
+  private aids: Aids3D | null = null;
+  private lock3d: Lock3D | null = null; private holeAt = '';
   private tugs: THREE.Group[] = [];
   private tugLines: THREE.Line[] = [];
   private lines: THREE.Line[] = [];
@@ -278,6 +286,7 @@ export class View3D {
   private makeWater() {
     if (this.water) { this.scene.remove(this.water.mesh); this.water.mesh.geometry.dispose(); }
     this.water = makeWater(this.waterNormals, this.env, this.quality === 'high');
+    this.holeAt = '';                                     // a fresh plane: the lock's hole is cut again
     this.water.mesh.layers.set(1);
     const s = S.sc?.start;
     if (s) this.water.mesh.position.set(s.e, 0, -s.n);
@@ -341,7 +350,7 @@ export class View3D {
       l.frustumCulled = false; l.visible = false; this.scene.add(l);
       return l;
     });
-    this.harbour.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.receiveShadow = true; o.castShadow = true; } });
+    this.harbour.traverse(o => { if ((o as THREE.Mesh).isMesh && !o.userData.noShadow) { o.receiveShadow = true; o.castShadow = true; } });
     for (const t of this.tugs) t.traverse(o => { if ((o as THREE.Mesh).isMesh) o.castShadow = o.receiveShadow = true; });
     if (!SHIP.look.model) this.ship.traverse(o => { if ((o as THREE.Mesh).isMesh) o.castShadow = o.receiveShadow = true; });
     const s = S.sc.start;
@@ -353,7 +362,7 @@ export class View3D {
   private harbourGen = 0;
   private harbourLights: { lit: THREE.MeshStandardNodeMaterial[]; lamps: THREE.Object3D[] } = { lit: [], lamps: [] };
   private buildHarbour() {
-    const g = this.harbour; this.clear(g); this.fenders = []; this.harbourGen++;
+    const g = this.harbour; this.clear(g); this.kit = null; this.aids = null; this.lock3d = null; this.harbourGen++;
     this.sceneryLit = null;
     const sc = S.sc, LH = sc.landHeight ?? 2;
     const quayM = this.mat(0x858176, { rough: 0.95 }), pierM = this.mat(0x7a756b, { rough: 0.95 });
@@ -365,8 +374,32 @@ export class View3D {
       const m = new THREE.Mesh(geo, this.mat(f.h > 1 ? 0xdde6ec : 0xf1f5f8, { rough: 0.85 }));
       m.receiveShadow = true; g.add(m);
     }
+    const chartLand = !SCENERY[sc.id] && sc.area ? chartOf(sc)?.land : undefined;
     if (SCENERY[sc.id]) this.loadScenery(sc.id, LH);
-    else if (sc.obstacles.length <= 40) {
+    else if (chartLand?.length) {
+      // a real-chart area without its own scenery: the chart's land (all of it, not only the quays the contact
+      // model holds), and the structures the berth rules put up (a jetty's dolphins)
+      const shape = (rings: [number, number][][]) => {
+        const sh = new THREE.Shape(rings[0].map(([n, e]) => new THREE.Vector2(e, n)));
+        for (const h of rings.slice(1)) sh.holes.push(new THREE.Path(h.map(([n, e]) => new THREE.Vector2(e, n))));
+        return sh;
+      };
+      const geos: THREE.BufferGeometry[] = [];
+      for (const poly of chartLand) {
+        if (poly[0].length < 3) continue;
+        const geo = new THREE.ExtrudeGeometry(shape(poly as [number, number][][]), { depth: LH + 4, bevelEnabled: false, curveSegments: 1 });
+        geo.rotateX(-Math.PI / 2); geo.translate(0, -4, 0); geos.push(geo);
+      }
+      for (const ob of sc.obstacles) if (ob.name === 'dolphin') {
+        const geo = new THREE.ExtrudeGeometry(new THREE.Shape(ob.poly.map(([n, e]) => new THREE.Vector2(e, n))), { depth: LH + 4, bevelEnabled: false });
+        geo.rotateX(-Math.PI / 2); geo.translate(0, -4, 0); geos.push(geo);
+      }
+      if (geos.length) {
+        // kilometres of land: no shadows on it (the shadow map covers only the ship's surroundings)
+        const m = new THREE.Mesh(mergeGeometries(geos.map(x => x.index ? x.toNonIndexed() : x)), quayM);
+        m.userData.noShadow = true; g.add(m);
+      }
+    } else if (sc.obstacles.length <= 40) {
       for (const ob of sc.obstacles) {
         const sh = new THREE.Shape(ob.poly.map(([n, e]) => new THREE.Vector2(e, n)));
         const geo = new THREE.ExtrudeGeometry(sh, { depth: LH + 4, bevelEnabled: false });
@@ -382,30 +415,25 @@ export class View3D {
       });
       g.add(new THREE.Mesh(mergeGeometries(geos), quayM));
     }
-    // fenders: cone body + panel, compressed live
-    const fM = this.mat(0x1d1d1f, { rough: 0.7 });
-    for (const f of sc.fenders) {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(f.width, 2.6, 1), fM);
-      m.rotation.y = Math.atan2(f.ne, -f.nn);
-      m.userData = { f };
-      g.add(m); this.fenders.push(m);
+    // berth equipment, instanced: fenders (squeezed live), bollards, and quay lamps that glow at night
+    const kit = new HarbourKit(sc, LH, {
+      fender: this.mat(0x1d1d1f, { rough: 0.7 }), bollard: this.mat(0x24272a, { rough: 0.5, metal: 0.4 }),
+      pole: this.mat(0x4a4d50, { rough: 0.6, metal: 0.3 }), lamp: new THREE.MeshBasicNodeMaterial({ color: 0xffd9a0 }),
+      floating: this.mat(0xd8b23a, { rough: 0.6, metal: 0.2 }),
+    });
+    g.add(kit.group); this.kit = kit;
+    // a worked lock: its gates, lights and the chamber's own water
+    if (S.water?.lock && this.water) {
+      this.lock3d = new Lock3D(S.water.lock, this.water.mesh.material as THREE.Material, sc.tide ?? 0, LH, this.mat(0x5d6166, { rough: 0.6, metal: 0.5 }), this.mat(0x4a4d50, { rough: 0.6, metal: 0.3 }));
+      g.add(this.lock3d.group);
     }
-    const bM = this.mat(0x24272a, { rough: 0.5, metal: 0.4 });
-    const bG = new THREE.CylinderGeometry(0.32, 0.4, 0.9, 10);
-    for (const [n, e] of sc.bollards) { const b = new THREE.Mesh(bG, bM); b.position.copy(tp(n, e, LH + 0.45)); g.add(b); }
-    // quay lamps (glow at night)
-    const lampM = new THREE.MeshBasicNodeMaterial({ color: 0xffd9a0 });
-    const poleM = this.mat(0x4a4d50, { rough: 0.6, metal: 0.3 });
-    const poleG = new THREE.CylinderGeometry(0.12, 0.15, 10, 6), headG = new THREE.SphereGeometry(0.55, 8, 6);
-    for (let i = 0; i < sc.bollards.length; i += 3) {
-      const [n, e] = sc.bollards[i];
-      const nb = sc.bollards[Math.min(sc.bollards.length - 1, i + 1)];
-      const dn = nb[0] - n, de = nb[1] - e, l = Math.hypot(dn, de) || 1;
-      // 9 m back from the bollard line, toward the land (perpendicular to the bollard row)
-      const fN = sc.fenders[0]?.nn ?? 0, fE = sc.fenders[0]?.ne ?? 0;
-      const pn = n - fN * 9 + dn / l * 12, pe = e - fE * 9 + de / l * 12;
-      const p = new THREE.Mesh(poleG, poleM); p.position.copy(tp(pn, pe, LH + 5)); g.add(p);
-      const h = new THREE.Mesh(headG, lampM); h.position.copy(tp(pn, pe, LH + 10)); g.add(h); this.lamps.push(h);
+    if (kit.lampHeads) this.lamps.push(kit.lampHeads);
+    // buoys, beacons and lights of the chart (lights on a quay or pier stand at its height)
+    const model = chartOf(sc);
+    if (model?.aids.length) {
+      const solid = solidTest(sc.obstacles);
+      const aids = new Aids3D(model.aids.map(a => completeAid(a, model.meta.iala)), a => (solid(a.n, a.e) ? LH : 0), c => this.mat(c, { rough: 0.55 }));
+      g.add(aids.group); this.aids = aids;
     }
     // buildings with lit-window textures
     const win = canvasTex(64, 64, c => {
@@ -795,16 +823,22 @@ export class View3D {
       const f = m.fit, over = Math.max(5, spec.LOA - spec.L);
       const stem = spec.L / 2 + over * 0.8 - spec.xg, stern = -spec.L / 2 - over * 0.2 - spec.xg;
       const kx = (stem - stern) / (f.stem - f.stern), kb = spec.B / f.beam;
-      obj.scale.set(kb, kx, kx);
-      obj.position.set(0, (f.draught * kx - spec.T), -(stem - f.stem * kx));
+      // a model built long and low for its length can be stretched in height (keel kept at the draught)
+      const ky = kx * (m.vscale ?? 1);
+      obj.scale.set(kb, ky, kx);
+      obj.position.set(0, f.draught * ky - spec.T, -(stem - f.stem * kx));
       if (spec.look.paint) paintModel(obj, spec, stem, stern, m.eye ? stem - (f.stem - m.eye.x) * kx + 3 : spec.bridgeX + 3, m.zones);
       for (const o of procedural) { g.remove(o); o.traverse(c => { const me = c as THREE.Mesh; if (me.geometry) me.geometry.dispose(); }); }
       g.add(obj);
       if (own && m.eye) {
-        this.ship.userData.eyeH = (m.eye.h + f.draught) * kx - spec.T;   // eye.h is above the model's waterline
+        this.ship.userData.eyeH = (m.eye.h + f.draught) * ky - spec.T;   // eye.h is above the model's waterline
         this.ship.userData.eyeX = stem - (f.stem - m.eye.x) * kx;
       }
-    }).catch(err => console.warn('ship model', name, err));
+    }).catch(err => {
+      console.warn('ship model', name, err);
+      // the ship stays drawn in plain blocks: say so, rather than leave a wrong-looking ship unexplained
+      if (own && g.userData.gen === gen) dispatchEvent(new CustomEvent('azb-model-failed', { detail: spec.name }));
+    });
   }
 
   /** Detailed ship from a converted STL, painted per pixel (see tools/ship/stl_to_ship.py). */
@@ -1009,15 +1043,20 @@ export class View3D {
     this.lastT = now;
     const simDt = S.paused ? 0 : dtReal * SPEEDS[S.speedIdx];
     const c = Math.cos(psi), s = Math.sin(psi);
-    const w2 = (x: number, y: number, z = 0) => tp(st.n + x * c - y * s, st.e + x * s + y * c, z);
+    // where levels change (tide, canal, lock), everything floats at the level of the water it is in; the
+    // scene's y = 0 is the scenario's still level, the land's heights are given above it
+    const wtr = S.water, still = S.sc.tide ?? 0, lock = wtr?.lock ?? null;
+    const lvAt = (n: number, e: number) => (wtr ? wtr.level(wtr.zoneAt(n, e)) - still : 0);
+    const y0 = lvAt(st.n, st.e);
+    const w2 = (x: number, y: number, z = 0) => tp(st.n + x * c - y * s, st.e + x * s + y * c, z + y0);
     // own ship: true pose (out of the window is reality, not the sensor estimate); squat as sinkage
     // flooding: she settles, trims (bow down = −x rotation, the bow lies along −z) and lists
     const dm = rt.damageOn ? rt.damage : null;
-    this.ship.position.set(st.e, -(rt.world.squat ?? 0) - (dm?.sink ?? 0), -st.n);
+    this.ship.position.set(st.e, y0 - (rt.world.squat ?? 0) - (dm?.sink ?? 0), -st.n);
     this.ship.rotation.y = -psi;
     this.ship.rotation.x = -(dm?.trim ?? 0);
     this.ship.rotation.z = -(rt.roll?.phi ?? 0) - (dm?.list ?? 0);
-    rt.traffic.forEach((tr, k) => { const g = this.trafficG[k]; if (!g) return; g.position.set(tr.st.e, 0, -tr.st.n); g.rotation.y = -tr.st.psi; });
+    rt.traffic.forEach((tr, k) => { const g = this.trafficG[k]; if (!g) return; g.position.set(tr.st.e, lvAt(tr.st.n, tr.st.e), -tr.st.n); g.rotation.y = -tr.st.psi; });
     const esc = rt.escort;
     this.other.visible = !!esc;
     if (esc && this.towLine) {
@@ -1033,14 +1072,11 @@ export class View3D {
     }
 
     // fenders: cone length shrinks with the deflection reported by the contact model this step
-    const defl = new Map(rt.ci.fenders.map(f => [f.i, f.defl]));
+    this.kit?.update(rt.ci.fenders);
     const LH = S.sc.landHeight ?? 2;
-    this.fenders.forEach((m, i) => {
-      const f = m.userData.f as { n: number; e: number; nn: number; ne: number; height: number };
-      const d = Math.min(f.height * 0.85, defl.get(i) ?? 0), len = f.height - d;
-      m.scale.z = len;
-      m.position.copy(tp(f.n - f.nn * (d + len / 2), f.e - f.ne * (d + len / 2), LH - 1.6));
-    });
+    if (wtr) this.kit?.ride((n, e) => { if (lock) { const [ls, lw] = lock.local(n, e); if (ls >= 0 && ls <= lock.L && Math.abs(lw) <= lock.def.width / 2 + 3) return lock.eta - still; } return lvAt(n, e); });
+    if (lock && this.water) this.lock3d?.update(lock, this.water.mesh.material as THREE.Material);
+    const lz = rt.harbour.lineZ?.(st);
 
     // mooring lines: catenary-ish sag from tension
     const fb = SHIP.look.freeboard;
@@ -1048,12 +1084,12 @@ export class View3D {
       const obj = this.lines[i]; if (!obj) return;
       obj.visible = l.state === 'fast';
       if (!obj.visible) return;
-      const a = w2(l.fair[0], l.fair[1], fb - 0.5), [bn, be] = S.sc.bollards[l.bollard], b = tp(bn, be, LH + 0.8);
+      const a = w2(l.fair[0], l.fair[1], fb - 0.5), [bn, be] = S.sc.bollards[l.bollard], b = tp(bn, be, (lz ? lz.bol(l.bollard) - still : LH + 0.5) + 0.3);
       const len = a.distanceTo(b), sag = len * (l.T < 2e4 ? 0.08 : l.T < 1.5e5 ? 0.03 : 0.006);
       const pos = obj.geometry.getAttribute('position') as THREE.BufferAttribute;
       for (let k = 0; k <= 16; k++) {
         const t = k / 16, p = this.tmpV.copy(a).lerp(b, t); p.y -= 4 * sag * t * (1 - t);
-        pos.setXYZ(k, p.x, Math.max(p.y, 0.05), p.z);
+        pos.setXYZ(k, p.x, Math.max(p.y, y0 + 0.05), p.z);
       }
       pos.needsUpdate = true;
       const r = Math.min(1, l.T / LINE.MBL);
@@ -1093,6 +1129,7 @@ export class View3D {
     if (this.wake) {
       const [hxa, hxb] = hullX();
       this.wake.update(rt, SHIP, simDt, halfB, hxb, hxa);
+      this.wake.mesh.position.y = y0;
     }
     // key light and its shadow box ride with the ship
     this.sun.position.set(st.e + this.keyDir.x * 1500, this.keyDir.y * 1500, -st.n + this.keyDir.z * 1500);
@@ -1120,14 +1157,31 @@ export class View3D {
       pd.prop.rotation.z = pd.spin;
     });
     this.placeCamera(w2, psi);
-    this.setSubmerged(this.camera.position.y < -0.2);
+    this.setSubmerged(this.camera.position.y < y0 - 0.2);
     if (this.submerged) {
       this.updateBubbles(simDt, st.pods.map(p => p.pitch ?? p.rpm));
       const dep = isFinite(rt.depthHere) ? rt.depthHere : 30;
-      this.seabed.position.set(st.e, -dep, -st.n);
-      this.underSurf.position.set(this.camera.position.x, -0.02, this.camera.position.z);
+      this.seabed.position.set(st.e, y0 - dep, -st.n);
+      this.underSurf.position.set(this.camera.position.x, y0 - 0.02, this.camera.position.z);
     }
     this.sky.position.copy(this.camera.position);
+    // the water goes where the camera goes (snapped, so nothing on it swims): a long passage never runs off its edge
+    if (this.water) {
+      const X = Math.round(this.camera.position.x / 512) * 512, Z = Math.round(this.camera.position.z / 512) * 512;
+      // in the chamber, the water beyond it stands at the level of the end she is nearer
+      const inCh = lock?.inChamber(st.n, st.e), yMain = inCh ? (lock!.local(st.n, st.e)[0] < lock!.L / 2 ? wtr!.level(lock!.def.outer) : wtr!.level(lock!.def.inner)) - still : y0;
+      this.water.mesh.position.set(X, yMain, Z);
+      // a lock's chamber has its own water: the main water has a hole over it (rebuilt as the water moves)
+      const key = lock ? `${X},${Z}` : '';
+      if (key !== this.holeAt) {
+        this.holeAt = key;
+        const wm = this.water.mesh as THREE.Mesh;
+        wm.geometry.dispose();
+        wm.geometry = lock ? chamberHole(lock, 16000, X, Z) : new THREE.PlaneGeometry(16000, 16000);
+      }
+    }
+    // lights of the buoys and beacons: flashing at dusk and night, a few pixels across however far
+    this.aids?.update(rt.state.t, this.camera.position, this.tod !== 'day', this.renderer.domElement.clientHeight / (this.camera.fov * Math.PI / 180));
     if (this.pipeline) {
       this.preCam.copy(this.camera); this.preCam.layers.set(0);
       this.pipeline.render();
@@ -1198,6 +1252,8 @@ interface ModelEntry {
   /** Where the lifeboat (and its davit) sits, for painting: [from, to] as fractions of the length from the stern,
    *  and the height above the deck they start at, as a fraction of the length. */
   zones?: { lifeboat?: number[] };
+  /** Height stretch for a model that is too low for the ship it stands in for. */
+  vscale?: number;
 }
 
 export async function createView(canvas: HTMLCanvasElement) {

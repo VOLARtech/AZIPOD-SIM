@@ -5,11 +5,12 @@ import type { PodSpec } from '../physics/ship';
 import { HULL } from '../physics/contact';
 import { unitAxis } from '../physics/units/kinds';
 import { nearestStructure } from '../physics/harbour';
+import { fenIndexed } from '../physics/spatial';
 import { LINE, tugEngaged } from '../physics/mooring';
 import type { Alt, Track } from '../physics/predict';
 import type { Traffic } from '../physics/traffic';
 import { S, SPEEDS, full } from './state';
-import { drawEncBase, drawEncMarks } from './enc';
+import { chartOf, drawChartBase, drawChartMarks as drawMarks } from './chart';
 
 export const C: Record<string, string> = {};
 /** The berth editor is open: fenders and bollards are ringed on the chart. */
@@ -123,12 +124,13 @@ export function shownPose(): Pose & { u: number; v: number; r: number } {
 let viewBounds: [number, number, number, number] = [0, 0, 0, 0];
 /** Real-chart soundings, aids and names: screen-space marks above the depth shades. */
 export function drawChartMarks() {
-  if (!S.sc.chart) return;
+  const model = chartOf(S.sc); if (!model) return;
   ctx.save(); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  drawEncMarks(S.sc.chart, { ctx, px, scale: S.view.scale, C, bounds: viewBounds, toScr });
-  // provenance, always on screen with a real chart
+  drawMarks(model, { ctx, px, scale: S.view.scale, C, bounds: viewBounds, toScr, rot: S.view.rot });
+  // provenance, always on screen
   ctx.font = `500 10px ${C.fontNum}`; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillStyle = C.muted;
-  const note = `CHART NOAA ENC · DEPTHS m MLLW${S.sc.tide ? ` · TIDE +${S.sc.tide.toFixed(1)} m` : ''} · NOT FOR NAVIGATION`;
+  const m = model.meta;
+  const note = `${m.synthetic ? 'SCHEMATIC CHART' : `CHART ${m.source.toUpperCase()}`} · DEPTHS m ${m.datum.toUpperCase()}${S.sc.tide ? ` · TIDE +${S.sc.tide.toFixed(1)} m` : ''} · IALA ${m.iala} · NOT FOR NAVIGATION`;
   const nx0 = LAY.split === 'left' ? LAY.splitAt + 12 : LAY.padL, ny0 = LAY.trayTop - 36;
   ctx.fillStyle = C['panel-solid']; ctx.globalAlpha = 0.8; ctx.fillRect(nx0 - 3, ny0 - 13, ctx.measureText(note).width + 6, 15); ctx.globalAlpha = 1;
   ctx.fillStyle = C.muted; ctx.fillText(note, nx0, ny0);
@@ -140,7 +142,8 @@ export function drawChart() {
   const nMin = Math.min(n0, n1, n2, n3), nMax = Math.max(n0, n1, n2, n3), eMin = Math.min(e0, e1, e2, e3), eMax = Math.max(e0, e1, e2, e3);
   viewBounds = [nMin, eMin, nMax, eMax];
   // real chart: ENC depth shades, contours, land and structures replace the plain water and grid
-  if (S.sc.chart && drawEncBase(S.sc.chart, { ctx, px, scale: S.view.scale, C, bounds: viewBounds, toScr })) return;
+  const model = chartOf(S.sc);
+  if (model) { drawChartBase(model, { ctx, px, scale: S.view.scale, C, bounds: viewBounds, toScr }); return; }
   // shoal areas (depth areas shallower than the charted base)
   for (const sh of S.sc.shoals) { polyPath(sh.poly); ctx.fillStyle = C.shoal; ctx.fill(); ctx.strokeStyle = C.muted; ctx.lineWidth = px(1); ctx.setLineDash([px(4), px(3)]); ctx.stroke(); ctx.setLineDash([]); }
   const step = S.view.scale > 1.5 ? 50 : S.view.scale > 0.4 ? 100 : 500;
@@ -153,37 +156,79 @@ export function drawChart() {
 
 export function drawStructures() {
   const rt = S.rt;
-  if (!S.sc.chart) for (const o of S.sc.obstacles) {
+  // the chart draws the land; structures the berth rules put up (a jetty's dolphins and platform) are drawn here
+  const charted = !!chartOf(S.sc);
+  for (const o of S.sc.obstacles) {
+    if (charted && o.name !== 'dolphin' && o.name !== 'lock gate') continue;
     polyPath(o.poly); ctx.fillStyle = C.land; ctx.fill();
     ctx.strokeStyle = C['land-edge']; ctx.lineWidth = px(1.5); ctx.stroke();
   }
-  // fender units at their live compression
+  drawLock();
+  // fender units at their live compression (only those in view; one path per state)
   const defl = new Map<number, number>();
   for (const f of rt.ci.fenders) defl.set(f.i, Math.max(defl.get(f.i) ?? 0, f.defl));
+  const [vn0, ve0, vn1, ve1] = viewBounds, inView = (n: number, e: number, m = 6) => n > vn0 - m && n < vn1 + m && e > ve0 - m && e < ve1 + m;
+  const paths = [new Path2D(), new Path2D(), new Path2D()];       // idle, loaded, over rated deflection
   S.sc.fenders.forEach((f, i) => {
+    if (!inView(f.n, f.e)) return;
     const d = Math.min(defl.get(i) ?? 0, f.height), over = d > f.dRated * f.height;
     const tN = -f.ne, tE = f.nn, hw = f.width / 2;
     const fn = f.n - f.nn * d, fe = f.e - f.ne * d, bn = f.n - f.nn * f.height, be = f.e - f.ne * f.height;
-    ctx.beginPath();
-    ctx.moveTo(fe + tE * hw, fn + tN * hw); ctx.lineTo(fe - tE * hw, fn - tN * hw);
-    ctx.lineTo(be - tE * hw * 0.6, bn - tN * hw * 0.6); ctx.lineTo(be + tE * hw * 0.6, bn + tN * hw * 0.6);
-    ctx.closePath(); ctx.fillStyle = over ? C.warn : d > 0 ? C.own : C.ink; ctx.fill();
+    const P = paths[over ? 2 : d > 0 ? 1 : 0];
+    P.moveTo(fe + tE * hw, fn + tN * hw); P.lineTo(fe - tE * hw, fn - tN * hw);
+    P.lineTo(be - tE * hw * 0.6, bn - tN * hw * 0.6); P.lineTo(be + tE * hw * 0.6, bn + tN * hw * 0.6);
+    P.closePath();
   });
+  [C.ink, C.own, C.warn].forEach((c, k) => { ctx.fillStyle = c; ctx.fill(paths[k]); });
   ctx.strokeStyle = C['land-edge']; ctx.lineWidth = px(1.2);
-  for (const [n, e] of S.sc.bollards) { ctx.beginPath(); ctx.arc(e, n, 0.9, 0, Math.PI * 2); ctx.stroke(); }
+  // bollards: drawn once they are big enough to see
+  const bol = new Path2D(), r = Math.max(0.9, px(1.6));
+  if (S.view.scale > 0.25 || editing) for (const [n, e] of S.sc.bollards) if (inView(n, e)) { bol.moveTo(e + r, n); bol.arc(e, n, r, 0, Math.PI * 2); }
+  ctx.stroke(bol);
   if (editing) {
     // berth editor: every bollard and fender ringed, so they can be found and tapped at any zoom
     ctx.strokeStyle = C.own; ctx.lineWidth = px(2);
-    for (const [n, e] of S.sc.bollards) { ctx.beginPath(); ctx.arc(e, n, px(7), 0, Math.PI * 2); ctx.stroke(); }
+    const rb = new Path2D(), rf = new Path2D();
+    for (const [n, e] of S.sc.bollards) if (inView(n, e, 20)) { rb.moveTo(e + px(7), n); rb.arc(e, n, px(7), 0, Math.PI * 2); }
+    ctx.stroke(rb);
     ctx.setLineDash([px(3), px(3)]);
-    for (const f of S.sc.fenders) { ctx.beginPath(); ctx.arc(f.e, f.n, px(9), 0, Math.PI * 2); ctx.stroke(); }
+    for (const f of S.sc.fenders) if (inView(f.n, f.e, 20)) { rf.moveTo(f.e + px(9), f.n); rf.arc(f.e, f.n, px(9), 0, Math.PI * 2); }
+    ctx.stroke(rf);
     ctx.setLineDash([]);
   }
-  if (S.sc.berth) {
-    ctx.save(); bodyTransform({ ...S.sc.berth, psi: S.sc.berth.psi * DEG });
+  const tg = S.berth.target;
+  if (tg) {
+    ctx.save(); bodyTransform({ ...tg, psi: tg.psi * DEG });
     hullPath(); ctx.setLineDash([px(6), px(5)]); ctx.strokeStyle = C.muted; ctx.lineWidth = px(1.3); ctx.stroke(); ctx.setLineDash([]);
     ctx.beginPath(); ctx.moveTo(-6, 0); ctx.lineTo(6, 0); ctx.moveTo(0, -6); ctx.lineTo(0, 6); ctx.stroke();
     ctx.restore();
+  }
+}
+
+/** A worked lock: its gates where they stand (running into their recesses), the chamber's water when it is not
+ *  at the level outside, and the CEVNI lights on the wall heads at each end. */
+function drawLock() {
+  const lock = S.water?.lock; if (!lock) return;
+  const d = lock.def, P = (s: number, w: number): [number, number] => [d.a[0] + lock.u[0] * s + lock.w[0] * w, d.a[1] + lock.u[1] * s + lock.w[1] * w];
+  // the chamber: tinted while its level differs from the water beyond the open (or the nearer) gate
+  const off = Math.abs(lock.eta - S.water!.level(d.outer)) > 0.05 && Math.abs(lock.eta - S.water!.level(d.inner)) > 0.05;
+  if (off) {
+    polyPath([P(0, -d.width / 2), P(lock.L, -d.width / 2), P(lock.L, d.width / 2), P(0, d.width / 2)]);
+    ctx.fillStyle = C.own; ctx.globalAlpha = 0.08; ctx.fill(); ctx.globalAlpha = 1;
+  }
+  for (const o of lock.obstacles()) {
+    polyPath(o.poly); ctx.fillStyle = C.ink; ctx.fill();
+    ctx.strokeStyle = C['land-edge']; ctx.lineWidth = px(1); ctx.stroke();
+  }
+  // lights: on the wall head on the entering side of each end, red over green
+  const sg = lock.signals(), r = Math.max(2.2, px(4));
+  for (const [end, s0, s1] of [['a', 0, -6], ['b', lock.L, lock.L + 6]] as const) {
+    const sig = sg[end], [n, e] = P(s1, -d.recess * (d.width / 2 + 4)), [n2, e2] = P(s0 + (s1 - s0) * 2.2, -d.recess * (d.width / 2 + 4));
+    for (const [on, col, pn, pe] of [[sig !== 'green', '#e5342b', n, e], [sig !== 'red', '#1fbf5b', n2, e2]] as const) {
+      ctx.beginPath(); ctx.arc(pe, pn, r, 0, Math.PI * 2);
+      ctx.fillStyle = on ? col : C['panel-solid']; ctx.fill();
+      ctx.strokeStyle = on ? col : C.muted; ctx.lineWidth = px(1); ctx.stroke();
+    }
   }
 }
 
@@ -603,6 +648,15 @@ function drawShaft(p: PodSpec, ps: { alpha: number; rpm: number }, b: { X: numbe
   if (full() && Math.hypot(b.X, b.Y) > 5e3) { ctx.strokeStyle = ctx.fillStyle = col; ctx.lineWidth = px(2.4); arrow(p.x, p.y, p.x + b.X * Fs, p.y + b.Y * Fs, Math.max(4, px(9))); }
 }
 
+/** How far the fenders by this point of a quay stand off it (0 where there are none within 25 m). */
+function fenderStandoff(n: number, e: number) {
+  const F = S.sc.fenders, idx = S.rt.index;
+  let best = 25, h = 0;
+  const visit = (f: (typeof F)[number]) => { const d = Math.hypot(f.n - n, f.e - e); if (d < best) { best = d; h = Math.max(0, (f.n - n) * f.nn + (f.e - e) * f.ne); } };
+  if (fenIndexed(idx, F)) for (const i of idx.fen.query(n - 25, e - 25, n + 25, e + 25)) visit(F[i]);
+  else F.forEach(visit);
+  return h;
+}
 /** Distance from bow and stern shoulders to the nearest structure, with closing speed. */
 export function updateQuayLines(dt: number) {
   const est = shownPose();
@@ -611,11 +665,10 @@ export function updateQuayLines(dt: number) {
     let best: { d: number; n: number; e: number; pn: number; pe: number } | null = null;
     for (const side of [-1, 1]) {
       const [pn, pe] = bodyToWorld(est, x, side * SHIP.B / 2);
-      const r = nearestStructure(pn, pe, S.sc.obstacles, 300);
+      const r = nearestStructure(pn, pe, S.sc.obstacles, 300, S.rt.index);
       if (!r) continue;
       let d = r[2];
-      const fendered = S.sc.obstacles.some(o => o.kind === 'fendered' && o.bbox && r[0] >= o.bbox[0] - 0.1 && r[0] <= o.bbox[2] + 0.1 && r[1] >= o.bbox[1] - 0.1 && r[1] <= o.bbox[3] + 0.1);
-      if (fendered) d -= S.sc.fenders[0]?.height ?? 1.0; // to the fender face
+      d -= fenderStandoff(r[0], r[1]);                    // to the fender face, where the quay has fenders
       if (!best || d < best.d) best = { d, n: r[0], e: r[1], pn, pe };
     }
     const q = S.quay[k];

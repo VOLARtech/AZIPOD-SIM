@@ -444,9 +444,18 @@ export function makeTraffic(key: string, world: NavWorld, own: { n: number; e: n
   const fleet = Object.values(SHIPS).filter(s => s.id !== 'push-convoy');   // barges keep to the rivers
   const sep = (n: number, e: number, L: number) =>
     Math.hypot(n - own.n, e - own.e) > Math.max(600, 3 * own.spec.L) && out.every(t => Math.hypot(t.st.n - n, t.st.e - e) > (t.spec.L + L) / 2 + 250);
+  // a narrow waterway is a sliver of the grid: after half the tries, draw from its open water cells instead
+  let open: number[] | null = null;
   for (let tries = 0; out.length < count && tries < count * 150; tries++) {
     const spec = rng.pick(fleet), need = spec.T * 1.15 + 1;
-    const a = rng.range(0, 2 * Math.PI), d = rng.range(500, G.half * 0.8), n = G.n0 + Math.cos(a) * d, e = G.e0 + Math.sin(a) * d;
+    let n: number, e: number;
+    if (tries < count * 75) { const a = rng.range(0, 2 * Math.PI), d = rng.range(500, G.half * 0.8); n = G.n0 + Math.cos(a) * d; e = G.e0 + Math.sin(a) * d; }
+    else {
+      if (!open) { open = []; for (let k = 0; k < D.length; k++) if (D[k] * G.cell >= 60) open.push(k); }
+      if (!open.length) break;
+      const k = open[Math.floor(rng.next() * open.length)];
+      [n, e] = G.pos(Math.floor(k / G.N), k % G.N);
+    }
     if (G.clear(n, e, need) < spec.B / 2 + 40 || !sep(n, e, spec.L)) continue;
     if (out.filter(t => t.spec.id === spec.id).length >= 2) continue;            // a mix, not a fleet of sisters
     const depth = G.depth[G.ix(n) * G.N + G.jx(e)];

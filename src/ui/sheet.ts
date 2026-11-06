@@ -128,6 +128,6 @@ export function modelCredit(id: string) {
   if (!m) return '';
   const c = m.credit;
   const src = c.license === 'supplied' ? `“${c.title}”, supplied by ${c.author}`
-    : `“<a href="${c.url}" target="_blank" rel="noopener">${c.title}</a>” by ${c.author} on Sketchfab, ${c.license === 'CC Attribution' ? '<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>' : c.license}`;
+    : `“<a href="${c.url}" target="_blank" rel="noopener">${c.title}</a>” by ${c.author} on Sketchfab, ${c.license === 'CC Attribution' ? '<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>' : c.license === 'CC Attribution-NonCommercial' ? '<a href="https://creativecommons.org/licenses/by-nc/4.0/" target="_blank" rel="noopener">CC BY-NC 4.0</a>' : c.license}`;
   return `<p><b>3D model.</b> ${src}; fitted to this ship's length, beam and draught, simplified, its own propellers and rudders replaced by the simulator's. It shows the type, not this exact ship. Offline single-file copy: drawn procedurally.</p>`;
 }

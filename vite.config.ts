@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => {
       __APP_VERSION__: JSON.stringify(pkg.version),
       __BUILD__: JSON.stringify((process.env.GITHUB_SHA ?? 'local').slice(0, 7)),
       __PWA__: JSON.stringify(!single),
-      __REPO_URL__: JSON.stringify(process.env.REPO_URL ?? 'https://github.com/VOLARtech/AZIPOD-SIM'),
+      __REPO_URL__: JSON.stringify(process.env.REPO_URL ?? 'https://github.com/Theseasparky/AZIPOD-SIM'),
     },
     resolve: {
       alias: [
@@ -30,6 +30,7 @@ export default defineConfig(({ mode }) => {
         ] : []),
       ],
     },
+    assetsInclude: ['**/*.azp', '**/*.azc', '**/*.scn'],
     build: {
       target: 'es2020',
       outDir: single ? 'dist-single' : 'dist',
@@ -63,7 +64,11 @@ export default defineConfig(({ mode }) => {
         workbox: {
           globPatterns: ['**/*.{js,css,html,woff2,png,svg,webmanifest,bin}'],
           // ship models load when a ship is first shown, and are kept for offline use from then on
-          runtimeCaching: [{ urlPattern: /\.glb$/, handler: 'CacheFirst', options: { cacheName: 'ship-models', expiration: { maxEntries: 40 } } }],
+          runtimeCaching: [
+            { urlPattern: /\.glb$/, handler: 'CacheFirst', options: { cacheName: 'ship-models', expiration: { maxEntries: 40 } } },
+            // area packs (depths, land, charts) and 3D scenery: fetched when an area is first opened, kept after
+            { urlPattern: /\.(azp|azc|scn)$/, handler: 'CacheFirst', options: { cacheName: 'area-data', expiration: { maxEntries: 60 } } },
+          ],
           globIgnores: ['**/*-offline.html'],
           navigateFallback: 'index.html',
           cleanupOutdatedCaches: true,

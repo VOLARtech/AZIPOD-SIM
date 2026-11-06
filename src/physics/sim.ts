@@ -4,6 +4,7 @@
 // ν̇_c = [r v_c, −r u_c, 0] for an earth-fixed current seen from rotating axes.
 import { DEG, Hydro, RHO, RHO_AIR, ShipSpec, deriveHydro, resistanceCt } from './ship';
 import { Obstacle, Fender, contactForces, ContactInfo, Pt } from './contact';
+import type { HarbourIndex } from './spatial';
 import { MooringLine, lineForces } from './mooring';
 import { DepthField, groundingForces } from './harbour';
 import { ShaftForce, EngineState, cppProgram, initEngine, propTorque, shaftForces, stepEngine } from './units/shaft';
@@ -44,12 +45,16 @@ export interface World {
   obstacles: Obstacle[]; fenders: Fender[];
   contact?: boolean;                          // false: skip hull contact (predictor)
   lines?: MooringLine[]; bollards?: Pt[];     // mooring lines (force evaluated inside RK4)
+  /** Heights of the fairleads and of each bollard [m above datum], where water levels change (a lock):
+   *  the lines are then measured in three dimensions. */
+  lineZ?: { fair: number; bol: (i: number) => number };
   lineT?: number[];                           // out: tensions at last evaluation
   ext?: Wrench;                               // body wrench held over the step (tugs, bank, wash)
   tow?: { line: Towline; anchor: [number, number, number, number] };   // towline to a moving fairlead
   depthAt?: DepthField; squat?: number;       // grounding
   aground?: number;                           // out: max keel penetration [m]
   dmgDraught?: (x: number) => number;         // extra draught from flooding at body x (sinkage + trim) [m]
+  index?: HarbourIndex;                       // spatial index over the static obstacles, fenders and bollards
 }
 export type CurrentField = (n: number, e: number) => [number, number]; // [vN, vE] m/s
 export interface Env {
@@ -285,12 +290,12 @@ export class Model {
     if (obstacles) {
       const w = obstacles;
       if (w.contact !== false && (w.obstacles.length || w.fenders.length)) {
-        const c = contactForces(st, w.obstacles, w.fenders, ci);
+        const c = contactForces(st, w.obstacles, w.fenders, ci, w.index);
         X += c.X; Y += c.Y; N += c.N;
         if (bd) { bd.contact.X = c.X; bd.contact.Y = c.Y; bd.contact.N = c.N; }
       }
       if (w.lines && w.bollards) {
-        const l = lineForces(st, w.lines, w.bollards, w.lineT);
+        const l = w.lineZ ? lineForces(st, w.lines, w.bollards, w.lineT, w.lineZ) : lineForces(st, w.lines, w.bollards, w.lineT);
         X += l.X; Y += l.Y; N += l.N;
       }
       if (w.ext) { X += w.ext.X; Y += w.ext.Y; N += w.ext.N; }

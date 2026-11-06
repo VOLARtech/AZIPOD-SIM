@@ -4,7 +4,7 @@
 
 **Learn to handle ships, from a small harbour tug to a giant container ship, right in your web browser.**
 
-👉 **Open it:** https://volartech.github.io/AZIPOD-SIM/
+👉 **Open it:** https://theseasparky.github.io/AZIPOD-SIM/
 
 It's free, runs on phones, tablets and computers, and once installed it keeps working with no internet connection.
 
@@ -14,12 +14,13 @@ It's free, runs on phones, tablets and computers, and once installed it keeps wo
 
 You stand on the bridge of a full-size ship and bring her into port: through a narrow channel, around a tight turn, and gently alongside the quay. The ship drifts with the wind and the current, slows down in shallow water, and doesn't stop just because you let go of the controls, just like the real thing.
 
-It started as a trainer for cruise ships with *Azipods* (propellers in pods under the ship that turn in any direction). It now has 23 ships, each with the controls its real crew would use.
+It started as a trainer for cruise ships with *Azipods* (propellers in pods under the ship that turn in any direction). It now has 25 ships, each with the controls its real crew would use.
 
 ## What you can do
 
-- **Steer 23 different ships**: cruise ships, an expedition yacht, ferries, tankers, container ships, tugs, an icebreaker and more (see the list below).
-- **Sail in real places.** PortMiami, built from the official sea chart, with around 13,000 real buildings, the causeway bridges and the container cranes. The passenger terminal in Amsterdam. Practice harbours, a river, an oil terminal, an ice field and the open sea.
+- **Steer 25 different ships**: cruise ships, an expedition yacht, ferries, tankers, container ships, tugs, an icebreaker and more (see the list below).
+- **Sail in real places, on their real charts.** PortMiami from the sea buoy in, with around 13,000 real buildings, the causeway bridges and the container cranes; the Ports of Los Angeles and Long Beach, through Angels Gate to Pier 400 and the crude jetty; IJmuiden, from the North Sea through the world's largest sea lock and up the Noordzeekanaal to Amsterdam. Every chart has its depth contours, soundings, buoys, beacons and lights (flashing in their real rhythm at night), and every berth has its fenders and bollards. Practice harbours, a river, an oil terminal, an ice field and the open sea too.
+- **Work a real lock.** Call the IJmuiden Zeesluis on VHF, wait for the green light, go in, make fast, and feel the lines pull as the lock master levels you down to the canal or up to the sea. The gates roll shut behind you; the tide outside rises and falls.
 - **Look out of the window in 3D.** See the view from the wheelhouse or either bridge wing, follow the ship from behind, or go underwater and watch the propellers turn. Day, dusk and night, with ship lights and lit-up windows after dark.
 - **See where you're heading.** A forecast line on the water shows where your ship will be in the next few minutes, so you can correct early.
 - **Handle real situations (and their consequences).** Tie up with mooring lines, call tugs to push and pull, cope with gusty wind and strong current, pass another ship in a narrow channel, share any harbour with random traffic, break a path through ice, escort a loaded tanker, or hold a supply ship perfectly still next to an oil platform.
@@ -41,19 +42,21 @@ Every ship (except the barge convoy) is shown with a detailed 3D model, so it lo
 
 ## Where you can sail
 
-Fourteen scenarios, from easy to tricky:
+Twenty-five scenarios, from easy to tricky:
 
-- **Practice harbours**: a training quay, a dredged channel where the banks pull at the ship, and a swing basin to turn around in.
-- **Real ports**: PortMiami's Terminal V and the passenger terminal in Amsterdam.
+- **PortMiami** (real chart): Terminal V; in from the sea buoy to Berth 4; a container ship to Fisherman's Channel.
+- **Los Angeles and Long Beach** (real chart): a 400 m container ship to Pier 400; a laden supertanker up the 23 m channel to the crude jetty; a cruise ship to the World Cruise Center; Angels Gate with other ships coming out.
+- **IJmuiden, the Noordzeekanaal and Amsterdam** (real chart): in from the sea across the tidal stream at the pier heads; through the Zeesluis inbound and outbound; a supertanker in ballast with 6 m either side in the lock; up the canal to the Amerikahaven.
+- **Practice harbours**: the Amsterdam passenger terminal, a training quay, a dredged channel where the banks pull at the ship, and a swing basin to turn around in.
 - **Cargo work**: berthing at an oil jetty, escorting a loaded supertanker with a tug.
-- **Traffic**: meeting and overtaking another ship in a channel.
+- **Traffic**: meeting and overtaking another ship in a channel (and random traffic in any scenario).
 - **River**: taking a barge convoy down a river bend and under a bridge.
 - **Fast ferry**: entering a harbour at speed.
 - **Offshore**: a supply run to an oil platform, holding position.
 - **Ice**: breaking a channel with the icebreaker.
 - **Ocean**: a passage under rotor sails, and open water for sea trials.
 
-If a ship is too big or too deep for a harbour, the simulator tells you and picks one that fits.
+If a ship is too big or too deep for a harbour or a lock, the simulator tells you (in the lock's case, the lock master does) and picks one that fits. Any berth of any scenario can be picked from the menu (Berth), either side to.
 
 ## Get it on your device
 
@@ -61,7 +64,7 @@ If a ship is too big or too deep for a harbour, the simulator tells you and pick
 | --- | --- |
 | Android, Windows, Mac, Linux, Chromebook (Chrome or Edge) | Tap **INSTALL** in the app, or the install icon in the address bar |
 | iPhone, iPad | Open it in Safari, tap Share, then **Add to Home Screen** |
-| No install, no internet at all | Download [the offline copy](https://volartech.github.io/AZIPOD-SIM/shipshape-offline.html), a single file that opens in any browser |
+| No install, no internet at all | Download [the offline copy](https://theseasparky.github.io/AZIPOD-SIM/shipshape-offline.html), a single file that opens in any browser |
 
 The app updates itself. When a new version is ready, it shows a **RELOAD** button.
 
@@ -75,6 +78,7 @@ On a phone or tablet, just use the levers and wheels on screen. On a computer yo
 
 ## What's new
 
+- **Version 5: real charts and harbours, and a lock.** Two new real-chart areas (Los Angeles–Long Beach and IJmuiden–Amsterdam) and PortMiami out to its sea buoy; depth contours, soundings and every buoy, beacon and light on every chart, the schematic harbours included; fenders and bollards at every berth, sized for the biggest ship that fits it; the IJmuiden Zeesluis worked by its lock master, with the tide outside and the canal level inside; the areas download for offline use from the Install & offline section; links straight to a scenario (for example `?scenario=ijm-lock-in&view=3d`).
 - **New name: SHIPSHAPE.** Azipod Bridge is now SHIPSHAPE, since it has grown from Azipod cruise ships into every kind of ship. The address stays the same, and an installed copy keeps working.
 - **22 more ships.** It began with three Azipod ships; now there are 25, covering almost every way a ship can be driven: engines with a telegraph, adjustable propellers, tug drives, water jets, computer-held positioning and more.
 - **Realistic 3D ships.** Detailed 3D models replace the simple box shapes, fitted to each ship's real size.
@@ -96,7 +100,8 @@ On a phone or tablet, just use the levers and wheels on screen. On a computer yo
 ## Thanks and credits
 
 - **Developed by Khalil Mahboub**, Captain & Maritime Systems Enthusiast. Questions, feedback, or collaborations: Instagram [@snowskyz](https://www.instagram.com/snowskyz/) | WhatsApp [+1 (514) 574-1719](https://wa.me/15145741719)
-- **Sea chart of Miami:** NOAA electronic navigational charts (public domain).
+- **Sea charts of Miami and Los Angeles–Long Beach:** NOAA electronic navigational charts (public domain).
+- **IJmuiden, the Noordzeekanaal and Amsterdam:** Rijkswaterstaat inland electronic navigational charts, 1 m bathymetry and the PDOK buoy and beacon register (CC0). Open-sea depths off IJmuiden: [EMODnet Bathymetry](https://emodnet.ec.europa.eu/en/bathymetry) DTM (CC BY 4.0). All simplified and gridded for the simulator: not for navigation.
 - **Buildings and roads:** © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), available under the Open Database License.
 - **Spirit-class cruise ship:** 1:300 Carnival Spirit hobby model (3D Warehouse, converted by iconic3dmodels).
 - **Paspaley Pearl:** 3D model supplied by VOLARtech.
@@ -110,7 +115,7 @@ On a phone or tablet, just use the levers and wheels on screen. On a computer yo
   - Voith tug: “[Tug Boat 02](https://sketchfab.com/3d-models/none-1b64860d3aaa41e8b82afcb0d56fae52)” by agt14032013
   - Supply ship and anchor-handling tug: “[Multi Purpose Offshore Vessel](https://sketchfab.com/3d-models/none-c604045da67a4a0b93d8ce4dc8db3e56)” by agt14032013
   - Icebreaker: “[Icebreaker](https://sketchfab.com/3d-models/none-1ed361672e6e42298fa5b92dd61127bd)” by agt14032013
-  - Superyacht: “[Clio](https://sketchfab.com/3d-models/none-306ef5879ba44031851be0555b80484d)” by gmanisdabossatbeastmode
+  - Superyacht: “[Frickie's Yacht](https://sketchfab.com/3d-models/frickies-yacht-a5b72f2a23cd4e1f9eaf49059606c7a3)” by rubenn, used under [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) (non-commercial use only)
   - Oil supertanker: “[Oil tanker](https://sketchfab.com/3d-models/none-63339c2e2f274672a9bdcf924864ae62)” by factorydottcat
   - Gas carrier: “[Gas Carrier Ship](https://sketchfab.com/3d-models/none-0fe1b96ac2754fb59e0745443294eb50)” by medialog
   - Bulk carriers: “[Bulk Carrier](https://sketchfab.com/3d-models/none-93c076900f004102b78dfac989efae1d)” by medialog
@@ -118,7 +123,7 @@ On a phone or tablet, just use the levers and wheels on screen. On a computer yo
   - Car and passenger ferry: “[PRIDE OF KENT (P&O Ferries)](https://sketchfab.com/3d-models/none-f7c269fbb81e4072b72e28b085e52c7e)” by ipierre
   - Navy frigate: “[1:1 Low poly US NAVY DDG-51 USS Arleigh Burke.](https://sketchfab.com/3d-models/none-17be09c31c6047e4a5969b68c29eba03)” by WTigerTw
 
-Found a problem, or have an idea for a scenario? [Open an issue](https://github.com/VOLARtech/AZIPOD-SIM/issues).
+Found a problem, or have an idea for a scenario? [Open an issue](https://github.com/Theseasparky/AZIPOD-SIM/issues).
 
 ## For developers
 

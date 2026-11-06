@@ -55,6 +55,7 @@
     <button id="b-follow" class="mb on" aria-pressed="true">FOLLOW</button>
     <button id="b-lines" class="mb" hidden>LINES</button>
     <button id="b-tugs" class="mb" hidden>TUGS</button>
+    <button id="b-lock" class="mb" hidden aria-label="The lock: call the lock master, levels and signals">LOCK</button>
     <button id="b-ais" class="mb" hidden aria-label="AIS targets">AIS</button>
     <button id="b-dmg" class="mb" hidden aria-label="Damage control">DAMAGE</button>
     <span class="zoom"><button id="b-zin" class="mb sq" aria-label="Zoom in">+</button><button id="b-zout" class="mb sq" aria-label="Zoom out">−</button></span>
@@ -84,6 +85,13 @@
     <canvas class="dmg-plan" id="dmg-plan" aria-label="Hull plan: damage by section, flooding, propulsion"></canvas>
     <div class="stat dmg-stat" id="dmg-stat"></div>
     <div class="dmg-log" id="dmg-log"></div>
+  </section>
+  <section class="panel" id="p-lock" hidden aria-label="The lock">
+    <div class="panel-head"><span class="tag" id="lock-head">LOCK</span><button class="x" data-close="p-lock" aria-label="Close">×</button></div>
+    <button class="cb" id="lock-call">CALL LOCK ON VHF</button>
+    <div id="lock-state"></div>
+    <div class="lk-log" id="lock-log" aria-live="polite"></div>
+    <p class="hint">Call before you reach the gate. Enter on green at no more than 2 knots, make fast at least two lines, and tend them while the chamber levels. Red and green together: get ready, the gate is opening.</p>
   </section>
   <section class="panel" id="p-tugs" hidden aria-label="Tugs">
     <div class="panel-head"><span class="tag" id="tug-head">TUGS</span><button class="x" data-close="p-tugs" aria-label="Close">×</button></div>
@@ -130,7 +138,7 @@
     <div class="gate-card">
       <h1 id="gate-h">SHIPSHAPE</h1>
       <p>Take the controls of a real-size ship and bring her safely into port. Choose from 25 ships, from harbour tugs and ferries to cruise ships, tankers, an icebreaker and a 24,000-container giant, each with the controls her crew would use.</p>
-      <p>Sail into PortMiami or Amsterdam, along a river, through ice or out at sea. Wind, current and shallow water push you around just as they do in real life, and a forecast line shows where you're heading.</p>
+      <p>Sail into PortMiami and Los Angeles–Long Beach on their real charts, take a ship through the IJmuiden sea lock to Amsterdam, or go along a river, through ice or out at sea. Wind, current and shallow water push you around just as they do in real life, and a forecast line shows where you're heading.</p>
       <p><b>For training and fun only, not for navigation.</b> The ships behave like real ones, but never exactly the same. Don't use it to plan a real manoeuvre.</p>
       <p class="credit">Developed by <b>Khalil Mahboub</b>, Captain &amp; Maritime Systems Enthusiast.<br />Questions, feedback, or collaborations:<br />Instagram: <a href="https://www.instagram.com/snowskyz/" target="_blank" rel="noopener">@snowskyz</a> | WhatsApp: <a href="https://wa.me/15145741719" target="_blank" rel="noopener">+1 (514) 574-1719</a></p>
       <button id="gate-ok" class="cb">I UNDERSTAND</button>
@@ -161,11 +169,20 @@
       </div>
       </details>
       <details class="sec"><summary><h2>Berth</h2></summary>
+      <div class="env-grid" id="berth-pick">
+        <label for="b-berth">Make for</label>
+        <select id="b-berth" class="pick"></select>
+        <span class="lbl">Lie</span>
+        <div class="seg" id="seg-side"><button data-v="-1">Port side to</button><button data-v="1">Starboard side to</button></div>
+        <span class="lbl">Practice</span>
+        <div class="seg"><button id="b-startoff">Start off this berth</button></div>
+        <p class="note" id="berth-info" style="grid-column: 1 / -1"></p>
+      </div>
       <div class="env-grid">
         <span class="lbl">Fenders and bollards</span>
         <div class="seg"><button id="b-editberth">Edit on the chart</button></div>
       </div>
-      <p class="note">Put your own fenders and bollards on any quay, pier or dolphin: tap near its edge to add a bollard on it or a fender on its face, or tap one to take it away. Your layout is kept for each scenario on this device; RESET puts the scenario's own back.</p>
+      <p class="note">Every quay, pier and dolphin face is fitted out for the biggest ship that fits it: fenders sized for her berthing energy, bollards all along. Put your own on any of them too: tap near a face to add a bollard on it or a fender on it, or tap one to take it away. Your changes are kept for each scenario on this device; RESET puts the scenario's own back.</p>
       </details>
       <details class="sec"><summary><h2>Damage</h2></summary>
       <div class="env-grid">

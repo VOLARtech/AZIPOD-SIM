@@ -6,6 +6,7 @@ import { Command, Env, Model, ShipState, World, cloneState, mismatched, rk4, upd
 import { ContactInfo, contactForces, Fender, Obstacle, Pt } from './contact';
 import type { MooringLine } from './mooring';
 import type { DepthField } from './harbour';
+import type { HarbourIndex } from './spatial';
 import { engines, fullAstern, helm, isHelmShip } from './pilot';
 
 export type Alt = 'current' | 'port' | 'stbd' | 'crash' | 'coast';
@@ -21,24 +22,35 @@ export interface PredictJob {
   wind: { V: number; from: number };
   current: [number, number] | null;     // uniform estimate, or null = use scenario field
   scenarioId: string; curKn: number; curSet: number; depth: number;
-  lines: Pick<MooringLine, 'fair' | 'bollard' | 'L0' | 'state'>[];
+  /** Lines as they stand; `bp` is the point of the bollard a line is fast to, so the worker never needs its
+   *  own (possibly out of date) copy of the berth's bollards. */
+  lines: (Pick<MooringLine, 'fair' | 'bollard' | 'L0' | 'state'> & { bp?: Pt })[];
   ext: Wrench;
   horizon: number; alts: Alt[];
+  /** Where water levels change: the levels now and a lock's gates as they stand. */
+  water?: { outer: number; inner: number; chamber: number; gates: Obstacle[] };
+  /** Fairlead height and each line's bollard height (parallel to lines), for three-dimensional lines. */
+  lineZ?: { fair: number; bol: number[] };
 }
 export interface Pose { t: number; n: number; e: number; psi: number; u: number; v: number; r: number }
 export interface Track { alt: Alt; poses: Pose[]; stopT: number | null; stopDist: number; dist: number; contactT: number | null; groundT: number | null }
 
-export interface ScenarioWorld { obstacles: Obstacle[]; fenders: Fender[]; bollards: Pt[]; depthAt: DepthField; current: (kn: number, set: number) => (n: number, e: number) => [number, number] }
+export interface ScenarioWorld { obstacles: Obstacle[]; fenders: Fender[]; bollards: Pt[]; depthAt: DepthField; current: (kn: number, set: number) => (n: number, e: number) => [number, number]; index?: HarbourIndex }
 
 export function runPrediction(spec: ShipSpec, job: PredictJob, sw: ScenarioWorld): Track[] {
   const sp = job.onboard ? mismatched(spec) : spec;
   const model = new Model(sp, job.depth);
   const field = job.current ? ((): [number, number] => job.current!) : sw.current(job.curKn, job.curSet);
   const env: Env = { windSpeed: job.wind.V, windFrom: job.wind.from, gusts: false, current: field, depth: job.depth };
-  const lines = job.lines.map(l => ({ ...l, kind: 'head', name: '', lead: 0, mode: 'brake', T: 0, peakT: 0 })) as MooringLine[];
-  const world: World = { obstacles: [], fenders: [], contact: false, lines, bollards: sw.bollards, ext: job.ext, depthAt: sw.depthAt, squat: 0 };
+  // lines that carry their bollard point use it (each line gets its own entry), else the world's bollards
+  const ownPts = job.lines.some(l => l.bp);
+  const bollards: Pt[] = ownPts ? job.lines.map(l => l.bp ?? [0, 0]) : sw.bollards;
+  const lines = job.lines.map((l, i) => ({ fair: l.fair, bollard: ownPts ? (l.bp ? i : -1) : l.bollard, L0: l.L0, state: ownPts && !l.bp && l.state === 'fast' ? 'stowed' : l.state,
+    kind: 'head', name: '', lead: 0, mode: 'brake', T: 0, peakT: 0 })) as MooringLine[];
+  const world: World = { obstacles: [], fenders: [], contact: false, lines, bollards, ext: job.ext, depthAt: sw.depthAt, squat: 0 ,
+    ...(job.lineZ && ownPts ? { lineZ: { fair: job.lineZ.fair, bol: (i: number) => job.lineZ!.bol[i] ?? job.lineZ!.fair } } : {}) };
   const probe: ContactInfo = { active: false, points: [], fenders: [] };
-  const startsInContact = (() => { contactForces(job.state, sw.obstacles, sw.fenders, probe); return probe.active; })();
+  const startsInContact = (() => { contactForces(job.state, sw.obstacles, sw.fenders, probe, sw.index); return probe.active; })();
   const dt = job.horizon > 240 ? 1 : 0.5;
   return job.alts.map(alt => {
     const st = cloneState(job.state);
@@ -64,7 +76,7 @@ export function runPrediction(spec: ShipSpec, job: PredictJob, sw: ScenarioWorld
         poses.push({ t, n: st.n, e: st.e, psi: st.psi, u: st.u, v: st.v, r: st.r });
         nextRec += 1;
         if (!startsInContact && Math.round(t) % 2 === 0) {
-          contactForces(st, sw.obstacles, sw.fenders, probe);
+          contactForces(st, sw.obstacles, sw.fenders, probe, sw.index);
           if (probe.active) { contactT = t; break; }
         }
         if ((world.aground ?? 0) > 0.05) { groundT = t; break; }

@@ -1,5 +1,5 @@
 import type { Traffic } from '../physics/traffic';
-import type { Scenario } from '../scenarios';
+import type { Scenario, Water } from '../scenarios';
 import type { Runtime } from '../physics/runtime';
 import type { Command } from '../physics/sim';
 import type { Alt, Track } from '../physics/predict';
@@ -12,6 +12,8 @@ export const S = {
   sc: null as unknown as Scenario,
   shipId: null as string | null,          // chosen ship; null = the scenario's own
   rt: null as unknown as Runtime,
+  /** Where water levels change (tide, a canal, a lock): the scenario's water, else null. */
+  water: null as Water | null,
   cmd: { pods: [{ alpha: 0, rpm: 0 }, { alpha: 0, rpm: 0 }], bt: 0, mode: 'twin' } as Command,
   env: { windKn: 0, windFrom: 0, curKn: 0, curSet: 0, gusts: false },
   view: { cN: 0, cE: 0, scale: 1, headUp: false, follow: true, rot: 0 },
@@ -30,6 +32,11 @@ export const S = {
   sensMode: 'real' as SensorMode,
   speedIdx: 0, paused: false,
   quay: [{ d: Infinity, rate: 0, n: 0, e: 0, pn: 0, pe: 0 }, { d: Infinity, rate: 0, n: 0, e: 0, pn: 0, pe: 0 }],
+  /** The berth to make for: picked in the menu (per scenario), and the CG pose it gives the ship in use. */
+  berth: {
+    pick: null as null | { sc: string; id: string; side: -1 | 1 },
+    target: null as null | { n: number; e: number; psi: number; name: string; id?: string; side?: -1 | 1 },
+  },
 };
 export const full = () => S.disp.detail === 'full';
 export const SPEEDS = [1, 2, 4, 8];

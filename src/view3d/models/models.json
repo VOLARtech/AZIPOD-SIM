@@ -198,28 +198,6 @@
    "draught": 8
   }
  },
- "clio": {
-  "ships": [
-   "superyacht"
-  ],
-  "credit": {
-   "title": "Clio",
-   "author": "gmanisdabossatbeastmode",
-   "license": "CC Attribution",
-   "url": "https://sketchfab.com/3d-models/none-306ef5879ba44031851be0555b80484d"
-  },
-  "eye": {
-   "x": 18.5,
-   "h": 15
-  },
-  "top": 16.54,
-  "fit": {
-   "stem": 49,
-   "stern": -41,
-   "beam": 14.5,
-   "draught": 3.9
-  }
- },
  "tanker": {
   "ships": [
    "kvlcc2",
@@ -228,7 +206,11 @@
    "cb-baltic-ballast"
   ],
   "zones": {
-   "lifeboat": [0.0, 0.075, 0.019]
+   "lifeboat": [
+    0.0,
+    0.075,
+    0.019
+   ]
   },
   "credit": {
    "title": "Oil tanker",
@@ -380,6 +362,28 @@
    "stern": -23.8,
    "beam": 11.2,
    "draught": 3.4
+  }
+ },
+ "frickie": {
+  "ships": [
+   "superyacht"
+  ],
+  "credit": {
+   "title": "Frickie's Yacht",
+   "author": "rubenn",
+   "license": "CC Attribution-NonCommercial",
+   "url": "https://sketchfab.com/3d-models/frickies-yacht-a5b72f2a23cd4e1f9eaf49059606c7a3"
+  },
+  "eye": {
+   "x": 14.5,
+   "h": 13.2
+  },
+  "top": 24.75,
+  "fit": {
+   "stem": 49,
+   "stern": -41,
+   "beam": 14.5,
+   "draught": 3.9
   }
  }
 }

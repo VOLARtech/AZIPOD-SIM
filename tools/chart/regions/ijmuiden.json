@@ -1,0 +1,27 @@
+{
+  "id": "ijmuiden", "name": "IJmuiden, the Noordzeekanaal and Amsterdam",
+  "bbox": [52.36, 4.40, 52.50, 4.97],
+  "origin": [52.43, 4.685],
+  "datum": "NAP", "iala": "A", "landHeight": 3.0,
+  "sources": {
+    "rws": {
+      "ienc": { "file": "Nederland (excl Zeeland, Waddenzee)", "cells": ["1R7NK000", "1R7NK008", "1R7IJ020"] },
+      "wcs": [
+        { "coverage": "bodemhoogte_1mtr__WNN_n_NAP", "res": 10, "bbox": [52.37, 4.53, 52.48, 4.96] },
+        { "coverage": "bodemhoogte_1mtr__WNN_n_NAP", "res": 4, "bbox": [52.455, 4.585, 52.472, 4.615] },
+        { "coverage": "bodemhoogte_1mtr__ZD_zeetoegangsgeul_IJmuiden_LAT", "res": 10, "bbox": [52.40, 4.40, 52.50, 4.62] },
+        { "coverage": "bodemhoogte_1mtr__ZD_noordzee_midden_LAT", "res": 50, "bbox": [52.36, 4.40, 52.50, 4.62] },
+        { "coverage": "bodemhoogte_1mtr__ZD_noordzee_midden_NAP", "res": 50, "bbox": [52.36, 4.40, 52.50, 4.62] }
+      ],
+      "buoys": true
+    }
+  },
+  "grids": [
+    { "cell": 50, "bbox": [52.36, 4.40, 52.50, 4.97] },
+    { "cell": 10, "bbox": [52.37, 4.53, 52.48, 4.96] },
+    { "cell": 4, "bbox": [52.455, 4.585, 52.472, 4.615] }
+  ],
+  "cap": 40,
+  "emodnet": { "bbox": [52.36, 4.40, 52.50, 4.585] },
+  "zones": { "bbox": [52.455, 4.58, 52.475, 4.625], "cell": 10, "sea": [52.4686, 4.58935], "canal": [52.46584, 4.62173] }
+}

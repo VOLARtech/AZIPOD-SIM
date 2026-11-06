@@ -8,6 +8,8 @@ import '@fontsource/ibm-plex-mono/latin-500.css';
 import '@fontsource/ibm-plex-mono/latin-500-italic.css';
 import './style.css';
 import { initApp, persist, toast } from './app';
+addEventListener('azb-model-failed', e => toast(`Couldn't download the 3D model of ${(e as CustomEvent<string>).detail}, so it is drawn in plain shapes. Check the connection${location.hostname === 'volartech.github.io' ? ', and open SHIPSHAPE from its new address' : ''}.`,
+  location.hostname === 'volartech.github.io' ? { label: 'OPEN', run: () => location.assign('https://theseasparky.github.io/AZIPOD-SIM/') } : undefined, 9000));
 import type { View3D } from './view3d/view';
 import { DEG, KN, SHIP, SHIPS, propulsionSummary, setShip, type ShipSpec } from './physics/ship';
 import { Traffic } from './physics/traffic';
@@ -15,6 +17,9 @@ import { TrafficAI, groundVel, makeTraffic } from './physics/aitraffic';
 import { AisMap, computeAis } from './ui/ais';
 import { drawDamagePlan, renderDamage } from './ui/dmgpanel';
 import { EditMode, editAt, loadBerth, resetBerth } from './ui/berthedit';
+import { initBerthPicker, renderBerthPicker, targetFor } from './ui/berthpicker';
+import { initLockPanel, updateLockPanel } from './ui/lockpanel';
+import { nearestBerth, type BerthSpec } from './physics/berths';
 import { IceState } from './physics/ice';
 import { buildDpStation, buildJetStation, buildStation, buildTugStation, initialOrders, Station } from './ui/stations';
 import { buildHull, setHull } from './physics/contact';
@@ -22,9 +27,10 @@ import { makeState, wrap } from './physics/sim';
 import { DT, LeverMode, Runtime } from './physics/runtime';
 import { LINE, WinchMode } from './physics/mooring';
 import type { Alt, PredictJob, Track } from './physics/predict';
-import { SCENARIOS, safeStart, Scenario, berthFor, currentField, depthAt, fits } from './scenarios';
+import { SCENARIOS, safeStart, Scenario, berthFor, currentField, depthAt, fits, navDepthAt, waterOf, type Water } from './scenarios';
 import { ensureScenario } from './scenes/loaders';
-import { loadEnc } from './ui/enc';
+import { AREAS } from './scenes/areas';
+import { loadChart } from './ui/chart';
 import { haptic, suspendAudio, uiTick, unlockAudio, updateAudio } from './ui/audio';
 import { AngleDetent, LinearDetent, detentSlider, onFeel } from './ui/controls';
 onFeel(uiTick);
@@ -49,33 +55,42 @@ function applyEnv() {
   syncEnvUI();
 }
 
-function loadScenario(sc: Scenario) {
+/** Load a scenario: at its start, or (practice off a berth) at a given pose. */
+function loadScenario(sc: Scenario, at?: { n: number; e: number; psi: number; kn: number }) {
   S.sc = sc;
   loadBerth();                                            // this device's own fenders and bollards, if any
+  postHarbour();                                          // …and the predictor worker sees the same ones
   setEdit(null);
   const shipChanged = setShip(S.shipId ?? sc.ship ?? 'becancour') !== S.rt?.spec;
   if (sc.berthFace) sc.berth = berthFor(sc, SHIP.B, 0);
+  S.berth.target = targetFor(sc);
   if (shipChanged) {
     setHull(buildHull(SHIP.L, SHIP.B, SHIP.xg, SHIP.LOA));
     sheetStarted = false;                 // pilot card, trials: recompute for this ship
   }
   // a ship that draws too much for the start spot starts on the nearest deep-enough water instead
-  const s0 = safeStart(sc, SHIP.LOA, SHIP.B, SHIP.T);
+  const s0 = at ? { ...at, moved: 0 } : safeStart(sc, SHIP.LOA, SHIP.B, SHIP.T);
   if (s0.moved > 1) setTimeout(() => toast(`Too shallow for the ${SHIP.name} at the usual start: she starts ${s0.moved.toFixed(0)} m away, in deeper water.`), 300);
   const st = makeState(SHIP, s0.n, s0.e, s0.psi, s0.kn);
-  const rpm0 = Math.min(1, sc.start.kn / SHIP.vmaxKn);
+  const kn0 = at ? at.kn : sc.start.kn, rpm0 = Math.min(1, kn0 / SHIP.vmaxKn);
   st.pods.forEach(p => (p.rpm = rpm0));
   S.cmd = { pods: SHIP.pods.map(() => ({ alpha: 0, rpm: rpm0 })), bt: 0, mode: 'twin' };
   // shaft ships start on the nearest telegraph step (or pitch), engine running
-  initialOrders(SHIP, sc.start.kn).forEach((o, i) => {
+  initialOrders(SHIP, kn0).forEach((o, i) => {
     if (!o) return;
     Object.assign(S.cmd.pods[i], o); st.pods[i].rpm = o.rpm; if (o.pitch !== undefined) st.pods[i].pitch = o.pitch; if (o.bucket !== undefined) st.pods[i].bucket = o.bucket;
   });
   if (SHIP.sternThruster) S.cmd.sbt = 0;
   Object.assign(S.env, { windKn: sc.windKn, windFrom: sc.windFrom, curKn: sc.currentKn, curSet: sc.currentSet, gusts: sc.gusts });
+  // tide, canal and lock: the level where the ship is, and the lock master
+  const water = S.water = waterOf(sc, () => st.t);
   S.rt = new Runtime(SHIP, st, S.cmd,
     { windSpeed: 0, windFrom: 0, gusts: false, current: () => [0, 0], depth: sc.depth },
-    { obstacles: sc.obstacles, fenders: sc.fenders, bollards: sc.bollards, depthAt: depthAt(sc), mooringSide: sc.mooringSide, tugSide: SHIP.towPoints ? undefined : sc.tugSide, tugBP: sc.tugBP });
+    { obstacles: sc.obstacles, fenders: sc.fenders, bollards: sc.bollards, depthAt: water?.depthAt ?? depthAt(sc), tugBP: sc.tugBP,
+      ...(water ? { lock: water.lock ?? undefined, lineZ: lineHeights(sc, water, SHIP) } : {}),
+      // lines on the side she lies to at the berth she makes for; any berth with bollards can take them
+      mooringSide: S.berth.target?.side ?? sc.mooringSide ?? (sc.bollards.length ? -1 : undefined),
+      tugSide: SHIP.towPoints || !sc.tugSide ? undefined : S.berth.pick?.sc === sc.id ? (-S.berth.pick.side as -1 | 1) : sc.tugSide });
   S.rt.sensors.mode = S.sensMode;
   if (sc.escort) S.rt.attachEscort(sc.escort, SHIPS[sc.escort.ship]);
   if (sc.dpScript) S.rt.dpScript = sc.dpScript.map(x => ({ ...x }));
@@ -90,18 +105,37 @@ function loadScenario(sc: Scenario) {
   S.view.scale = (Math.min(innerWidth, Math.max(300, innerHeight - 380)) / 520) * sc.zoom;
   S.pred.tracks = [];
   S.quay.forEach(q => { q.d = Infinity; q.rate = 0; });
-  $('b-lines').hidden = !sc.mooringSide; $('b-tugs').hidden = !S.rt.tugs.length;     // a tug as own ship does not call tugs
+  $('b-lines').hidden = !S.rt.lines.length; $('b-tugs').hidden = !S.rt.tugs.length;     // a tug as own ship does not call tugs
   $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = true;
+  initLockPanel();
   ($('bt') as HTMLInputElement).value = '0';
   setLever('twin');
   mountStation();
-  buildLines(); buildTugs();
+  buildLines(); buildTugs(); renderBerthPicker();
   D.initParticles();
   if (shipChanged) renderModel(S.rt.model.h);
   onScenarioLoaded();
   renderScenarioList();
   renderShipList();
   syncButtons();
+}
+
+/** Heights above datum of the fairleads (the level she floats at plus her freeboard) and of each bollard (the
+ *  quay's, given above the scenario's still level; a floating bollard rides with the water it is in). */
+function lineHeights(sc: Scenario, w: Water, sp: ShipSpec) {
+  const still = sc.tide ?? 0, lock = w.lock;
+  const levelBy = (n: number, e: number) => {
+    if (lock) { const [s, x] = lock.local(n, e); if (s >= 0 && s <= lock.L && Math.abs(x) <= lock.def.width / 2 + 3) return lock.eta; }
+    return w.level(w.zoneAt(n, e));
+  };
+  return (st: { n: number; e: number }) => ({
+    fair: levelBy(st.n, st.e) + sp.look.freeboard,
+    bol: (i: number) => {
+      const inf = sc.bollardInfo?.[i], p = sc.bollards[i];
+      if (!inf || !p) return still + (sc.landHeight ?? 2) + 0.5;
+      return inf.kind === 'floating' ? levelBy(p[0], p[1]) + inf.z : still + inf.z;
+    },
+  });
 }
 
 let sheetStarted = false;
@@ -118,8 +152,9 @@ async function openScenario(sc: Scenario) {
   }
   if (sc.needsData || sc.chart) {
     try {
-      const [data] = await Promise.all([ensureScenario(sc), sc.chart ? loadEnc(sc.chart) : null]);
-      if (data && !postedData.has(sc.id)) { pw.postMessage({ kind: 'data', id: sc.id, data }); postedData.add(sc.id); }
+      const [data] = await Promise.all([ensureScenario(sc), sc.chart ? loadChart(sc.chart) : null]);
+      // the worker installs the same pack with the berths the main thread settled on (no checking twice)
+      if (data && !postedData.has(data.area)) { pw.postMessage({ kind: 'area', id: data.area, pack: data.pack.slice(0), specs: sc.berthSpecs?.map(({ match: _m, ...b }: BerthSpec & { match?: unknown }) => b) }); postedData.add(data.area); }
     } catch (err) {
       if (seq !== openSeq) return;
       console.error(err); toast(`Could not load the chart for ${sc.name}.`); if (S.rt) return; sc = SCENARIOS.find(s => !s.needsData)!;
@@ -222,11 +257,17 @@ function set3d(mode: typeof S.disp.view) {
 
 // ---------------------------------------------------------------- predictor worker
 const pw = new PredictWorker();
-pw.onmessage = (e: MessageEvent<{ id: number; tracks: Track[] }>) => {
+pw.onmessage = (e: MessageEvent<{ id: number; tracks: Track[]; error?: string }>) => {
   S.pred.pending = false;
+  if (e.data.error) console.warn('prediction failed:', e.data.error);
   if (e.data.id === S.pred.jobId) S.pred.tracks = e.data.tracks;
 };
+pw.onerror = e => { S.pred.pending = false; console.warn('prediction worker error', e.message); };
+/** Tell the worker the berth's fenders and bollards (after the berth editor, or a saved layout, changed them). */
+function postHarbour() { pw.postMessage({ kind: 'harbour', id: S.sc.id, fenders: S.sc.fenders, bollards: S.sc.bollards }); }
 function requestPrediction(now: number) {
+  // a reply that never came (worker busy for seconds, or lost): send again rather than wait forever
+  if (S.pred.pending && now - S.pred.lastSend > 2000) S.pred.pending = false;
   if (S.pred.mode === 0 || S.pred.pending || now - S.pred.lastSend < 250) return;
   const rt = S.rt, r = rt.sensors.out;
   S.pred.interval = ghostInterval(r.sog / KN);
@@ -242,9 +283,11 @@ function requestPrediction(now: number) {
     current: onboard ? r.curEst : null,
     scenarioId: S.sc.id, curKn: S.env.curKn, curSet: S.env.curSet,
     depth: isFinite(rt.depthHere) ? rt.depthHere : Infinity,
-    lines: rt.lines.map(l => ({ fair: l.fair, bollard: l.bollard, L0: l.L0, state: l.state })),
+    lines: rt.lines.map(l => ({ fair: l.fair, bollard: l.bollard, L0: l.L0, state: l.state, bp: l.state === 'fast' ? rt.harbour.bollards[l.bollard] : undefined })),
     ext: { ...rt.world.ext! },
     horizon: S.pred.horizon, alts,
+    ...(S.water ? { water: S.water.snap() } : {}),
+    ...(rt.harbour.lineZ ? (() => { const z = rt.harbour.lineZ!(rt.state); return { lineZ: { fair: z.fair, bol: rt.lines.map(l => (l.state === 'fast' ? z.bol(l.bollard) : z.fair)) } }; })() : {}),
   };
   S.pred.pending = true; S.pred.lastSend = now;
   pw.postMessage(job);
@@ -288,6 +331,7 @@ function updateHud() {
   updateLegend();
 }
 
+const r_sog = (rt: Runtime) => rt.sensors.out.sog;
 function updateFlag() {
   const rt = S.rt, st = rt.state, flag = $('r-flag');
   const show = (text: string, cls: string) => { flag.textContent = text; flag.className = 'flag ' + cls; flag.hidden = false; };
@@ -310,12 +354,15 @@ function updateFlag() {
     if (cur.contactT !== null) return show(`Predicted contact in ${cur.contactT.toFixed(0)} s`, cur.contactT < 60 ? 'heavy' : '');
     if (cur.groundT !== null) return show(`Predicted grounding in ${cur.groundT.toFixed(0)} s`, 'heavy');
   }
-  if (S.sc.berth) {
-    const b = S.sc.berth, bp = b.psi * DEG, est = rt.sensors.out.est;
-    const dn = est.n - b.n, de = est.e - b.e;
+  const tg = S.berth.target, est = rt.sensors.out.est;
+  if (tg) {
+    const bp = tg.psi * DEG, dn = est.n - tg.n, de = est.e - tg.e;
     const along = dn * Math.cos(bp) + de * Math.sin(bp), off = -dn * Math.sin(bp) + de * Math.cos(bp);
-    if (Math.hypot(dn, de) < 400) return show(`BERTH ${along >= 0 ? 'past' : 'short'} ${Math.abs(along).toFixed(0)} m · off ${Math.abs(off).toFixed(1)} m · hdg ${sgn(wrap(est.psi - bp) / DEG, 1)}°`, '');
+    if (Math.hypot(dn, de) < 400) return show(`${tg.id ? tg.name.toUpperCase() : 'BERTH'} · ${along >= 0 ? 'past' : 'short'} ${Math.abs(along).toFixed(0)} m · off ${Math.abs(off).toFixed(1)} m · hdg ${sgn(wrap(est.psi - bp) / DEG, 1)}°`, '');
   }
+  // no berth to make for: name the one she is lying near, and the water there
+  const nb = S.sc.berths?.length && r_sog(rt) < 4 * KN ? nearestBerth(S.sc.berths, est.n, est.e, 2 * SHIP.B) : null;
+  if (nb && !tg) return show(`${nb.berth.name.toUpperCase()} · ${nb.berth.depth.toFixed(1)} m alongside · ${nb.d.toFixed(0)} m off`, '');
   flag.hidden = true;
 }
 
@@ -606,12 +653,15 @@ let linesSig = '';
 function buildLines() {
   const box = $('lines'), rt = S.rt;
   linesSig = rt.lines.map(l => l.state + l.mode).join();
-  box.innerHTML = rt.lines.map((l, i) => `
+  const side = rt.lines[0]?.fair[1] < 0 ? -1 : 1, anyFast = rt.lines.some(l => l.state === 'fast');
+  box.innerHTML = (rt.lines.length ? `<div class="lrow"><span class="nm">SIDE</span><span class="t">${anyFast ? 'lines fast' : 'rig the lines on'}</span>
+      <div class="btns">${([[-1, 'PORT'], [1, 'STBD']] as const).map(([v, lab]) => `<button data-side="${v}" aria-pressed="${side === v}"${anyFast && side !== v ? ' disabled' : ''}>${lab}</button>`).join('')}</div></div>` : '') + rt.lines.map((l, i) => `
     <div class="lrow"><span class="nm">${l.name}</span><span class="t" id="lt-${i}">${l.state.toUpperCase()}</span>
       <div class="btns">${l.state === 'fast'
         ? MODES.map(([m, lab]) => `<button data-l="${i}" data-m="${m}" aria-pressed="${l.mode === m}">${lab}</button>`).join('') + `<button data-l="${i}" data-m="go">LET GO</button>`
         : `<button data-l="${i}" data-m="pass">${l.state === 'parted' ? 'SEND NEW LINE' : 'SEND ASHORE'}</button>`}</div></div>`).join('');
-  box.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.onclick = () => {
+  box.querySelectorAll<HTMLButtonElement>('button[data-side]').forEach(b => b.onclick = () => { S.rt.setMooringSide(+b.dataset.side! as -1 | 1); buildLines(); });
+  box.querySelectorAll<HTMLButtonElement>('button[data-l]').forEach(b => b.onclick = () => {
     const i = +b.dataset.l!, m = b.dataset.m!;
     if (m === 'pass') S.rt.passLine(i); else if (m === 'go') S.rt.letGo(i); else S.rt.lines[i].mode = m as WinchMode;
     buildLines();
@@ -645,21 +695,22 @@ function updateTugsPanel() {
   });
 }
 function placePanels() {
-  for (const id of ['p-lines', 'p-tugs', 'p-dmg']) {
+  for (const id of ['p-lines', 'p-tugs', 'p-dmg', 'p-lock']) {
     const el = $(id);
     el.style.bottom = `${innerHeight - D.LAY.trayTop + 8}px`;
     el.style.maxHeight = `${Math.max(140, D.LAY.trayTop - D.LAY.chipsBottom - 16)}px`;
   }
 }
 document.querySelectorAll<HTMLButtonElement>('[data-close]').forEach(b => (b.onclick = () => ($(b.dataset.close!).hidden = true)));
-$('b-lines').onclick = () => { const p = $('p-lines'); p.hidden = !p.hidden; $('p-tugs').hidden = $('p-dmg').hidden = true; buildLines(); placePanels(); };
+$('b-lines').onclick = () => { const p = $('p-lines'); p.hidden = !p.hidden; $('p-tugs').hidden = $('p-dmg').hidden = $('p-lock').hidden = true; buildLines(); placePanels(); };
+$('b-lock').onclick = () => { const p = $('p-lock'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = true; placePanels(); updateLockPanel(true); };
 // ---------------------------------------------------------------- random traffic and the AIS card
 /** (Re)draw the random traffic for this scenario round own ship; scripted scenario traffic stays. */
 function setRandomTraffic(rebuild3d = true) {
   const rt = S.rt, st = rt.state, g = groundVel(st);
   rt.traffic = rt.traffic.filter(t => !(t instanceof TrafficAI));
   if (S.traffic.level !== 'off')
-    rt.traffic.push(...makeTraffic(S.sc.id, { obstacles: S.sc.obstacles, depthAt: depthAt(S.sc) }, { n: st.n, e: st.e, vn: g.vn, ve: g.ve, spec: SHIP }, S.traffic.level, S.traffic.seed));
+    rt.traffic.push(...makeTraffic(S.sc.id, { obstacles: S.sc.obstacles, depthAt: navDepthAt(S.sc) }, { n: st.n, e: st.e, vn: g.vn, ve: g.ve, spec: SHIP }, S.traffic.level, S.traffic.seed));
   if (S.traffic.sel && !rt.traffic.includes(S.traffic.sel)) S.traffic.sel = null;
   syncAis();
   if (rebuild3d) v3?.build();
@@ -686,20 +737,44 @@ $('b-retraffic').onclick = () => {
 let editMode: EditMode | null = null;
 function setEdit(m: EditMode | null) {
   const was = editMode; editMode = m; D.setEditing(!!m);
-  if (m) $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = true;   // the chart clear to tap on
+  if (m) $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = $('p-lock').hidden = true;   // the chart clear to tap on
   $('edit-bar').hidden = !m;
   document.querySelectorAll<HTMLButtonElement>('[data-em]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.em === m)));
   if (m) $('edit-hint').textContent = m === 'remove' ? 'Tap a bollard or fender to take it away.' : `Tap near a quay edge to put a ${m} there.`;
-  if (was && !m) v3?.harbourChanged();
+  if (was && !m) { v3?.harbourChanged(); S.rt.reindex(); postHarbour(); }
 }
 document.querySelectorAll<HTMLButtonElement>('[data-em]').forEach(b => (b.onclick = () => setEdit(b.dataset.em as EditMode)));
 $('edit-done').onclick = () => setEdit(null);
 $('edit-reset').onclick = () => { resetBerth(); $('edit-hint').textContent = "The scenario's own fenders and bollards are back."; };
 $('b-editberth').onclick = () => { $('b-close').click(); setEdit('bollard'); };
 
+// ---------------------------------------------------------------- berth picker
+/** Make for another berth (or the scenario's own): new mark, lines and tugs rigged for the side she lies to. */
+function pickBerth(id: string | null, side: -1 | 1) {
+  S.berth.pick = id ? { sc: S.sc.id, id, side } : null;
+  S.berth.target = targetFor(S.sc);
+  const ms = (S.berth.target?.side ?? side) as -1 | 1;
+  if (S.rt.lines.length && S.rt.lines[0].fair[1] * ms < 0 && !S.rt.setMooringSide(ms)) toast('Lines are fast on the other side: let them go to rig them on this side.');
+  if (!S.rt.lines.length && S.sc.bollards.length) S.rt.setMooringSide(ms);
+  if (S.rt.tugs.length && S.rt.tugs[0].side !== -ms && !S.rt.setTugSide(-ms as -1 | 1)) toast('The tugs are working: stop them to send them round to the other side.');
+  $('b-lines').hidden = !S.rt.lines.length;
+  buildLines(); buildTugs();
+}
+initBerthPicker({
+  pick: pickBerth,
+  startOff() {
+    const tg = S.berth.target; if (!tg) return;
+    // parallel to the berth, a beam and a half off it, stopped
+    const p = tg.psi * DEG, d = 1.5 * SHIP.B, k = -(tg.side ?? -1);      // away from the quay: to starboard when port side to
+    loadScenario(S.sc, { n: tg.n - Math.sin(p) * d * k, e: tg.e + Math.cos(p) * d * k, psi: tg.psi, kn: 0 });
+    $('b-close').click();
+    toast(`Lying off ${tg.name}, stopped. Put her alongside.`);
+  },
+});
+
 // ---------------------------------------------------------------- damage control
 let lostShown = false;
-$('b-dmg').onclick = () => { const p = $('p-dmg'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-tugs').hidden = true; placePanels(); updateDamage(); };
+$('b-dmg').onclick = () => { const p = $('p-dmg'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-tugs').hidden = $('p-lock').hidden = true; placePanels(); updateDamage(); };
 function updateDamage() {
   const d = S.rt.damage;
   $('b-dmg').hidden = !S.rt.damageOn || !d.any;
@@ -711,7 +786,7 @@ function updateDamage() {
     $('p-dmg').hidden = false; placePanels();
   }
 }
-$('b-tugs').onclick = () => { const p = $('p-tugs'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-dmg').hidden = true; placePanels(); };
+$('b-tugs').onclick = () => { const p = $('p-tugs'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-dmg').hidden = $('p-lock').hidden = true; placePanels(); };
 
 // ---------------------------------------------------------------- map gestures
 const ptrs = new Map<number, { x: number; y: number }>();
@@ -857,9 +932,20 @@ function renderShipList() {
     box.appendChild(b);
   }
 }
+/** Which group a scenario is listed under: its real-chart area, else schematic harbours or open water. */
+const OPEN_WATER = new Set(['escort', 'ice', 'rotor', 'dp', 'trials']);
+const groupOf = (s: Scenario) => s.area ? AREAS[s.area].meta.name : OPEN_WATER.has(s.id) ? 'Open water and special operations' : 'Schematic harbours and channels';
 function renderScenarioList() {
   const box = $('scenarios'); box.innerHTML = '';
+  let group = '';
   for (const s of SCENARIOS) {
+    const g = groupOf(s);
+    if (g !== group) {
+      group = g;
+      const h = document.createElement('h3'); h.className = 'scen-group';
+      h.textContent = s.area ? `${g} · real chart` : g;
+      box.appendChild(h);
+    }
     const b = document.createElement('button');
     b.className = s === S.sc ? 'cur' : '';
     const sp = S.shipId ? SHIPS[S.shipId] : null;
@@ -1006,7 +1092,7 @@ function frame(now: number) {
   if (station) station.draw();
   else { for (const d of dials) d.draw(); for (const l of levers) l.draw(); }
   slowT -= dtReal;
-  if (slowT <= 0) { slowT = 0.1; updateHud(); updateLinesPanel(); updateTugsPanel(); updateDamage(); if (S.rt.traffic.length) computeAis(); }
+  if (slowT <= 0) { slowT = 0.1; updateHud(); updateLinesPanel(); updateTugsPanel(); updateLockPanel(); updateDamage(); if (S.rt.traffic.length) computeAis(); }
   if (S.rt.traffic.length && !$('ais').hidden && $('ais-head').getAttribute('aria-expanded') === 'true') aisMap.draw();
   // adaptive resolution: if frames run long for 2 s, render at a lower pixel density
   frameEma += (performance.now() - t0 - frameEma) * 0.05;
@@ -1051,7 +1137,17 @@ persist('azb-settings',
   });
 D.readTheme();
 resize();
-openScenario(SCENARIOS[0]).then(() => {
+// deep links: ?scenario=<id>&ship=<id>&view=2d|split|3d&cam=bridge|port|stbd|chase|pods&tod=day|dusk|night
+// &t=<s to run on>&zoom=<× the scenario's>
+const Q = new URLSearchParams(location.search);
+const qShip = Q.get('ship'), qView = Q.get('view'), qCam = Q.get('cam'), qTod = Q.get('tod');
+if (qShip && SHIPS[qShip]) S.shipId = qShip;
+if (qView === '2d' || qView === 'split' || qView === '3d') S.disp.view = qView;
+if (qCam && CAMS.some(([c]) => c === qCam)) S.disp.cam = qCam as typeof S.disp.cam;
+if (qTod === 'day' || qTod === 'dusk' || qTod === 'night') { S.disp.palette = qTod; document.documentElement.setAttribute('data-palette', qTod); D.readTheme(); }
+openScenario(SCENARIOS.find(s => s.id === Q.get('scenario')) ?? SCENARIOS[0]).then(() => {
+  for (let i = 0, n = Math.min(36000, +(Q.get('t') ?? 0) / DT); i < n; i++) S.rt.step(DT);
+  const qz = +(Q.get('zoom') ?? 0); if (qz > 0) S.view.scale *= qz;
   uiSyncs.forEach(f => f());
   ($('s-static') as HTMLInputElement).checked = S.pred.staticArc;
   ($('s-truth') as HTMLInputElement).checked = S.disp.truth;

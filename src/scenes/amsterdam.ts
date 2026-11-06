@@ -5,6 +5,7 @@
 // the quay runs about 078°, the IJ is about 390 m wide here, Amsterdam Centraal lies ~1.3 km west.
 import type { Fender, Obstacle, Pt } from '../physics/contact';
 import type { Shoal } from '../physics/harbour';
+import type { BerthKind, BerthSpec } from '../physics/berths';
 
 const QB = 78 * Math.PI / 180;                       // quay bearing
 const cq = Math.cos(QB), sq = Math.sin(QB);          // along the quay (s)
@@ -58,6 +59,29 @@ const buildings: Building[] = [
   bld(650, 445, 180, 60, 28, '#6e7a83', undefined, true), bld(900, -110, 160, 70, 22, '#a18571'),
 ];
 
+// every quay and pier face on the IJ here: along y = const (water toward +y on the south bank, −y on the
+// north bank) or across it at s = const (the ends of the piers)
+const Y = (id: string, name: string, kind: BerthKind, s0: number, s1: number, y: number, toward: 1 | -1): BerthSpec =>
+  ({ id, name, kind, a: qf(s0, y), b: qf(s1, y), nrm: [toward * cp, toward * sp] });
+const S_ = (id: string, name: string, kind: BerthKind, s: number, y0: number, y1: number, toward: 1 | -1): BerthSpec =>
+  ({ id, name, kind, a: qf(s, y0), b: qf(s, y1), nrm: [toward * cq, toward * sq] });
+const berthSpecs: BerthSpec[] = [
+  Y('PTA', 'Passenger Terminal Amsterdam', 'cruise', -340, 340, 0, 1),
+  Y('RK-E', 'De Ruyterkade, east', 'general', -1150, -340, 0, 1),
+  Y('RK-W', 'De Ruyterkade, west', 'general', -2800, -1350, 0, 1),
+  Y('CS', 'Centraal Station ferry pontoons', 'ferry', -1350, -1150, 30, 1),
+  Y('OH-W', 'Oostelijke Handelskade, west', 'tug', 340, 400, 0, 1),
+  Y('OH', 'Oostelijke Handelskade', 'general', 520, 2800, 0, 1),
+  Y('MG', "Muziekgebouw pier", 'general', 400, 520, 45, 1),
+  S_('MG-W', 'Muziekgebouw pier, west end', 'tug', 400, 0, 45, -1),
+  S_('MG-E', 'Muziekgebouw pier, east end', 'tug', 520, 0, 45, 1),
+  Y('NW', 'Amsterdam-Noord, west', 'general', -2800, -1100, 390, -1),
+  Y('OV', 'Overhoeks', 'general', -1100, -450, 340, -1),
+  S_('OV-W', 'Overhoeks, west end', 'tug', -1100, 340, 390, -1),
+  S_('OV-E', 'Overhoeks, east end', 'tug', -450, 340, 390, 1),
+  Y('IJP', 'Noord, IJplein', 'general', -450, 2800, 390, -1),
+];
+
 export const AMSTERDAM = {
   id: 'amsterdam-pta', name: 'Amsterdam · PTA, starboard side to',
   brief: 'Bring a 293 m Spirit-class Azipod cruise ship up the IJ and land her starboard side to at the Passenger Terminal Amsterdam: 600 m quay, 10 m alongside, no tide. A fresh south-westerly blows off the quay. Two 60 t tugs on the port side. Geometry is a schematic of the IJ, not a survey.',
@@ -67,7 +91,7 @@ export const AMSTERDAM = {
   shoals, obstacles, fenders,
   berth: { n: qf(0, FENDER_H + 16.1 + 0.1)[0], e: qf(0, FENDER_H + 16.1 + 0.1)[1], psi: 78 },
   bollards: Array.from({ length: 27 }, (_, i) => qf(-325 + i * 25, -1.5)),
-  mooringSide: 1 as const, tugSide: -1 as const, tugBP: 588e3,
+  mooringSide: 1 as const, tugSide: -1 as const, tugBP: 588e3, berthSpecs,
   buildings, landHeight: 2,
   zoom: 0.55,
 };

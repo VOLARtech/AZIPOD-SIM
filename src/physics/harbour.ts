@@ -3,6 +3,7 @@ import { G, KN, RHO, ShipSpec } from './ship';
 import type { Obstacle, Pt } from './contact';
 import { unitAxis } from './units/kinds';
 import type { ShipState, Wrench } from './sim';
+import { type HarbourIndex, obsIndexed } from './spatial';
 
 export interface Shoal { poly: Pt[]; depth: number; label?: string }
 export type DepthField = (n: number, e: number) => number;
@@ -90,14 +91,19 @@ function closestOnPoly(pn: number, pe: number, poly: Pt[]): [number, number, num
 }
 
 /** Nearest structure to a world point: [n, e, distance]. */
-export function nearestStructure(pn: number, pe: number, obs: Obstacle[], maxD = 600): [number, number, number] | null {
+export function nearestStructure(pn: number, pe: number, obs: Obstacle[], maxD = 600, idx?: HarbourIndex): [number, number, number] | null {
   let best: [number, number, number] | null = null;
-  for (const o of obs) {
+  const visit = (o: Obstacle) => {
     const b = o.bbox;
-    if (b && (pn < b[0] - maxD || pn > b[2] + maxD || pe < b[1] - maxD || pe > b[3] + maxD)) continue;
+    if (b && (pn < b[0] - maxD || pn > b[2] + maxD || pe < b[1] - maxD || pe > b[3] + maxD)) return;
     const r = closestOnPoly(pn, pe, o.poly);
     if (r[2] < maxD && (!best || r[2] < best[2])) best = r;
-  }
+  };
+  if (obsIndexed(idx, obs)) {
+    // obstacles farther than maxD in either axis can never win: the index only skips those
+    for (const i of idx.obs.query(pn - maxD, pe - maxD, pn + maxD, pe + maxD)) visit(obs[i]);
+    for (let i = idx.nObs; i < obs.length; i++) visit(obs[i]);
+  } else for (const o of obs) visit(o);
   return best;
 }
 
@@ -107,7 +113,7 @@ export function nearestStructure(pn: number, pe: number, obs: Obstacle[], maxD =
  * toward the bank applied at 0.25 L aft, ∝ U², decaying with side clearance,
  * amplified in shallow water.
  */
-export function bankEffect(spec: ShipSpec, st: ShipState, obs: Obstacle[], depth: number): Wrench & { side: number; clear: number } {
+export function bankEffect(spec: ShipSpec, st: ShipState, obs: Obstacle[], depth: number, idx?: HarbourIndex): Wrench & { side: number; clear: number } {
   const U2 = st.u * st.u;
   const out = { X: 0, Y: 0, N: 0, side: 0, clear: Infinity };
   if (U2 < 0.04 || !obs.length) return out;
@@ -120,7 +126,7 @@ export function bankEffect(spec: ShipSpec, st: ShipState, obs: Obstacle[], depth
     for (const x of [spec.L * 0.3, 0, -spec.L * 0.3]) {
       const y = side * spec.B / 2;
       const pn = st.n + x * c - y * s, pe = st.e + x * s + y * c;
-      const r = nearestStructure(pn, pe, obs, 3 * spec.B);
+      const r = nearestStructure(pn, pe, obs, 3 * spec.B, idx);
       if (!r) continue;
       // only count banks that are abeam (not ahead/astern)
       const dn = r[0] - pn, de = r[1] - pe;
@@ -139,13 +145,13 @@ export function bankEffect(spec: ShipSpec, st: ShipState, obs: Obstacle[], depth
 }
 
 /** Ray–segment intersection distance along unit ray from (pn,pe) dir (dn,de). */
-function rayHit(pn: number, pe: number, dn: number, de: number, obs: Obstacle[], maxD: number) {
+function rayHit(pn: number, pe: number, dn: number, de: number, obs: Obstacle[], maxD: number, idx?: HarbourIndex) {
   let best: { d: number; nn: number; ne: number } | null = null;
   const qe = pe + de * maxD, qn = pn + dn * maxD;
   const lo = [Math.min(pn, qn), Math.min(pe, qe)], hi = [Math.max(pn, qn), Math.max(pe, qe)];
-  for (const o of obs) {
+  const visit = (o: Obstacle) => {
     const b = o.bbox;
-    if (b && (b[0] > hi[0] || b[2] < lo[0] || b[1] > hi[1] || b[3] < lo[1])) continue;
+    if (b && (b[0] > hi[0] || b[2] < lo[0] || b[1] > hi[1] || b[3] < lo[1])) return;
     for (let i = 0, j = o.poly.length - 1; i < o.poly.length; j = i++) {
     const [an, ae] = o.poly[j], [bn, be] = o.poly[i];
     const sn = bn - an, se = be - ae;
@@ -160,15 +166,19 @@ function rayHit(pn: number, pe: number, dn: number, de: number, obs: Obstacle[],
       best = { d: t, nn, ne };
     }
     }
-  }
-  return best;
+  };
+  if (obsIndexed(idx, obs)) {
+    for (const i of idx.obs.query(lo[0], lo[1], hi[0], hi[1])) visit(obs[i]);
+    for (let i = idx.nObs; i < obs.length; i++) visit(obs[i]);
+  } else for (const o of obs) visit(o);
+  return best as { d: number; nn: number; ne: number } | null;
 }
 
 /**
  * Pod wash hitting a quay or bank reflects back onto the hull: a force pushing the
  * stern off the wall, strongest close-in and for jets striking square-on.
  */
-export function washReflection(spec: ShipSpec, st: ShipState, thrusts: number[], obs: Obstacle[]): Wrench & { hits: { n: number; e: number; f: number }[] } {
+export function washReflection(spec: ShipSpec, st: ShipState, thrusts: number[], obs: Obstacle[], idx?: HarbourIndex): Wrench & { hits: { n: number; e: number; f: number }[] } {
   const out = { X: 0, Y: 0, N: 0, hits: [] as { n: number; e: number; f: number }[] };
   const c = Math.cos(st.psi), s = Math.sin(st.psi), R = 70;
   spec.pods.forEach((p, i) => {
@@ -178,7 +188,7 @@ export function washReflection(spec: ShipSpec, st: ShipState, thrusts: number[],
     const wx = Math.cos(a) * sg, wy = Math.sin(a) * sg;          // wash direction, body
     const dn = wx * c - wy * s, de = wx * s + wy * c;            // wash direction, world
     const pn = st.n + p.x * c - p.y * s, pe = st.e + p.x * s + p.y * c;
-    const hit = rayHit(pn, pe, dn, de, obs, R);
+    const hit = rayHit(pn, pe, dn, de, obs, R, idx);
     if (!hit) return;
     const square = Math.max(0, -(hit.nn * dn + hit.ne * de));
     const f = 0.32 * Math.abs(T) * (1 - hit.d / R) ** 1.5 * square;

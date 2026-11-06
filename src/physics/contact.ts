@@ -2,6 +2,7 @@
 // Spring–damper normal force + regularised Coulomb friction, at every
 // penetrating vertex (hull vertex in obstacle, or obstacle corner in hull).
 import type { ShipState } from './sim';
+import { type HarbourIndex, fenIndexed, obsIndexed } from './spatial';
 
 export type Pt = [number, number]; // [n, e]
 export interface Obstacle {
@@ -104,7 +105,7 @@ export function hullWorld(st: ShipState): Pt[] {
   return HULL.map(([x, y]) => [st.n + x * c - y * s, st.e + x * s + y * c]);
 }
 
-export function contactForces(st: ShipState, obs: Obstacle[], fenders: Fender[] | null, ci?: ContactInfo) {
+export function contactForces(st: ShipState, obs: Obstacle[], fenders: Fender[] | null, ci?: ContactInfo, idx?: HarbourIndex) {
   const c = Math.cos(st.psi), s = Math.sin(st.psi);
   let X = 0, Y = 0, N = 0;
   if (ci) { ci.active = false; ci.points.length = 0; ci.fenders.length = 0; }
@@ -136,9 +137,9 @@ export function contactForces(st: ShipState, obs: Obstacle[], fenders: Fender[] 
     apply(pn, pe, Fn * nN - fr * tN, Fn * nE - fr * tE);
     if (ci) { ci.active = true; ci.points.push({ n: pn, e: pe, vn, F: Fn, with: o.name ?? (o.kind === 'bank' ? 'bank' : o.kind === 'ship' ? 'ship' : 'quay'), slide: tm > 0.2 ? fr * tm * tm : 0 }); }
   };
-  for (const o of obs) {
+  const visit = (o: Obstacle) => {
     const b = o.bbox ?? (o.bbox = bboxOf(o.poly));
-    if (b[0] > hb[2] || b[2] < hb[0] || b[1] > hb[3] || b[3] < hb[1]) continue;
+    if (b[0] > hb[2] || b[2] < hb[0] || b[1] > hb[3] || b[3] < hb[1]) return;
     for (const p of hw) {
       if (p[0] < b[0] || p[0] > b[2] || p[1] < b[1] || p[1] > b[3]) continue;
       if (!inside(p, o.poly)) continue;
@@ -154,9 +155,17 @@ export function contactForces(st: ShipState, obs: Obstacle[], fenders: Fender[] 
       // hull must move away from the corner: −(outward hull normal)
       resolve(p[0], p[1], -(qn - p[0]) / d, -(qe - p[1]) / d, d, o);
     }
-  }
+  };
+  if (obsIndexed(idx, obs)) {
+    // indexed static obstacles in their original order, then the moving ones appended after them
+    for (const i of idx.obs.query(hb[0], hb[1], hb[2], hb[3])) visit(obs[i]);
+    for (let i = idx.nObs; i < obs.length; i++) visit(obs[i]);
+  } else for (const o of obs) visit(o);
   if (fenders) {
-    for (let i = 0; i < fenders.length; i++) {
+    const fi = fenIndexed(idx, fenders) ? idx.fen.query(hb[0] - 3.5, hb[1] - 3.5, hb[2] + 3.5, hb[3] + 3.5) : null;
+    const nf = fi ? fi.length : fenders.length;
+    for (let k = 0; k < nf; k++) {
+      const i = fi ? fi[k] : k;
       const f = fenders[i];
       if (f.n < hb[0] - 3 || f.n > hb[2] + 3 || f.e < hb[1] - 3 || f.e > hb[3] + 3) continue;
       // deepest point of the panel inside the hull (centre and both ends)

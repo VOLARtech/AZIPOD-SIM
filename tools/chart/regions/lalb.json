@@ -1,0 +1,12 @@
+{
+  "id": "lalb", "name": "Ports of Los Angeles and Long Beach",
+  "bbox": [33.60, -118.33, 33.80, -118.10],
+  "origin": [33.735, -118.225],
+  "datum": "MLLW", "iala": "B", "landHeight": 3.0,
+  "sources": { "noaa": { "minBand": 4 } },
+  "grids": [
+    { "cell": 40, "bbox": [33.60, -118.33, 33.80, -118.10] },
+    { "cell": 10, "bbox": [33.700, -118.300, 33.780, -118.150] }
+  ],
+  "cap": 120
+}

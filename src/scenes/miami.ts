@@ -1,28 +1,6 @@
-// PortMiami, Terminal V (Virgin Voyages), built from NOAA ENC harbour cells (S-57, public domain).
-// tools/chart/fetch_noaa.py pulls the cells; tools/chart/build_chart.py turns them into
-//   miami.meta.json     berth face, fenders, bollards, cell editions        (bundled)
-//   miami.physics.json  10 m depth grid (MLLW) and land/wharf contact tiles (loaded on demand)
-//   miami.chart.json    depth areas, contours, soundings, aids… for the chart (loaded on demand)
-// Simulation only, not for navigation: the chart is reduced, simplified and may be out of date.
-import META from './miami.meta.json';
-import type { Fender, Obstacle, Pt } from '../physics/contact';
-import { bboxOf } from '../physics/contact';
-import type { DepthGrid } from '../physics/harbour';
-
-const B = META.berth;
-const [an, ae] = B.along, [nn, ne] = B.normal;           // along the face (to its north end), normal to the water
-const faceAt = (s: number, off = 0): Pt => [B.n + an * s + nn * off, B.e + ae * s + ne * off];
-const deg = (n: number, e: number) => ((Math.atan2(e, n) * 180 / Math.PI) + 360) % 360;
-
-const FENDER_H = 1.8;
-// estimated: large cone fenders typical of a cruise berth (Terminal V's fender data are not published)
-const fenders: Fender[] = B.fenders.map(s => {
-  const [n, e] = faceAt(s, FENDER_H);
-  return { n, e, nn, ne, width: 4, height: FENDER_H, dRated: 0.72, Rr: 2.4e6, Er: 0, mu: 0.2 };
-});
-const HALF_B = 16.1;                                    // Spirit-class beam / 2
-const berthPos = faceAt(B.centre, FENDER_H + HALF_B + 0.1);
-const heading = deg(an, ae);                            // bow toward the turning basin, starboard side to
+// PortMiami and its approaches, from NOAA ENC cells (S-57, public domain) built by tools/chart/build_region.py
+// into the area pack (scenes/miami/): depths at 10 m in the harbour and 40 m out to the sea buoy, quays,
+// every berth face fitted out, the chart with its buoys and lights. Simulation only, not for navigation.
 
 export const MIAMI = {
   id: 'miami-terminal-v', name: 'PortMiami · Terminal V, starboard side to',
@@ -30,32 +8,36 @@ export const MIAMI = {
   ship: 'spirit',
   start: { n: 17, e: 300, psi: 295, kn: 5 },
   windKn: 15, windFrom: 95, gusts: true, currentKn: 0.3, currentSet: 290, depth: 12,
-  shoals: [], obstacles: [] as Obstacle[], fenders,
-  berth: { n: berthPos[0], e: berthPos[1], psi: heading },
-  bollards: B.bollards as Pt[],
+  shoals: [], obstacles: [], fenders: [], bollards: [],
   mooringSide: 1 as const, tugSide: -1 as const, tugBP: 686e3,
   landHeight: 2.5, zoom: 0.45,
-  chart: 'miami', tide: 0.3,
-  depthGrid: undefined as DepthGrid | undefined,
-  source: META,
+  chart: 'miami', area: 'miami', tide: 0.3,
+  // Terminal V (Virgin Voyages): Berth H(V), starboard side to, bow to the turning basin
+  berthRef: { match: /H\(V\)/, side: 1 as const, along: 146 },     // stern just inside the dredged pocket, bow over the basin
   needsData: true,
-  /** Install the depth grid and land tiles (loaded on demand by the main thread, posted to workers). */
-  setData(P: { grid: DepthGrid; land: Pt[][] }) {
-    if (this.depthGrid) return;
-    // land / wharf tiles: concrete; the ones along the berth face carry the fenders
-    const CONCRETE = { k: 6e6, c: 1.5e6, mu: 0.45, unload: 0.04 };
-    const [fn0, fe0] = faceAt(Math.min(...B.fenders) - 15), [fn1, fe1] = faceAt(Math.max(...B.fenders) + 15);
-    const nearFace = (p: Pt[]) => p.some(([n, e]) => {
-      const dn = fn1 - fn0, de = fe1 - fe0, l2 = dn * dn + de * de;
-      const t = Math.max(0, Math.min(1, ((n - fn0) * dn + (e - fe0) * de) / l2));
-      return Math.hypot(n - fn0 - t * dn, e - fe0 - t * de) < 3;
-    });
-    this.obstacles.length = 0;
-    for (const poly of P.land) {
-      const o: Obstacle = { poly, ...CONCRETE, kind: nearFace(poly) ? 'fendered' : 'quay' };
-      o.bbox = bboxOf(poly);
-      this.obstacles.push(o);
-    }
-    this.depthGrid = P.grid;
-  },
+};
+
+const area = { shoals: [], obstacles: [], fenders: [], bollards: [], landHeight: 2.5, chart: 'miami', area: 'miami', tide: 0.3, needsData: true, depth: 12 };
+
+/** From the sea buoy in through Government Cut to the cruise berths on the Main Channel. */
+export const MIAMI_APPROACH = {
+  ...area,
+  id: 'miami-approach', name: 'PortMiami · from the sea buoy to Berth 4',
+  brief: 'Real chart: NOAA ENC. Pick up the Government Cut range a mile outside the jetties at 8 kn and bring the 293 m Spirit in along it: the channel narrows between the jetties, the trade wind sets you north across it and the flood runs in with you. Inside, ease down past Fisher Island and the turning basin and lie starboard side to at Berth 4 on the north side of Dodge Island. 18 kn easterly, flood 0.8 kn, tide +0.3 m. Two 70 t tugs on the port side once inside.',
+  ship: 'spirit',
+  start: { n: -1950, e: 8100, psi: 268, kn: 8 },
+  windKn: 18, windFrom: 90, gusts: true, currentKn: 0.8, currentSet: 275,
+  mooringSide: 1 as const, tugSide: -1 as const, tugBP: 686e3, zoom: 0.25,
+  berthRef: { match: /^Port of Miami · Berth 4\b/, side: 1 as const },
+};
+/** A container ship to the cargo terminal on Fisherman's Channel, south of Dodge Island. */
+export const MIAMI_CARGO = {
+  ...area,
+  id: 'miami-cargo', name: "PortMiami · container ship to Fisherman's Channel",
+  brief: "Real chart: NOAA ENC. A 3600 TEU container ship (KCS hull, 10.8 m) bound for the container terminal on the south side of Dodge Island. Come in by Government Cut, turn south of Fisher Island into Fisherman's Channel and lie port side to at the first container berth that takes her. The channel is narrow and the flats outside it dry: hold the middle. 15 kn easterly, flood 0.5 kn, tide +0.3 m. Two 70 t tugs.",
+  ship: 'kcs',
+  start: { n: -2000, e: 4750, psi: 292, kn: 6 },
+  windKn: 15, windFrom: 100, gusts: true, currentKn: 0.5, currentSet: 275,
+  mooringSide: -1 as const, tugSide: 1 as const, tugBP: 686e3, zoom: 0.35,
+  berthRef: { near: [-560, -300] as [number, number], side: -1 as const },
 };
