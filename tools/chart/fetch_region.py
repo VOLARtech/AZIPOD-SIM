@@ -87,7 +87,7 @@ def extract(base, cell, info):
 manifest = {'bbox': [S, W, N, E], 'region': REG['id'], 'fetched': time.strftime('%Y-%m-%d'), 'cells': [], 'bathymetry': [], 'buoys': None}
 if ONLY and os.path.exists(os.path.join(OUT, 'manifest.json')):
     old = json.load(open(os.path.join(OUT, 'manifest.json')))
-    for k in ('cells', 'bathymetry', 'buoys'): manifest[k] = old.get(k, manifest[k])
+    for k in ('cells', 'bathymetry', 'buoys', 'emodnet'): manifest[k] = old.get(k, manifest.get(k))
     if 'wcs' in ONLY: manifest['bathymetry'] = []
 
 # ---------------------------------------------------------------- NOAA ENC
@@ -176,5 +176,19 @@ if 'rws' in REG['sources']:
         json.dump({'type': 'FeatureCollection', 'features': feats}, open(os.path.join(OUT, 'pdok_buoys.geojson'), 'w'), separators=(',', ':'))
         manifest['buoys'] = {'source': 'PDOK Vaarwegmarkeringen Nederland (Rijkswaterstaat, CC0)', 'count': len(feats)}; print('buoys', len(feats))
 
+# ---------------------------------------------------------------- EMODnet (the open sea where nobody else has surveyed)
+# the EMODnet Bathymetry DTM, 1/16 arc-minute (≈ 115 m), depths below LAT, CC BY 4.0
+if REG.get('emodnet') and want('emodnet'):
+    import numpy as np, tifffile
+    es, ew, en, ee = REG['emodnet'].get('bbox', REG['bbox'])
+    b = get('https://ows.emodnet-bathymetry.eu/wcs?' + urllib.parse.urlencode([('SERVICE', 'WCS'), ('VERSION', '2.0.1'), ('REQUEST', 'GetCoverage'),
+        ('coverageId', 'emodnet__mean'), ('format', 'image/tiff'), ('subset', f'Lat({es},{en})'), ('subset', f'Long({ew},{ee})')]))
+    if b[:2] in (b'II', b'MM'):
+        t = tifffile.TiffFile(io.BytesIO(b)); pg = t.pages[0]; tf = pg.tags['ModelTransformationTag'].value
+        a = pg.asarray().astype('float32')
+        np.savez_compressed(os.path.join(OUT, 'emodnet.npz'), z=a, lon0=tf[3], lat1=tf[7], dlon=tf[0], dlat=-tf[5])
+        manifest['emodnet'] = {'shape': list(a.shape), 'lon0': tf[3], 'lat1': tf[7], 'cell': tf[0], 'datum': 'LAT', 'licence': 'CC BY 4.0'}
+        print('EMODnet', a.shape, float(np.nanmin(a)), float(np.nanmax(a)))
+    else: print('EMODnet: not a tiff', b[:200])
 json.dump(manifest, open(os.path.join(OUT, 'manifest.json'), 'w'), indent=1)
 print('done:', OUT)

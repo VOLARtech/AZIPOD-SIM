@@ -465,6 +465,16 @@ function clearance(sc: Scenario, only?: (b: Berth) => boolean) {
   } finally { setHull(h0); }
   return lim;
 }
+/** Depths for traffic planning: a worked lock's chamber is closed to other ships (its gates move; they keep
+ *  out of it), the shut locks' gates are structures already. */
+export function navDepthAt(sc: Scenario): DepthField {
+  const d = depthAt(sc); if (!sc.lockDef) return d;
+  const L = sc.lockDef, dn = L.b[0] - L.a[0], de = L.b[1] - L.a[1], len = Math.hypot(dn, de), u0 = dn / len, u1 = de / len;
+  return (n, e) => {
+    const pn = n - L.a[0], pe = e - L.a[1], s = pn * u0 + pe * u1, w = -pn * u1 + pe * u0;
+    return s > -20 && s < len + 20 && Math.abs(w) < L.width / 2 + 10 ? 0 : d(n, e);
+  };
+}
 /** Is a point inside a lock's chamber? */
 function chamberTest(d: LockDef) {
   const dn = d.b[0] - d.a[0], de = d.b[1] - d.a[1], L = Math.hypot(dn, de), u = [dn / L, de / L];

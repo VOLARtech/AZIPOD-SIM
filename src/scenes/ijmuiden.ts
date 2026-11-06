@@ -6,6 +6,7 @@ import IJM_META from './ijmuiden/ijmuiden.meta.json';
 import type { Pt } from '../physics/contact';
 import type { LockDef } from '../physics/lock';
 import { IJMUIDEN_TIDE } from '../physics/levels';
+import { DEG } from '../physics/ship';
 
 /** A chamber's axis and width from its charted outline: the smallest rectangle around it (one side along an
  *  edge of the outline), its long axis the chamber's; a, the west (sea) end. */
@@ -110,11 +111,27 @@ export const IJM_LOCK_VLCC = {
 export const NZK_TRANSIT = {
   ...area, lockDef: ZEESLUIS, lockOpen: 'b' as const, levels: levels(0),
   id: 'nzk-transit', name: 'Noordzeekanaal · IJmuiden to Amsterdam',
-  brief: "Real chart: Rijkswaterstaat. A 3600 TEU container ship (KCS hull) just out of the Zeesluis, bound up the Noordzeekanaal to the Amerikahaven in Amsterdam's western port: 15 km of canal at NAP −0.40 m, bends at Velsen and Zijkanaal C, ferries crossing, other ships. Hold the middle, meet the other ships on your own side and slow down for the harbour entrance. Lie port side to at the Holland Cargo Terminal. 14 kn south-westerly.",
+  brief: "Real chart: Rijkswaterstaat. A 3600 TEU container ship (KCS hull) just out of the Zeesluis, bound up the Noordzeekanaal to the Amerikahaven in Amsterdam's western port: 15 km of canal held at NAP −0.40 m, with the bends at Velsen and by Zijkanaal C. Hold the middle and keep your speed down where the canal narrows (turn on traffic in the menu to meet other ships, and pass them on your own side), then slow right down for the Amerikahaven entrance. Lie port side to at the Holland Cargo Terminal. 14 kn south-westerly.",
   ship: 'kcs',
   start: { ...along(544 + 700), psi: axisPsi, kn: 6 },
   windKn: 14, windFrom: 225, gusts: true, currentKn: 0.1, currentSet: 90,
   mooringSide: -1 as const, tugSide: 1 as const, zoom: 0.3,
   berthRef: { match: /Holland Cargo Terminal Zuid/, side: -1 as const },
 };
-export const IJM_SCENARIOS = [IJM_LOCK_IN, IJM_LOCK_OUT, IJM_LOCK_VLCC, NZK_TRANSIT];
+// the tidal stream along the coast runs across the harbour mouth (the flood to the NNE) and dies inside the piers
+const PIER_HEADS_E = -9700;
+const coastFlow = (n: number, e: number): [number, number] => {
+  const k = e < PIER_HEADS_E - 600 ? 1 : e < PIER_HEADS_E ? (PIER_HEADS_E - e) / 600 : 0;      // fading through the entrance
+  const inner = ijmZoneAt(n, e) === 'outer' ? 0.1 : 0;
+  return [Math.cos(25 * DEG) * k + inner * Math.cos(95 * DEG), Math.sin(25 * DEG) * k + inner * Math.sin(95 * DEG)];
+};
+export const IJM_APPROACH = {
+  ...area, lockDef: ZEESLUIS, lockOpen: null, levels: levels(-1800), flow: coastFlow,
+  id: 'ijm-approach', name: 'IJmuiden · in from the sea',
+  brief: 'Real chart: Rijkswaterstaat inland ENC, survey and EMODnet. A 3600 TEU container ship (KCS hull) in the IJgeul 2 nm outside the pier heads at 10 kn, half an hour before high water. The flood runs NNE across the harbour mouth at 1.5 kn and stops dead between the piers: hold her up to the south of the line and let the stream carry her onto it, then take the way off in the outer harbour, call the Zeesluis on VHF and lock in. 18 kn south-westerly. Two 60 t tugs inside.',
+  ship: 'kcs',
+  start: { n: 4750, e: -13300, psi: 103, kn: 10 },
+  windKn: 18, windFrom: 230, gusts: true, currentKn: 1.5, currentSet: 25,
+  mooringSide: 1 as const, tugSide: -1 as const, zoom: 0.14,
+};
+export const IJM_SCENARIOS = [IJM_APPROACH, IJM_LOCK_IN, IJM_LOCK_OUT, IJM_LOCK_VLCC, NZK_TRANSIT];

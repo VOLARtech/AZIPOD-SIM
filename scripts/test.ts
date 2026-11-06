@@ -1325,7 +1325,7 @@ test('PortMiami rebuilt from the ENC matches the old harbour grid in open water 
 });
 
 console.log('IJmuiden and the Zeesluis');
-import { waterOf } from '../src/scenarios';
+import { waterOf, navDepthAt } from '../src/scenarios';
 import { LockSim, lockLimits, perMil, type LockDef } from '../src/physics/lock';
 import { IJMUIDEN_TIDE, tideAt } from '../src/physics/levels';
 import { ZEESLUIS, ijmZoneAt } from '../src/scenes/ijmuiden';
@@ -1469,6 +1469,26 @@ import { lineForces, passLine, updateWinches } from '../src/physics/mooring';
     assert.ok(brake.T > 1.5e5, `brake ${(brake.T / 9.81e3).toFixed(0)} t`);
     assert.ok(auto.peak < 1.6 * 1e5 && auto.T > 0.5e5, `auto ${(auto.T / 9.81e3).toFixed(0)} t, peak ${(auto.peak / 9.81e3).toFixed(0)} t`);
     assert.ok(Math.abs(flo.T - flo0.T) < 1 && flo.peak < 1e3, `floating ${(flo.T / 9.81e3).toFixed(1)} t`);
+  });
+  test('busy traffic round the locks and on the canal: 5 minutes, nobody aground, nobody touches, nobody in the Zeesluis', () => {
+    const L = new LockSim(ZEESLUIS, () => 0);
+    for (const id of ['ijm-lock-in', 'nzk-transit']) for (const seed of [3, 11]) {
+      const sc = IJM.find(s => s.id === id)!, own = FLEET[sc.ship!], st = { n: sc.start.n, e: sc.start.e, psi: sc.start.psi * DEG, u: 0, v: 0 };
+      const tr = makeTraffic(`test|${id}`, { obstacles: sc.obstacles, depthAt: navDepthAt(sc) }, { n: st.n, e: st.e, spec: own }, 'busy', seed);
+      const w = { current: () => [0, 0] as [number, number], wind: { V: 5, from: 0 }, own: { st, spec: own }, traffic: tr };
+      const d = depthAt(sc); let bad = '';
+      for (let k = 0; k < 300 / 0.05 && !bad; k++) {
+        for (const t of tr) t.step(0.05, w);
+        if (k % 20) continue;
+        for (const t of tr) {
+          if (!(d(t.st.n, t.st.e) > t.spec.T)) bad = `${t.spec.id} aground`;
+          if (L.inChamber(t.st.n, t.st.e)) bad = `${t.spec.id} in the chamber`;
+          for (const o of tr) if (o !== t && hullsTouch(t.hull, t.st, o.spec, o.st)) bad = `${t.spec.id} touches ${o.spec.id}`;
+        }
+      }
+      assert.ok(tr.length >= 1, `${id}/${seed}: ${tr.length} ships`);
+      assert.equal(bad, '', `${id}/${seed}`);
+    }
   });
   test('the predictor sees the lock as it stands: its gates and the levels now', () => {
     const w = waterOf(lockIn, () => 0)!, base = scenarioWorld('ijm-lock-in'), now = scenarioWorld('ijm-lock-in', w.snap());

@@ -27,7 +27,7 @@ import { makeState, wrap } from './physics/sim';
 import { DT, LeverMode, Runtime } from './physics/runtime';
 import { LINE, WinchMode } from './physics/mooring';
 import type { Alt, PredictJob, Track } from './physics/predict';
-import { SCENARIOS, safeStart, Scenario, berthFor, currentField, depthAt, fits, waterOf, type Water } from './scenarios';
+import { SCENARIOS, safeStart, Scenario, berthFor, currentField, depthAt, fits, navDepthAt, waterOf, type Water } from './scenarios';
 import { ensureScenario } from './scenes/loaders';
 import { loadChart } from './ui/chart';
 import { haptic, suspendAudio, uiTick, unlockAudio, updateAudio } from './ui/audio';
@@ -709,7 +709,7 @@ function setRandomTraffic(rebuild3d = true) {
   const rt = S.rt, st = rt.state, g = groundVel(st);
   rt.traffic = rt.traffic.filter(t => !(t instanceof TrafficAI));
   if (S.traffic.level !== 'off')
-    rt.traffic.push(...makeTraffic(S.sc.id, { obstacles: S.sc.obstacles, depthAt: depthAt(S.sc) }, { n: st.n, e: st.e, vn: g.vn, ve: g.ve, spec: SHIP }, S.traffic.level, S.traffic.seed));
+    rt.traffic.push(...makeTraffic(S.sc.id, { obstacles: S.sc.obstacles, depthAt: navDepthAt(S.sc) }, { n: st.n, e: st.e, vn: g.vn, ve: g.ve, spec: SHIP }, S.traffic.level, S.traffic.seed));
   if (S.traffic.sel && !rt.traffic.includes(S.traffic.sel)) S.traffic.sel = null;
   syncAis();
   if (rebuild3d) v3?.build();

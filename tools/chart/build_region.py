@@ -179,6 +179,24 @@ def raster_layers():
 
 pts, vals = depth_points()
 rasters, lat_minus_nap = raster_layers() if man.get('bathymetry') else ([], None)
+# EMODnet: the open sea outside the chart's depth areas (below LAT; to the region's datum where the offset is known)
+emod = None
+if os.path.exists(f'{RAW}/emodnet.npz'):
+    _e = np.load(f'{RAW}/emodnet.npz'); emod = {k: _e[k] for k in _e.files}
+    emod['z'] = np.where(np.abs(emod['z']) < 1e4, emod['z'], np.nan).astype('float64')
+    emod['off'] = (lat_minus_nap or 0.0) if REG['datum'] != 'LAT' else 0.0
+    _ll_inv = Transformer.from_crs(TM, 'EPSG:4326', always_xy=True)
+# (a depth area of 0 m to nothing given says only that there is water: EMODnet's depths are better there)
+_given = [g for g, p in depare if (p.get('DRVAL1') or 0) > 0 or p.get('DRVAL2') is not None]
+chart_cover = unary_union(_given).buffer(0) if emod is not None and _given else None
+def emod_depth(GX, GY):
+    lon, lat = _ll_inv.transform(GX, GY)
+    x = (lon - float(emod['lon0'])) / float(emod['dlon']) - 0.5; y = (float(emod['lat1']) - lat) / float(emod['dlat']) - 0.5
+    j = np.clip(np.floor(x).astype(int), 0, emod['z'].shape[1] - 2); i = np.clip(np.floor(y).astype(int), 0, emod['z'].shape[0] - 2)
+    fx = np.clip(x - j, 0, 1); fy = np.clip(y - i, 0, 1); z = emod['z']
+    h = (z[i, j] * (1 - fx) + z[i, j + 1] * fx) * (1 - fy) + (z[i + 1, j] * (1 - fx) + z[i + 1, j + 1] * fx) * fy
+    h = np.where((x >= -0.5) & (x <= z.shape[1] - 0.5) & (y >= -0.5) & (y <= z.shape[0] - 0.5), h, np.nan)   # only inside the fetched extent
+    return -h - emod['off']                                      # height above LAT → depth below the datum
 grids = []
 for gspec in sorted(REG['grids'], key=lambda g: -g['cell']):
     cell = float(gspec['cell']); gb = P(box(gspec['bbox'][1], gspec['bbox'][0], gspec['bbox'][3], gspec['bbox'][2])).intersection(reg)
@@ -207,6 +225,13 @@ for gspec in sorted(REG['grids'], key=lambda g: -g['cell']):
         if d1 is None or not g.intersects(gb): continue
         m = shapely.contains_xy(g, GX, GY)
         Z[m] = np.maximum(np.nan_to_num(Z[m], nan=float(d1)), float(d1))
+    # outside the chart's own depth areas (the open sea): EMODnet, before any survey
+    if emod is not None:
+        outside = ~shapely.contains_xy(chart_cover, GX, GY) if chart_cover is not None else np.ones(GX.shape, bool)
+        if outside.any():
+            v = emod_depth(GX[outside], GY[outside]); ok = np.isfinite(v) & (v > 0.5)          # where EMODnet has sea, not land heights
+            Zo = Z[outside]; Zo[ok] = v[ok]; Z[outside] = Zo
+            print('grid', cell, 'm: EMODnet cells', int(ok.sum()))
     # surveyed bathymetry where there is some (finest last, so it wins): mean of the samples in each cell
     for res, xy, d in sorted(rasters, key=lambda r: -r[0]):
         j = np.floor((xy[:, 0] - x0) / cell).astype(int); i = np.floor((xy[:, 1] - y0) / cell).astype(int)
