@@ -132,7 +132,7 @@ const EXERCISES: Exercise[] = [
     brief: 'Hold the supply vessel on her set point while a unit trips and the references drift.',
     scenario: 'dp', ship: 'psv', begin: 'start', end: 'time', limit: 600,
     objectives: ['Take her in on the joystick, then select auto position off the platform.', 'Watch the consequence line and the capability plot when the first unit trips.', 'Notice when both DGNSS references drift together, and decide which reference to trust.'],
-    metrics: ['dperr', 'dputil', 'dplimit'],
+    metrics: ['dperr', 'dpshown', 'dputil', 'dplimit'],
     real: [{ text: 'Class 2 has redundancy so that no single fault in an active system will cause the system to fail: loss of position should not occur from a single fault of an active component such as a generator, thruster or switchboard.', src: ['wikipedia-dp'], conf: 'rule' }],
   },
 ];

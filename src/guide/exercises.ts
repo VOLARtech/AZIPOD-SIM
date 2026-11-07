@@ -165,16 +165,23 @@ Object.assign(METRICS, {
       row: (): Row => ({ label: 'Shaft turning astern after', you: Number.isNaN(at) ? 'not yet' : `${Math.round(at)} s`, ref: `brake air is given once the rpm is below 40 % of MCR (marinesite.info); in the model the astern start waits for the shaft to fall to ${Math.round(AIR_BRAKE_N * 100)} %` }),
     };
   },
-  /** The furthest she strayed from her DP set point in auto position: as the console showed it, and in truth (references drifting together fool the console, not the ship). */
+  /** The furthest she strayed from her DP set point in auto position, in truth (references drifting together fool the console, not the ship). */
   dperr: () => {
-    let shown = 0, truth = 0;
+    let truth = 0;
     return {
       update: (c: Ctx, rt: Runtime) => {
         if (c.dp?.mode !== 'auto' || !rt.dps) return;
-        shown = Math.max(shown, c.dp.err);
         truth = Math.max(truth, Math.hypot(rt.state.n - rt.dps.sp.n, rt.state.e - rt.dps.sp.e));
       },
-      row: (): Row => ({ label: 'Furthest off her set point', you: `${truth.toFixed(1)} m in truth, ${shown.toFixed(1)} m on the console`, ref: 'the console follows the voted references, so a drift they share does not show on it' }),
+      row: (): Row => ({ label: 'Furthest off her set point', you: `${truth.toFixed(1)} m`, ref: 'measured from her true position, not from what the console showed' }),
+    };
+  },
+  /** The same, as the console showed it. */
+  dpshown: () => {
+    let shown = 0;
+    return {
+      update: (c: Ctx) => { if (c.dp?.mode === 'auto') shown = Math.max(shown, c.dp.err); },
+      row: (): Row => ({ label: 'Furthest off, on the console', you: `${shown.toFixed(1)} m`, ref: 'the console follows the voted references, so a drift they share does not show on it' }),
     };
   },
   /** The hardest any thruster was worked. */

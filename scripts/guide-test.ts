@@ -1051,13 +1051,13 @@ console.log('specialised cards: what the notes on the model say');
       const rt = new Runtime(psv, st, { pods: psv.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0 }, env, OPEN);
       rt.dpScript = sc.dpScript!.map(x => ({ ...x }));
       rt.dps!.setMode('auto', rt.sensors.out.est);
-      const err = METRICS.dperr(guideCtx(rt)), util = METRICS.dputil(guideCtx(rt)), lim = METRICS.dplimit(guideCtx(rt));
+      const err = METRICS.dperr(guideCtx(rt)), shownM = METRICS.dpshown(guideCtx(rt)), util = METRICS.dputil(guideCtx(rt)), lim = METRICS.dplimit(guideCtx(rt));
       for (let t = 0, k = 0; t < 600; t += DT, k++) {
         rt.step(DT);
-        if (k % 10 === 0) for (const m of [err, util, lim]) m.update(guideCtx(rt), rt, 10 * DT);
+        if (k % 10 === 0) for (const m of [err, shownM, util, lim]) m.update(guideCtx(rt), rt, 10 * DT);
       }
-      const [truth, shown] = err.row(guideCtx(rt)).you.match(/[\d.]+/g)!.map(Number);
-      assert.ok(shown < 12 && truth > 40, `${err.row(guideCtx(rt)).you}`);
+      const truth = parseFloat(err.row(guideCtx(rt)).you), shown = parseFloat(shownM.row(guideCtx(rt)).you);
+      assert.ok(shown < 12 && truth > 40, `${truth} m in truth, ${shown} m on the console`);
       assert.equal(lim.row(guideCtx(rt)).you, '0 s', 'a class 2 ship should keep up with one unit lost');
       assert.ok(/^\d+ %$/.test(util.row(guideCtx(rt)).you));
     });
@@ -1115,11 +1115,12 @@ console.log('specialised cards: what the notes on the model say');
 
     const dpc = (mode: string, errM: number, u: number, limit = false) => ctxFor(psv, { dp: { mode, err: errM, util: u, limit, consequence: '' } });
     const rtAt = (n: number, e: number) => ({ dps: { sp: { n: 0, e: 0, psi: 0 } }, state: { n, e } }) as unknown as Runtime;
-    const err = METRICS.dperr(dpc('auto', 0, 0)), util = METRICS.dputil(dpc('auto', 0, 0)), lim = METRICS.dplimit(dpc('auto', 0, 0));
-    for (const m of [err, util, lim]) m.update(dpc('joy', 40, 0.9, true), rtAt(30, 40), 1);               // not holding yet: ignored
-    assert.equal(err.row(dpc('auto', 0, 0)).you, '0.0 m in truth, 0.0 m on the console');
-    for (const m of [err, util, lim]) { m.update(dpc('auto', 1.5, 0.2), rtAt(0, 3), 1); m.update(dpc('auto', 2.5, 0.6, true), rtAt(3, 4), 1); }
-    assert.equal(err.row(dpc('auto', 0, 0)).you, '5.0 m in truth, 2.5 m on the console');
+    const err = METRICS.dperr(dpc('auto', 0, 0)), shown = METRICS.dpshown(dpc('auto', 0, 0)), util = METRICS.dputil(dpc('auto', 0, 0)), lim = METRICS.dplimit(dpc('auto', 0, 0));
+    for (const m of [err, shown, util, lim]) m.update(dpc('joy', 40, 0.9, true), rtAt(30, 40), 1);         // not holding yet: ignored
+    assert.equal(err.row(dpc('auto', 0, 0)).you, '0.0 m');
+    for (const m of [err, shown, util, lim]) { m.update(dpc('auto', 1.5, 0.2), rtAt(0, 3), 1); m.update(dpc('auto', 2.5, 0.6, true), rtAt(3, 4), 1); }
+    assert.equal(err.row(dpc('auto', 0, 0)).you, '5.0 m', 'in truth');
+    assert.equal(shown.row(dpc('auto', 0, 0)).you, '2.5 m', 'on the console');
     assert.equal(util.row(dpc('auto', 0, 0)).you, '60 %');
     assert.equal(lim.row(dpc('auto', 0, 0)).you, '1 s');
   });

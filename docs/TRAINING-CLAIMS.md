@@ -486,7 +486,7 @@ psv in `dp` · measured from the start for 600 s
   - Take her in on the joystick, then select auto position off the platform.
   - Watch the consequence line and the capability plot when the first unit trips.
   - Notice when both DGNSS references drift together, and decide which reference to trust.
-- **Debrief:** dperr, dputil, dplimit
+- **Debrief:** dperr, dpshown, dputil, dplimit
 - **Real world:**
   - `rule` Class 2 has redundancy so that no single fault in an active system will cause the system to fail: loss of position should not occur from a single fault of an active component such as a generator, thruster or switchboard. — *wikipedia-dp*
 

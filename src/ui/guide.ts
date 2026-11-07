@@ -136,9 +136,12 @@ function render(force = false) {
   else { html = idleHtml(); bh = btn('more', more) + btn('ref', 'REFERENCE'); }
   const key = head + '|' + html + '|' + bh;
   if (!force && key === shown) return;
+  const panel = $('p-coach'), changed = force || $('coach-head').textContent !== head;
   shown = key;
   $('coach-head').textContent = head;
   body.innerHTML = html; btns.innerHTML = bh;
+  panel.classList.toggle('explain', g.level === 'explain');
+  if (changed) panel.scrollTop = 0;                                     // a new view starts at its top, not where the last one was scrolled to
 }
 function openPanel() {
   hooks.closeOthers();

@@ -725,7 +725,10 @@ function placePanels() {
   for (const id of ['p-lines', 'p-tugs', 'p-dmg', 'p-lock', 'p-coach']) {
     const el = $(id);
     el.style.bottom = `${innerHeight - D.LAY.trayTop + 8}px`;
-    el.style.maxHeight = `${Math.max(140, D.LAY.trayTop - D.LAY.chipsBottom - 16)}px`;
+    // a phone on its side has little room between the readouts and the controls: the guide's panel, which only
+    // grows as far as its content, may cover the readouts rather than hide its buttons
+    const short = id === 'p-coach' && innerHeight < 520;
+    el.style.maxHeight = `${Math.max(140, D.LAY.trayTop - (short ? 0 : D.LAY.chipsBottom) - 16)}px`;
   }
 }
 document.querySelectorAll<HTMLButtonElement>('[data-close]').forEach(b => (b.onclick = () => ($(b.dataset.close!).hidden = true)));
