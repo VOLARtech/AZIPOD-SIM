@@ -1,6 +1,7 @@
 // The situations a tip can wait for. A card names its rule by id (Card.tip.when); the rule reads the
 // context and answers whether the situation holds right now. The tracks add theirs as they are written.
 import { DEG, KN } from '../physics/consts';
+import { TUG_FADE } from '../physics/mooring';
 import { closingFast } from './align';
 import type { Ctx } from './context';
 
@@ -15,4 +16,8 @@ export const RULES: Record<string, Rule> = {
   'power-limited': c => c.powerLimited,
   /** An end of the hull is closing the quay faster than the guideline for its distance. */
   'closing-fast': c => c.quay.some(q => closingFast(c.spec, q)),
+  /** The assist tugs are being asked to work while she is going too fast for them to keep their grip. */
+  'tugs-too-fast': c => c.tugs.some(t => t.order !== 0) && Math.abs(c.u) > 0.65 * TUG_FADE,
+  /** An escorting tug is heeling toward the deck edge with the line still fast: the girting danger. */
+  'girting-risk': c => !!c.heel && !!c.tow && !c.tow.released && !c.tow.parted && c.tow.T > 0 && Math.abs(c.heel.phi) > 0.6 * c.heel.edge,
 };

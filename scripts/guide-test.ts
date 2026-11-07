@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { DEG, KN, SHIPS } from '../src/physics/ship';
 import { DT, Runtime } from '../src/physics/runtime';
+import { TUG_FADE, makeTugs, tugEff, updateTugs } from '../src/physics/mooring';
+import { deckEdge } from '../src/physics/roll';
 import { runValidation } from '../src/physics/validation';
 import { joyLimits } from '../src/physics/allocation';
 import { makeState, thrusterEff } from '../src/physics/sim';
@@ -17,7 +19,7 @@ import { Coach, MIN_SHOW } from '../src/guide/coach';
 import { guideCtx } from '../src/guide/context';
 import type { Ctx } from '../src/guide/context';
 import { RULES } from '../src/guide/rules';
-import { dockingStick, ghostFromStick, pivotPoint, podGhost } from '../src/guide/vectors';
+import { dockingStick, ghostFromStick, pivotPoint, podGhost, tugOrders } from '../src/guide/vectors';
 import type { Rule } from '../src/guide/rules';
 import { CONTENT } from '../src/guide/content';
 import { renderClaims } from '../src/guide/dossier';
@@ -165,7 +167,8 @@ console.log('content rules');
   catches('an id that is not lower-case words', { cards: [card({ id: 'Bad_Id' })] }, /lower-case/);
   catches('a ship outside the card\'s families', { cards: [card({ ships: ['kcs'] })] }, /is family "twostroke"/);
   catches('an unknown ship', { cards: [card({ ships: ['nope'] })] }, /unknown ship/);
-  catches('a family in another track', { cards: [card({ track: 'tugs' })] }, /not in the tugs track/);
+  catches('a family in another track', { cards: [card({ track: 'special' })] }, /not in the special track/);
+  test('a card in the tugs track may speak to any ship, since any ship can be given tugs', () => { assert.deepEqual(lint({ cards: [card({ track: 'tugs' })] }), []); });
   catches('a card that speaks to no ship', { cards: [card({ ships: [] })] }, /no ship/);
   catches('a card with nothing real and nothing about the model', { cards: [card({ real: [], sim: undefined })] }, /neither/);
   catches('a tip rule that does not exist', { cards: [card({ tip: { when: 'nope', hold: 1, cool: 1, prio: 2 } })] }, /does not exist/);
@@ -227,7 +230,7 @@ console.log('coach');
   });
   const ctx = (t: number, over: Partial<Ctx> = {}): Ctx => ({
     t, spec: sp, fam: 'pod', lever: 'twin', sog: 0, psi: 0, pos: { n: 0, e: 0 }, u: 0, v: 0, r: 0, bow: 0, stern: 0, wind: 0, ukc: Infinity,
-    units: [], revBlocked: [], powerLimited: false, berth: null, quay: [], ...over,
+    units: [], revBlocked: [], powerLimited: false, heel: null, tow: null, tugs: [], berth: null, quay: [], ...over,
   });
   const fast: Rule = c => c.sog > 1, slow: Rule = c => c.sog < 0.5;
   const on = { tips: true, seen: new Set<string>() };
@@ -359,7 +362,7 @@ console.log('azipod tips and the closing-speed guideline');
   const sp = SHIPS.spirit;
   const base = (over: Partial<Ctx> = {}): Ctx => ({
     t: 0, spec: sp, fam: 'pod', lever: 'twin', sog: 0, psi: 0, pos: { n: 0, e: 0 }, u: 0, v: 0, r: 0, bow: 0, stern: 0, wind: 0, ukc: Infinity,
-    units: [{ alpha: 0, rpm: 0, cmdAlpha: 0, cmdRpm: 0 }, { alpha: 0, rpm: 0, cmdAlpha: 0, cmdRpm: 0 }], revBlocked: [false, false], powerLimited: false,
+    units: [{ alpha: 0, rpm: 0, cmdAlpha: 0, cmdRpm: 0 }, { alpha: 0, rpm: 0, cmdAlpha: 0, cmdRpm: 0 }], revBlocked: [false, false], powerLimited: false, heel: null, tow: null, tugs: [],
     berth: null, quay: [], ...over,
   });
   test('the guideline is half the distance in cm/s, capped by the approach-speed limit and floored', () => {
@@ -403,7 +406,7 @@ console.log('docking suggestion and pivot point');
   const masses = { surge: h.M[0], sway: h.M[4], yaw: h.M[8] }, lim = joyLimits(sp, 1);
   const base = (over: Partial<Ctx> = {}): Ctx => ({
     t: 0, spec: sp, fam: 'pod', lever: 'indep', sog: 0, psi: 90 * DEG, pos: { n: 0, e: 0 }, u: 0, v: 0, r: 0, bow: 0, stern: 0, wind: 0, ukc: Infinity,
-    units: [], revBlocked: [], powerLimited: false, berth: { name: 'B', along: -30, off: 0, dpsi: 0, dist: 30 },
+    units: [], revBlocked: [], powerLimited: false, heel: null, tow: null, tugs: [], berth: { name: 'B', along: -30, off: 0, dpsi: 0, dist: 30 },
     quay: [{ d: 20, closing: 0.3, side: 1, x: 100 }, { d: 20, closing: 0.3, side: 1, x: -100 }], ...over,
   });
   const ends = (side: 1 | -1, bow: number, stern: number, d = 20) => [{ d, closing: bow, side, x: 100 }, { d, closing: stern, side, x: -100 }];
@@ -512,7 +515,7 @@ const PROOF_TESTS: Record<string, () => void> = {
   const cx = (over: Partial<Ctx> = {}): Ctx => ({
     t: 0, spec: sp, fam: 'pod', lever: 'indep', sog: 6, psi: 0, pos: { n: 0, e: 0 }, u: 6, v: 0, r: 0, bow: 0, stern: 0, wind: 0, ukc: Infinity,
     units: [{ alpha: 0, rpm: 0.5, cmdAlpha: 0, cmdRpm: 0.5 }, { alpha: 0, rpm: 0.5, cmdAlpha: 0, cmdRpm: 0.5 }],
-    revBlocked: [false, false], powerLimited: false, berth: null, quay: [], ...over,
+    revBlocked: [false, false], powerLimited: false, heel: null, tow: null, tugs: [], berth: null, quay: [], ...over,
   });
   const units = (alpha: number, rpm: number, cmdAlpha = alpha, cmdRpm = rpm) => [{ alpha, rpm, cmdAlpha, cmdRpm }, { alpha, rpm, cmdAlpha, cmdRpm }];
   const proc = CONTENT.procedures.find(p => p.id === 'pod-stop-turn-round')!;
@@ -610,6 +613,125 @@ const PROOF_TESTS: Record<string, () => void> = {
       const sc = SCENARIOS.find(x => x.id === e.scenario)!, ship = SHIPS[e.ship];
       assert.ok(fits(sc, ship.T, sc.berthFace ? berthFor(sc, ship.B, 0) : sc.berth, !!ship.towPoints, ship.station === 'dp'), `${e.id}: ${ship.name} in ${sc.name}`);
     }
+  });
+}
+
+console.log('tug cards: what the notes on the model say');
+{
+  test('tug-orders: the TUGS panel has TUG FWD and TUG AFT, each with a slider in quarters from full pull to full push', () => {
+    assert.deepEqual(makeTugs(260, -4, -1).map(t => t.name), ['TUG FWD', 'TUG AFT']);
+    assert.ok(/id="tg-\$\{i\}" min="-100" max="100" step="25"/.test(read('../src/main.ts')), 'the slider is not in quarters from −100 to 100');
+  });
+  test('tug-delay: a tug builds its pull in about twenty seconds and takes over a minute to swap from push to pull', () => {
+    const tugs = makeTugs(200, 0, -1, 600e3), t = tugs[0];
+    t.order = 1; let t90 = NaN, time = 0;
+    for (; time < 200; time += 0.05) { updateTugs(tugs, 0, 0.05); if (Number.isNaN(t90) && Math.abs(t.F) >= 0.9 * t.Fmax) t90 = time; }
+    assert.ok(t90 > 15 && t90 < 25, `90 % after ${t90.toFixed(1)} s`);
+    t.order = -1; let swap = NaN;                                      // pushing on the port side is a force to starboard; pulling reverses it
+    for (time = 0; time < 300; time += 0.05) { updateTugs(tugs, 0, 0.05); if (Number.isNaN(swap) && t.F < -1e3) swap = time; }
+    assert.ok(swap > 55 && swap < 90, `pull began after ${swap.toFixed(0)} s`);
+  });
+  test('tug-speed: a tug\'s pull falls away as the ship speeds up and is gone above about six knots', () => {
+    assert.equal(tugEff(0), 1);
+    assert.ok(Math.abs(tugEff(TUG_FADE / 2) - 0.75) < 1e-9);
+    assert.equal(tugEff(TUG_FADE * 1.01), 0);
+    assert.ok(Math.abs(TUG_FADE / KN - 6) < 1e-9);
+  });
+  test('tug-coanda: the tug models have no wash effect between a tug and a ship', () => {
+    for (const f of ['mooring', 'towline', 'escort']) assert.ok(!/coanda|wash/i.test(readFileSync(fileURLToPath(new URL(`../src/physics/${f}.ts`, import.meta.url)), 'utf8')), f);
+  });
+  test('tug-escort and tug-girting: the escort scenario is a tug on a line to a laden VLCC, the heel is tracked, and RELEASE lets the line go', () => {
+    const sc = SCENARIOS.find(x => x.id === 'escort')!, sp = SHIPS['asd-tug'];
+    assert.equal(sc.escort!.ship, 'kvlcc2'); assert.ok(sc.tugsOnly && sc.ship === 'asd-tug');
+    const rt = new Runtime(sp, makeState(sp, 0, 0, 0, sc.escort!.kn), { pods: sp.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0 }, calm, OPEN);
+    rt.attachEscort(sc.escort!, SHIPS.kvlcc2);
+    for (let i = 0; i < 20 * 60; i++) rt.step();
+    const c = guideCtx(rt);
+    assert.ok(c.heel && Math.abs(c.heel.edge - deckEdge(sp)) < 1e-12 && c.heel.edge > 0.2, 'heel is not tracked against the deck edge');
+    assert.ok(c.tow && c.tow.T > 1e4 && !c.tow.released, `line ${c.tow?.T}`);
+    rt.escort!.line.mode = 'released'; rt.step();
+    assert.equal(rt.escort!.line.T, 0);
+    assert.ok(guideCtx(rt).tow!.released);
+  });
+  test('tug-asd and tug-vsp: the ASD ships have azimuth drives and the Voith tractor has Voith Schneider units', () => {
+    assert.ok(SHIPS['asd-tug'].pods.every(p => p.kind === 'azimuth') && SHIPS['rotor-tug'].pods.every(p => p.kind === 'azimuth'));
+    assert.ok(SHIPS['vsp-tug'].pods.every(p => p.kind === 'vsp'));
+  });
+
+  const sp = SHIPS.spirit, rt0 = mkRt('spirit', 90, 0), h = rt0.model.h;
+  const masses = { surge: h.M[0], sway: h.M[4], yaw: h.M[8] };
+  const tugs = (side: 1 | -1, over: Partial<{ order: number; F: number }> = {}) => [
+    { name: 'TUG FWD', order: 0, F: 0, Fmax: 600e3, side, x: 0.36 * sp.L - sp.xg, ...over },
+    { name: 'TUG AFT', order: 0, F: 0, Fmax: 600e3, side, x: -0.36 * sp.L - sp.xg, ...over },
+  ];
+  const ctx = (over: Partial<Ctx> = {}): Ctx => ({
+    t: 0, spec: sp, fam: 'pod', lever: 'twin', sog: 0, psi: 90 * DEG, pos: { n: 0, e: 0 }, u: 0, v: 0, r: 0, bow: 0, stern: 0, wind: 0, ukc: Infinity,
+    units: [], revBlocked: [], powerLimited: false, heel: null, tow: null, tugs: tugs(-1), berth: { name: 'B', along: -30, off: 0, dpsi: 0, dist: 30 },
+    quay: [{ d: 20, closing: 0, side: 1, x: 100 }, { d: 20, closing: 0, side: 1, x: -100 }], ...over,
+  });
+
+  test('tug orders: tugs on the far side push the ship onto the quay when both ends are slow, and pull her off when too fast', () => {
+    const slow = tugOrders(ctx(), masses)!;                            // quay to starboard, tugs on the port side, nothing closing
+    assert.ok(slow.every(t => t.order > 0), JSON.stringify(slow));
+    const fast = tugOrders(ctx({ quay: [{ d: 20, closing: 0.3, side: 1, x: 100 }, { d: 20, closing: 0.3, side: 1, x: -100 }] }), masses)!;
+    assert.ok(fast.every(t => t.order < 0), JSON.stringify(fast));
+  });
+  test('tug orders: a tug on the quay side pulls where the other would push', () => {
+    const o = tugOrders(ctx({ tugs: tugs(1) }), masses)!;              // tugs on the starboard side, the quay too
+    assert.ok(o.every(t => t.order < 0), JSON.stringify(o));
+  });
+  test('tug orders: the bow closing faster than the stern is answered by more push at the bow end', () => {
+    const o = tugOrders(ctx({ quay: [{ d: 20, closing: 0.3, side: 1, x: 100 }, { d: 20, closing: 0.0, side: 1, x: -100 }] }), masses)!;
+    assert.ok(o[0].F < o[1].F, `fwd ${o[0].F} aft ${o[1].F}`);          // the forward tug pulls the bow off harder than the aft tug does
+  });
+  test('tug orders: the two forces make the sway force and the yaw moment asked for, and the orders are in quarters', () => {
+    const c = ctx({ quay: [{ d: 25, closing: 0.0, side: 1, x: 100 }, { d: 18, closing: 0.0, side: 1, x: -100 }] });
+    const o = tugOrders(c, masses)!, [a, b] = c.tugs;
+    for (const t of o) assert.ok(Math.abs(t.order * 4 - Math.round(t.order * 4)) < 1e-9 && Math.abs(t.order) <= 1);
+    if (!o[0].cut) {
+      const Y = o[0].F + o[1].F, N = a.x * o[0].F + b.x * o[1].F;
+      assert.ok(Math.abs(Y) > 1e3 && Math.abs(N) > 1e3, 'a demand was expected');
+    }
+  });
+  test('tug orders: none without a berth, without exactly two tugs, or when she is too fast for them to grip', () => {
+    assert.equal(tugOrders(ctx({ berth: null }), masses), null);
+    assert.equal(tugOrders(ctx({ tugs: [] }), masses), null);
+    assert.equal(tugOrders(ctx({ tugs: tugs(-1).slice(0, 1) }), masses), null);
+    assert.equal(tugOrders(ctx({ u: 7 * KN }), masses), null);
+  });
+  test('tug orders are cut together when a tug has too little to give, keeping the balance between them', () => {
+    const weak = tugs(-1).map(t => ({ ...t, Fmax: 20e3 }));
+    const o = tugOrders(ctx({ tugs: weak, quay: [{ d: 20, closing: 0.3, side: 1, x: 100 }, { d: 20, closing: 0.3, side: 1, x: -100 }] }), masses)!;
+    assert.ok(o.every(t => t.cut) && o.every(t => Math.abs(t.order) <= 1));
+    assert.ok(o.some(t => Math.abs(t.order) === 1), 'the stronger demand should reach full');
+  });
+  test('the tug tips: working at speed, and heeling toward the deck edge with the line fast', () => {
+    assert.ok(RULES['tugs-too-fast'](ctx({ u: 5 * KN, tugs: tugs(-1, { order: 0.5 }) })));
+    assert.ok(!RULES['tugs-too-fast'](ctx({ u: 5 * KN })), 'no order given');
+    assert.ok(!RULES['tugs-too-fast'](ctx({ u: 2 * KN, tugs: tugs(-1, { order: 0.5 }) })));
+    const edge = 0.3, tow = { T: 3e5, mbl: 1e6, released: false, parted: false, dev: 0 };
+    assert.ok(RULES['girting-risk'](ctx({ heel: { phi: 0.2, edge }, tow })));
+    assert.ok(RULES['girting-risk'](ctx({ heel: { phi: -0.2, edge }, tow })), 'either way');
+    assert.ok(!RULES['girting-risk'](ctx({ heel: { phi: 0.1, edge }, tow })), 'not far enough over');
+    assert.ok(!RULES['girting-risk'](ctx({ heel: { phi: 0.2, edge }, tow: { ...tow, released: true } })), 'the line is already away');
+    assert.ok(!RULES['girting-risk'](ctx({ heel: null, tow: null })));
+  });
+  test('the tug exercises\' metrics read the heel, the line, the release and the swing', () => {
+    const tow = (T: number, over = {}) => ({ T, mbl: 1e6, released: false, parted: false, dev: 0, ...over });
+    const c = (heel: number, t: ReturnType<typeof tow>) => ctx({ heel: { phi: heel, edge: 0.3 }, tow: t });
+    const run = (id: string, cs: Ctx[]) => { const a = METRICS[id](cs[0]); for (const x of cs) a.update(x, { contactLog: [] } as unknown as Runtime, 1); return a.row(cs[0]).you; };
+    assert.equal(run('heel', [c(0.05, tow(1e5)), c(-0.15, tow(2e5)), c(0.1, tow(1e5))]), '9° (deck edge at 17°)');
+    assert.equal(run('tension', [c(0, tow(1e5)), c(0, tow(4e5))]), `${(4e5 / 9.81e3).toFixed(0)} t (40 % of its breaking load)`);
+    assert.equal(run('released', [c(0, tow(1e5)), c(0, tow(0, { released: true }))]), 'yes');
+    assert.equal(run('released', [c(0, tow(1e5))]), 'no');
+    assert.equal(run('swing', [c(0, tow(1e5, { dev: 0.1 })), c(0, tow(1e5, { dev: -0.2 }))]), '11° off her course');
+    assert.equal(run('tugspeed', [ctx({ u: 3 * KN, tugs: tugs(-1, { F: 5e4 }) }), ctx({ u: 1 * KN, tugs: tugs(-1, { F: 5e4 }) }), ctx({ u: 5 * KN, tugs: tugs(-1) })]), '3.0 kn');
+  });
+  test('a timed exercise runs for its time and ends without calling it a time-out', () => {
+    const ex = CONTENT.exercises.find(e => e.id === 'ex-tug-escort')!;
+    const run = new ExRun({ ...ex, limit: 20 }, ctx({ t: 0 }));
+    for (let t = 0; t < 40; t += 0.5) run.update(ctx({ t }), { contactLog: [] } as unknown as Runtime);
+    assert.ok(run.finished && !run.timedOut);
   });
 }
 

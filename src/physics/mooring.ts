@@ -152,8 +152,11 @@ export function makeTugs(L: number, xg: number, side: -1 | 1, Fmax = 400e3): Tug
 /** A tug is on the scene only while called: given an order, still pushing or pulling, or repositioning. */
 export const tugEngaged = (t: Tug) => t.order !== 0 || Math.abs(t.F) > 1e3 || t.repos > 0;
 /** Tug response: ~20 s to change power, ~60 s to switch between pushing and pulling. */
+/** The ship speed at which a tug has no grip left, and the share of its bollard pull it keeps at a given speed. */
+export const TUG_FADE = 6 * KN;
+export const tugEff = (u: number) => Math.max(0, 1 - (u / TUG_FADE) ** 2);
 export function updateTugs(tugs: Tug[], u: number, dt: number) {
-  const eff = Math.max(0, 1 - (u / (6 * KN)) ** 2);
+  const eff = tugEff(u);
   for (const t of tugs) {
     // + order pushes the ship away from the tug's side
     const target = -t.side * t.order * t.Fmax * eff;

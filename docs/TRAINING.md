@@ -57,14 +57,14 @@ much of it has been read against the claims that cite it; it is updated as the c
 | `pianc-wg33` | PIANC (2002), WG33 fender guidelines | standard | berthing energy and velocities | not yet cited |
 | `pianc-wg211` | *Recommendations for Berthing Velocity in PIANC WG 211* | paper | later review of berthing speeds | not yet cited |
 | `ishihata-1988` | Ishihata (1988), actual berthing speed of VLCCs | paper | closing speed in cm/s about half the distance to the berth in m | abstract only |
-| `ral-escort` | Robert Allan Ltd (2025), *Escort Towage* | guidance | indirect and direct escort modes | not yet cited |
-| `artyszuk-2014` | Artyszuk (2014), generic ASD tug in escort operation, TransNav 8(3) | paper | tug performance in escort pull | not yet cited |
-| `ishikura-2013` | Ishikura et al. (2013), global standard manoeuvring orders for tugboats, TransNav 7(4) | paper | standard tug orders | not yet cited |
-| `flinders-tug-orders` | Flinders Ports Holdings, *Tug orders* | guidance | tug order phrasing | not yet cited |
-| `mhpa-towage-2021` | Milford Haven Port Authority (2021), *Towage guidelines* | guidance | tug practice, speeds, positions | not yet cited |
-| `maib-ijsselstroom` | MAIB report, girting and capsize of tug *IJsselstroom* | incident | the girting hazard | not yet cited |
-| `mgn468-annex2` | MCA, MGN 468 (M) Amendment 1, Annex 2 | standard | competence standards for ship-assist towage | not yet cited |
-| `jurgens-voith` | Jürgens and Palm, *Voith Water Tractor* | paper | Voith Schneider tractor principle | not yet cited |
+| `ral-escort` | Robert Allan Ltd (2025), *Escort Towage* | guidance | indirect and direct escort modes | full article read (Nov 2026) |
+| `artyszuk-2014` | Artyszuk (2014), generic ASD tug in escort operation, TransNav 8(3) | paper | tug performance in escort pull | abstract, introduction and conclusions read (Nov 2026); an analytical model, not validated against real hulls |
+| `ishikura-2013` | Ishikura et al. (2013), global standard manoeuvring orders for tugboats, TransNav 7(4) | paper | standard tug orders | full text read (Nov 2026) |
+| `flinders-tug-orders` | Flinders Ports Holdings, *Tug orders* | guidance | tug order phrasing | full page read (Nov 2026) |
+| `mhpa-towage-2021` | Milford Haven Port Authority (2021), *Towage guidelines* | guidance | tug practice, speeds, positions | introduction, girting, Coanda, safe speed, orders and escort sections read (Nov 2026) |
+| `maib-ijsselstroom` | MAIB report, girting and capsize of tug *IJsselstroom* | incident | the girting hazard | summary page read (Nov 2026); the full report is not read |
+| `mgn468-annex2` | MCA, MGN 468 (M) Amendment 1, Annex 2 | standard | competence standards for ship-assist towage | Annex 2 page read (Nov 2026) |
+| `jurgens-voith` | Jürgens and Palm, *Voith Water Tractor* | paper | Voith Schneider tractor principle | first part read: the tractor, the unit and the operating modes (Nov 2026) |
 | `hamiltonjet-hj` | HamiltonJet (2014), HJ Series brochure | manual | waterjet steering and reversing | not yet cited |
 | `man-reversing` | MAN B&W reversing (marinediesels.info) | web | direct-reversing two-stroke engines | not yet cited |
 | `marinesite-crash` | Crash manoeuvring, crash stop of the main engine (marinesite.info) | web | crash astern sequence | not yet cited |

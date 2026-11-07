@@ -38,7 +38,7 @@ export function renderClaims(c: Content, sources: Source[]): string {
       o.push('');
     }
     for (const e of exs) {
-      o.push(`### \`${e.id}\` · ${e.title} · exercise · ${e.review}`, '', `${e.ship} in \`${e.scenario}\`${e.kn ? ` at ${e.kn} kn` : ''} · measured from ${e.begin === 'order' ? 'the first order' : 'the start'} until she has ${e.end}, at most ${e.limit} s`, '', `- **Brief:** ${e.brief}`, ...e.objectives.map(x => `  - ${x}`), `- **Debrief:** ${e.metrics.join(', ')}`);
+      o.push(`### \`${e.id}\` · ${e.title} · exercise · ${e.review}`, '', `${e.ship} in \`${e.scenario}\`${e.kn ? ` at ${e.kn} kn` : ''} · measured from ${e.begin === 'order' ? 'the first order' : 'the start'} ${e.end === 'time' ? `for ${e.limit} s` : `until she has ${e.end}, at most ${e.limit} s`}`, '', `- **Brief:** ${e.brief}`, ...e.objectives.map(x => `  - ${x}`), `- **Debrief:** ${e.metrics.join(', ')}`);
       if (e.real.length) o.push('- **Real world:**', ...e.real.map(claim));
       o.push('');
     }

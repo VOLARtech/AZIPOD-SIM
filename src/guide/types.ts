@@ -98,9 +98,9 @@ export interface Exercise {
   kn?: number;
   env?: { windKn?: number; windFrom?: number; curKn?: number; curSet?: number };
   objectives: string[];
-  /** Measuring starts with the exercise, or with the first order the player gives; the run ends when she has stopped or has landed. */
+  /** Measuring starts with the exercise, or with the first order the player gives; the run ends when she has stopped, has landed or the time is up. */
   begin: 'start' | 'order';
-  end: 'stopped' | 'landed';
+  end: 'stopped' | 'landed' | 'time';
   /** Give up after this many simulated seconds. */
   limit: number;
   /** Ids of the debrief metrics (exercises.ts). */

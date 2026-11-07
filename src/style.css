@@ -687,3 +687,6 @@ details.sec[open] { display: flex; flex-direction: column; gap: 10px; padding-bo
 .coach-row2 .k { font-size: 13px; }
 .coach-row2 b { font-family: var(--font-num); font-weight: 500; font-size: 14px; }
 .coach-row2 .ref { grid-column: 1 / -1; font-size: 11.5px; color: var(--muted); line-height: 1.3; }
+
+.tugsug { font-family: var(--font-label); font-weight: 600; font-size: 12px; letter-spacing: 0.06em; color: var(--guide); padding: 0 0 4px; }
+.tugrow .btslide { --th: 26px; }

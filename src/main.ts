@@ -708,9 +708,10 @@ function buildTugs() {
   $('tug-head').textContent = `TUGS · ${Math.round((S.rt.tugs[0]?.Fmax ?? 0) / 9.81e3)} t BOLLARD PULL`;
   box.innerHTML = S.rt.tugs.map((t, i) => `
     <div class="tugrow"><span class="tag">${t.name}</span>
-      <input type="range" id="tg-${i}" min="-100" max="100" step="25" value="0" aria-label="${t.name} order: pull to push" />
+      <span class="btslide"><input type="range" id="tg-${i}" min="-100" max="100" step="25" value="0" aria-label="${t.name} order: pull to push" /><i class="btghost" id="tgg-${i}" hidden></i></span>
       <span class="t" id="tt-${i}">idle</span></div>
-    <div class="btscale"><span></span><span>PULL ← · → PUSH (${t.side > 0 ? 'toward port' : 'toward stbd'})</span><span></span></div>`).join('');
+    <div class="btscale"><span></span><span>PULL ← · → PUSH (${t.side > 0 ? 'toward port' : 'toward stbd'})</span><span></span></div>
+    <div class="tugsug" id="tgs-${i}" hidden></div>`).join('');
   S.rt.tugs.forEach((t, i) => { ($('tg-' + i) as HTMLInputElement).oninput = e => (t.order = +(e.target as HTMLInputElement).value / 100); });
 }
 function updateTugsPanel() {

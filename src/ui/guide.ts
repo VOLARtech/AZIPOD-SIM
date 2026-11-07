@@ -17,7 +17,7 @@ import { Runner } from '../guide/procedures';
 import { RULES } from '../guide/rules';
 import { SRC } from '../guide/sources';
 import { fill } from '../guide/tokens';
-import { dockingStick, ghostFromStick } from '../guide/vectors';
+import { dockingStick, ghostFromStick, tugOrders } from '../guide/vectors';
 import type { Card, Claim, Conf, Exercise, Fam, Level, Procedure, Row } from '../guide/types';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -216,8 +216,8 @@ export function renderReference() {
 export function syncGuide() {
   const g = S.guide;
   $('b-coach').hidden = !g.on;
-  if (!g.on) { if (panelOpen()) closePanel(); view = 'none'; session = null; coach.dismiss(); S.guide.ghost = null; haveStick = false; needIndep = false; }
-  showBtGhost();
+  if (!g.on) { if (panelOpen()) closePanel(); view = 'none'; session = null; coach.dismiss(); S.guide.ghost = null; S.guide.tugs = null; haveStick = false; needIndep = false; }
+  showBtGhost(); showTugGhost();
   syncMenu();
   renderReference();
 }
@@ -246,8 +246,25 @@ function updateGhost(dt: number, c: Ctx) {
       g.ghost = ghostFromStick(rt.spec, st, stickS, btEff);
     }
   }
+  // the two assist tugs: what the docking rule would order
+  const h = rt.model.h;
+  g.tugs = g.vectors && rt.tugs.length === 2 ? tugOrders(c, { surge: h.M[0], sway: h.M[4], yaw: h.M[8] }) : null;
   showBtGhost();
+  showTugGhost();
   if (needIndep !== was && view === 'idle' && panelOpen()) render(true);
+}
+const POWER: Record<number, string> = { 0.25: 'QUARTER', 0.5: 'HALF', 0.75: 'THREE QUARTERS', 1: 'FULL' };
+/** The suggested tug orders as outlines on the TUGS sliders and a line in the standard words under each. */
+function showTugGhost() {
+  const tg = S.guide.vectors ? S.guide.tugs : null;
+  S.rt?.tugs.forEach((_, i) => {
+    const el = document.getElementById('tgg-' + i), tx = document.getElementById('tgs-' + i), o = tg?.[i];
+    if (!el || !tx) return;
+    el.hidden = tx.hidden = !o;
+    if (!o) return;
+    el.style.setProperty('--g', String((o.order + 1) / 2));
+    tx.textContent = `Suggested: ${o.order === 0 ? 'STOP' : `${o.order > 0 ? 'PUSH' : 'PULL'} ${POWER[Math.abs(o.order)]}`}${o.cut ? ' (all she can give)' : ''}`;
+  });
 }
 function showBtGhost() {
   const el = $('bt-ghost'), b = S.guide.vectors ? S.guide.ghost?.bt : undefined;
@@ -294,7 +311,7 @@ export function initGuide(h: typeof hooks) {
   };
   ($('g-tips') as HTMLInputElement).onchange = e => { g.tips = (e.target as HTMLInputElement).checked; if (!g.tips) { coach.dismiss(); if (view === 'tip') { view = 'none'; closePanel(); } } syncMenu(); };
   ($('g-steps') as HTMLInputElement).onchange = e => { g.steps = (e.target as HTMLInputElement).checked; if (!g.steps && session) { endSession(); render(true); } syncMenu(); };
-  ($('g-vec') as HTMLInputElement).onchange = e => { g.vectors = (e.target as HTMLInputElement).checked; if (!g.vectors) { g.ghost = null; haveStick = false; needIndep = false; } showBtGhost(); syncMenu(); };
+  ($('g-vec') as HTMLInputElement).onchange = e => { g.vectors = (e.target as HTMLInputElement).checked; if (!g.vectors) { g.ghost = null; g.tugs = null; haveStick = false; needIndep = false; } showBtGhost(); showTugGhost(); syncMenu(); };
   $('seg-glevel').querySelectorAll('button').forEach(b => ((b as HTMLButtonElement).onclick = () => { g.level = b.dataset.v as Level; syncMenu(); if (panelOpen()) render(true); }));
   $('g-forget').onclick = () => { g.seen.clear(); coach.reset(); syncMenu(); toast('Every tip can show again.'); };
   $('p-coach').addEventListener('click', e => { const a = (e.target as HTMLElement).closest('button')?.dataset.a; if (a) onButton(a); });      // the buttons in the list and the row below it

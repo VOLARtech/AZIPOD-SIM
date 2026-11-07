@@ -39,6 +39,8 @@ export const S = {
     seen: new Set<string>(),
     /** Suggested control settings, drawn as faint outlines on the dials and levers while VECTORS is on. */
     ghost: null as Ghost | null,
+    /** Suggested orders for the two assist tugs while VECTORS is on, from the docking rule. */
+    tugs: null as null | { name: string; order: number; cut: boolean }[],
   },
   /** The berth to make for: picked in the menu (per scenario), and the CG pose it gives the ship in use. */
   berth: {

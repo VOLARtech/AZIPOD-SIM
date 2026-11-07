@@ -6,6 +6,7 @@ import { DEG, KN } from '../physics/consts';
 import type { Runtime } from '../physics/runtime';
 import { wrapAngle } from '../physics/ship';
 import { PUBLISHED } from '../physics/validation';
+import { TUG_FADE } from '../physics/mooring';
 import { guideSpeed } from './align';
 import type { Ctx } from './context';
 import type { Exercise, Row } from './types';
@@ -92,6 +93,50 @@ export const METRICS: Record<string, (c0: Ctx) => Acc> = {
   },
 };
 
+/** Metrics for the tug track. */
+Object.assign(METRICS, {
+  /** The worst heel, against the angle at which the deck edge goes under. */
+  heel: () => {
+    let worst = 0, edge = NaN;
+    return {
+      update: (c: Ctx) => { if (c.heel) { worst = Math.max(worst, Math.abs(c.heel.phi)); edge = c.heel.edge; } },
+      row: (): Row => ({ label: 'Peak heel', you: `${(worst / DEG).toFixed(0)}° (deck edge at ${(edge / DEG).toFixed(0)}°)`, ref: 'every escort tug has a maximum allowable heel angle in its stability book (Robert Allan)' }),
+    };
+  },
+  /** The worst tension in the towline, against its breaking load. */
+  tension: () => {
+    let worst = 0, mbl = NaN;
+    return {
+      update: (c: Ctx) => { if (c.tow) { worst = Math.max(worst, c.tow.T); mbl = c.tow.mbl; } },
+      row: (): Row => ({ label: 'Peak line tension', you: `${(worst / 9.81e3).toFixed(0)} t (${(100 * worst / mbl).toFixed(0)} % of its breaking load)`, ref: 'a line at up to 45° to the ship can put 140 % of the bollard pull on the deck fitting (Robert Allan)' }),
+    };
+  },
+  /** Whether the line was let go. */
+  released: () => {
+    let gone = false;
+    return {
+      update: (c: Ctx) => { if (c.tow?.released || c.tow?.parted) gone = true; },
+      row: (): Row => ({ label: 'Line let go', you: gone ? 'yes' : 'no', ref: 'where girting is suspected or about to happen the towline must be released immediately (Milford Haven)' }),
+    };
+  },
+  /** How far the escorted ship's heading strayed from her course. */
+  swing: () => {
+    let worst = 0;
+    return {
+      update: (c: Ctx) => { if (c.tow) worst = Math.max(worst, Math.abs(c.tow.dev)); },
+      row: (): Row => ({ label: 'Escorted ship\'s swing', you: `${(worst / DEG).toFixed(0)}° off her course` }),
+    };
+  },
+  /** The fastest the ship went while any assist tug was working. */
+  tugspeed: () => {
+    let worst = 0;
+    return {
+      update: (c: Ctx) => { if (c.tugs.some(t => Math.abs(t.F) > 1e3)) worst = Math.max(worst, Math.abs(c.u)); },
+      row: (): Row => ({ label: 'Fastest with a tug working', you: `${(worst / KN).toFixed(1)} kn`, ref: `5 to 8 kn is accepted for making fast (Milford Haven); the tugs in this model have no grip at ${(TUG_FADE / KN).toFixed(0)} kn` }),
+    };
+  },
+});
+
 /** A run of an exercise: measures from the start or the first order, and says when it is over. */
 export class ExRun {
   started: boolean;
@@ -132,6 +177,7 @@ export class ExRun {
       if (Number.isNaN(this.landedAt) && rt.contactLog.some(e => e.t >= this.t0)) this.landedAt = c.t;
       if (!Number.isNaN(this.landedAt) && c.t - this.landedAt > 8) this.finished = true;      // let her settle on the fenders
     }
+    if (this.ex.end === 'time' && t >= this.ex.limit) this.finished = true;
     if (!this.finished && t > this.ex.limit) { this.finished = true; this.timedOut = true; }
   }
 

@@ -2,6 +2,7 @@
 // the propulsion units as the dials show them, and where she is against the berth being made for.
 // Pure: built from a Runtime, so the tests read it headless and the guide never knows more than the bridge.
 import { DEG } from '../physics/consts';
+import { deckEdge } from '../physics/roll';
 import { wrapAngle } from '../physics/ship';
 import type { ShipSpec } from '../physics/ship';
 import type { LeverMode, Runtime } from '../physics/runtime';
@@ -44,6 +45,12 @@ export interface Ctx {
   /** Against the berth being made for: metres past it (+) or short (−), off its line (+ to starboard), heading error [rad], range [m]. */
   berth: null | { name: string; id?: string; along: number; off: number; dpsi: number; dist: number };
   quay: QuayRead[];
+  /** Heel [rad] and the deck-edge immersion angle [rad], for ships that have roll data. */
+  heel: null | { phi: number; edge: number };
+  /** The line of an escorting tug: tension and breaking load [N], whether it is let go or has parted, and the escorted ship's heading error [rad]. */
+  tow: null | { T: number; mbl: number; released: boolean; parted: boolean; dev: number };
+  /** The assist tugs on call: order (−1 pull … +1 push), force across the beam [N, + to starboard], bollard pull [N], the side they work on, and where they are made fast (m ahead of the CG). */
+  tugs: { name: string; order: number; F: number; Fmax: number; side: 1 | -1; x: number }[];
 }
 
 export function guideCtx(rt: Runtime, berth: BerthTarget | null = null, quay: QuayPoint[] = []): Ctx {
@@ -70,6 +77,9 @@ export function guideCtx(rt: Runtime, berth: BerthTarget | null = null, quay: Qu
     revBlocked: rt.status.revBlocked.slice(),
     powerLimited: rt.status.rpmLimit.some((l, i) => l < 0.999 && !rt.status.split[i]),
     berth: b,
+    heel: rt.roll ? { phi: rt.roll.phi, edge: deckEdge(spec) } : null,
+    tow: rt.escort ? { T: rt.escort.line.T, mbl: rt.escort.line.MBL, released: rt.escort.line.mode === 'released', parted: rt.escort.line.parted, dev: wrapAngle(rt.escort.st.psi - rt.escort.ordered) } : null,
+    tugs: rt.tugs.map(t => ({ name: t.name, order: t.order, F: t.F, Fmax: t.Fmax, side: t.side, x: t.x })),
     quay: quay.map(q => {
       const fin = Number.isFinite(q.d), c = Math.cos(est.psi), s = Math.sin(est.psi);
       return {
