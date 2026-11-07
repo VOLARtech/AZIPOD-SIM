@@ -23,6 +23,8 @@ export type Review = 'draft' | 'reviewed';
 export type SourceKind = 'standard' | 'paper' | 'manual' | 'guidance' | 'incident' | 'textbook' | 'web';
 export interface Source {
   id: string;
+  /** Short name for the chip beside a claim, e.g. "Nowicki 2014". */
+  short: string;
   /** Citation as shown in the Reference list. */
   cite: string;
   url?: string;
@@ -99,6 +101,14 @@ export interface Exercise {
 }
 
 export interface Content { cards: Card[]; procedures: Procedure[]; exercises: Exercise[] }
+
+/** Suggested settings for the controls, drawn as faint outlines the player can drag the real control onto. */
+export interface Ghost {
+  /** Per unit: the azimuth [rad] and rpm (−1..1) worth setting. */
+  units?: { alpha?: number; rpm?: number }[];
+  /** Bow thruster, −1..1. */
+  bt?: number;
+}
 
 export const FAMS: readonly Fam[] = ['pod', 'asd', 'vsp', 'rotor', 'twostroke', 'cpp', 'jet', 'dp'];
 export const TRACKS: readonly Track[] = ['azipod', 'tugs', 'special'];

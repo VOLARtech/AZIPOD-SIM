@@ -642,3 +642,25 @@ details.sec[open] { display: flex; flex-direction: column; gap: 10px; padding-bo
 .gate-card .credit { font-size: 13px; color: var(--muted); }
 .gate-card .credit a, .credits a { color: var(--own, #f0a030); text-decoration: none; font-weight: 600; white-space: nowrap; }
 .gate-card .credit a:hover, .credits a:hover { text-decoration: underline; }
+
+/* ---------- training guide ---------- */
+#p-coach { gap: 4px; }
+.coach-title { margin: 0; font-family: var(--font-label); font-weight: 600; font-size: 15px; letter-spacing: 0.04em; }
+.coach-brief { margin: 0; font-size: 14px; line-height: 1.4; }
+.coach-more { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; line-height: 1.4; }
+.coach-more p { margin: 0; }
+.coach-more h4 { margin: 4px 0 0; font-family: var(--font-label); font-weight: 600; font-size: 11px; letter-spacing: 0.08em; color: var(--muted); text-transform: uppercase; }
+.coach-more ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.coach-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.coach-btns .cb { height: 32px; padding: 0 12px; font-size: 12px; }
+.gc { display: inline-block; margin-right: 5px; padding: 0 4px; border: 1px solid var(--rule); border-radius: 3px; vertical-align: 1px;
+  font-family: var(--font-label); font-weight: 600; font-size: 10px; letter-spacing: 0.06em; color: var(--ink); white-space: nowrap; cursor: help; }
+.gc.rule { color: var(--muted); }
+.gc.derived { color: var(--predict); border-color: var(--predict); }
+.gc.draft { margin: 0 0 0 6px; color: var(--muted); border-style: dashed; }
+.gsrc, .gsrc a { color: var(--muted); font-size: 11.5px; }
+.gsrc a { text-decoration: underline; text-underline-offset: 2px; }
+.gref-h { margin: 8px 0 2px; font-family: var(--font-label); font-weight: 600; font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase; }
+.gref-list details { border-top: 1px solid var(--rule); padding: 6px 0; }
+.gref-list summary { cursor: pointer; font-family: var(--font-label); font-weight: 600; font-size: 14px; letter-spacing: 0.03em; }
+.gref-list details > .coach-brief, .gref-list details > .coach-more { margin-top: 4px; }

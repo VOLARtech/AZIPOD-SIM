@@ -2,8 +2,16 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { SHIPS } from '../src/physics/ship';
+import { DEG, KN, SHIPS } from '../src/physics/ship';
+import { Runtime } from '../src/physics/runtime';
+import { makeState } from '../src/physics/sim';
+import type { Env } from '../src/physics/sim';
 import { SCENARIOS } from '../src/scenarios';
+import { Coach, MIN_SHOW } from '../src/guide/coach';
+import { guideCtx } from '../src/guide/context';
+import type { Ctx } from '../src/guide/context';
+import { RULES } from '../src/guide/rules';
+import type { Rule } from '../src/guide/rules';
 import { CONTENT } from '../src/guide/content';
 import { renderClaims } from '../src/guide/dossier';
 import { appliesTo, familyOf, trackOf } from '../src/guide/families';
@@ -12,7 +20,7 @@ import type { LintEnv } from '../src/guide/lint';
 import { SOURCES, SRC } from '../src/guide/sources';
 import { fill, isToken, stripTokens, tokensIn } from '../src/guide/tokens';
 import { FAMS } from '../src/guide/types';
-import type { Card, Content, Exercise, Procedure } from '../src/guide/types';
+import type { Card, Content, Exercise, Procedure, TipRule } from '../src/guide/types';
 
 let pass = 0;
 const test = (name: string, fn: () => void) => {
@@ -22,7 +30,7 @@ const test = (name: string, fn: () => void) => {
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
 
 /** The registries the real content is checked against. Later steps add the rules, checks, proofs and metrics. */
-const realEnv = (): LintEnv => ({ sources: SRC, ships: SHIPS, scenarios: SCENARIOS, rules: new Set(), checks: new Set(), proofs: new Set(), metrics: new Set() });
+const realEnv = (): LintEnv => ({ sources: SRC, ships: SHIPS, scenarios: SCENARIOS, rules: new Set(Object.keys(RULES)), checks: new Set(), proofs: new Set(), metrics: new Set() });
 /** A small registry for the fixtures below. */
 const fxEnv = (): LintEnv => ({ ...realEnv(), rules: new Set(['x']), checks: new Set(['c']), proofs: new Set(['p']), metrics: new Set(['m']) });
 
@@ -35,6 +43,7 @@ console.log('sources');
       assert.ok(!ids.has(s.id), `duplicate ${s.id}`);
       ids.add(s.id);
       assert.ok(s.cite.length > 20, `${s.id}: citation too short`);
+      assert.ok(s.short.length >= 4 && s.short.length <= 30, `${s.id}: short name "${s.short}"`);
       assert.ok(['standard', 'paper', 'manual', 'guidance', 'incident', 'textbook', 'web'].includes(s.kind), s.id);
       if (s.url) assert.ok(s.url.startsWith('https://'), `${s.id}: ${s.url}`);
     }
@@ -162,6 +171,123 @@ console.log('content rules');
   test('lint reads the filled-in length for each ship it speaks to', () => {
     const long = card({ brief: 'x'.repeat(CAP.brief - 1) + '{L}', ships: undefined });
     assert.ok(lint({ cards: [long] }).some(m => /characters for/.test(m)));
+  });
+}
+
+console.log('context');
+const calm: Env = { windSpeed: 0, windFrom: 0, gusts: false, current: () => [0, 0], depth: Infinity };
+const OPEN = { obstacles: [], fenders: [], bollards: [], depthAt: () => Infinity };
+const mkRt = (id: string, psiDeg: number, uKn: number) => {
+  const spec = SHIPS[id];
+  return new Runtime(spec, makeState(spec, 0, 0, psiDeg, uKn), { pods: spec.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0 }, calm, OPEN);
+};
+{
+  test('the context reads the bridge sensors and the dials', () => {
+    const rt = mkRt('spirit', 90, 5), c = guideCtx(rt);
+    assert.equal(c.fam, 'pod');
+    assert.ok(Math.abs(c.sog - 5 * KN) < 0.2 && Math.abs(c.u - 5 * KN) < 0.2, `sog ${c.sog / KN}`);
+    assert.ok(Math.abs(c.bow) < 0.2 && Math.abs(c.stern) < 0.2);
+    assert.equal(c.units.length, 2);
+    assert.equal(c.berth, null);
+    assert.deepEqual(c.revBlocked, [false, false]);
+  });
+  test('the berth is read as metres short or past, off the line and the heading error', () => {
+    const rt = mkRt('spirit', 90, 0);
+    let b = guideCtx(rt, { n: 0, e: 100, psi: 90, name: 'B' }).berth!;
+    assert.ok(Math.abs(b.along + 100) < 3 && Math.abs(b.off) < 3 && Math.abs(b.dpsi) < 0.05, JSON.stringify(b));
+    b = guideCtx(rt, { n: 10, e: 100, psi: 90, name: 'B' }).berth!;
+    assert.ok(Math.abs(b.off - 10) < 3, `off ${b.off}`);            // she lies to starboard of the line (south of it, heading east)
+    b = guideCtx(rt, { n: 0, e: -50, psi: 90, name: 'B' }).berth!;
+    assert.ok(b.along > 45 && b.along < 55, `past ${b.along}`);
+    b = guideCtx(rt, { n: 0, e: 100, psi: 100, name: 'B' }).berth!;
+    assert.ok(Math.abs(b.dpsi + 10 * DEG) < 0.05, `dpsi ${b.dpsi}`);
+  });
+  test('FWD and AFT sideways speeds follow the yaw rate about the CG', () => {
+    const rt = mkRt('spirit', 0, 0);
+    rt.state.r = 0.01;
+    for (let i = 0; i < 200; i++) rt.sensors.step(rt.state, 0.05, [0, 0], { V: 0, from: 0 });      // let the rate gyro settle
+    const c = guideCtx(rt);
+    assert.ok(c.bow > 0 && c.stern < 0, `${c.bow} ${c.stern}`);        // bow swings to starboard, stern to port
+  });
+}
+
+console.log('coach');
+{
+  const sp = SHIPS.spirit;
+  const tip = (id: string, when: string, o: Partial<TipRule> = {}, over: Partial<Card> = {}): Card => ({
+    id, track: 'azipod', fam: ['pod'], title: id, brief: 'b', real: [], sim: 's', review: 'draft',
+    tip: { when, hold: 2, cool: 60, prio: 2, ...o }, ...over,
+  });
+  const ctx = (t: number, over: Partial<Ctx> = {}): Ctx => ({
+    t, spec: sp, fam: 'pod', lever: 'twin', sog: 0, u: 0, v: 0, r: 0, bow: 0, stern: 0, wind: 0, ukc: Infinity,
+    units: [], revBlocked: [], berth: null, quay: [], ...over,
+  });
+  const fast: Rule = c => c.sog > 1, slow: Rule = c => c.sog < 0.5;
+  const on = { tips: true, seen: new Set<string>() };
+
+  test('a tip is offered only after its situation has held for its hold time', () => {
+    const co = new Coach([tip('a', 'fast')], { fast });
+    assert.equal(co.step(ctx(1, { sog: 2 }), 1, on), null);
+    assert.equal(co.step(ctx(2, { sog: 2 }), 1, on)?.id, 'a');
+  });
+  test('a situation that comes and goes does not add up', () => {
+    const co = new Coach([tip('a', 'fast')], { fast });
+    co.step(ctx(1, { sog: 2 }), 1, on);
+    co.step(ctx(2, { sog: 0 }), 1, on);
+    assert.equal(co.step(ctx(3, { sog: 2 }), 1, on), null);
+  });
+  test('the most urgent tip wins, then the one that has held longest', () => {
+    const co = new Coach([tip('lo', 'fast'), tip('hi', 'fast', { prio: 3 })], { fast });
+    co.step(ctx(1, { sog: 2 }), 1, on);
+    assert.equal(co.step(ctx(2, { sog: 2 }), 1, on)?.id, 'hi');
+  });
+  test('a tip stays up for its minimum time after the situation clears, then goes', () => {
+    const co = new Coach([tip('a', 'fast')], { fast });
+    co.step(ctx(1, { sog: 2 }), 1, on); co.step(ctx(2, { sog: 2 }), 1, on);
+    assert.equal(co.step(ctx(3, { sog: 0 }), 1, on)?.id, 'a');
+    assert.equal(co.step(ctx(2 + MIN_SHOW - 0.5, { sog: 0 }), 5, on)?.id, 'a');
+    assert.equal(co.step(ctx(2 + MIN_SHOW, { sog: 0 }), 1, on), null);
+  });
+  test('after its cooldown a tip can come back, not before', () => {
+    const co = new Coach([tip('a', 'fast', { cool: 60 })], { fast });
+    co.step(ctx(1, { sog: 2 }), 1, on); co.step(ctx(2, { sog: 2 }), 1, on);        // shown at t = 2
+    co.step(ctx(3, { sog: 0 }), 1, on); co.step(ctx(12, { sog: 0 }), 9, on);          // gone
+    co.step(ctx(13, { sog: 2 }), 1, on);
+    assert.equal(co.step(ctx(15, { sog: 2 }), 2, on), null, 'too soon');
+    assert.equal(co.step(ctx(63, { sog: 2 }), 48, on)?.id, 'a');
+  });
+  test('a tip the player has seen is not offered again', () => {
+    const co = new Coach([tip('a', 'fast')], { fast });
+    const seen = { tips: true, seen: new Set(['a']) };
+    co.step(ctx(1, { sog: 2 }), 1, seen);
+    assert.equal(co.step(ctx(2, { sog: 2 }), 1, seen), null);
+  });
+  test('with tips off nothing is offered and nothing is on show', () => {
+    const co = new Coach([tip('a', 'fast')], { fast });
+    co.step(ctx(1, { sog: 2 }), 1, on); co.step(ctx(2, { sog: 2 }), 1, on);
+    assert.equal(co.step(ctx(3, { sog: 2 }), 1, { tips: false, seen: new Set() }), null);
+    assert.equal(co.current, null);
+  });
+  test('a more urgent tip pre-empts the one on show', () => {
+    const co = new Coach([tip('calm', 'slow', { hold: 0 }), tip('alarm', 'fast', { prio: 3, hold: 0 })], { slow, fast });
+    assert.equal(co.step(ctx(1, { sog: 0 }), 1, on)?.id, 'calm');
+    assert.equal(co.step(ctx(2, { sog: 2 }), 1, on)?.id, 'alarm');
+  });
+  test('a tip for another ship, or with an unknown rule, never shows', () => {
+    const co = new Coach([tip('a', 'fast', {}, { ships: ['lady'] }), tip('b', 'nope')], { fast });
+    co.step(ctx(1, { sog: 2 }), 1, on);
+    assert.equal(co.step(ctx(2, { sog: 2 }), 1, on), null);
+  });
+  test('dismissing a tip clears it and its cooldown keeps it off', () => {
+    const co = new Coach([tip('a', 'fast', { hold: 0 })], { fast });
+    assert.equal(co.step(ctx(1, { sog: 2 }), 1, on)?.id, 'a');
+    co.dismiss();
+    assert.equal(co.step(ctx(2, { sog: 2 }), 1, on), null);
+  });
+  test('reset forgets what was held and shown', () => {
+    const co = new Coach([tip('a', 'fast', { hold: 0 })], { fast });
+    co.step(ctx(1, { sog: 2 }), 1, on); co.reset();
+    assert.equal(co.step(ctx(2, { sog: 2 }), 1, on)?.id, 'a');
   });
 }
 

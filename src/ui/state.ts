@@ -4,6 +4,7 @@ import type { Runtime } from '../physics/runtime';
 import type { Command } from '../physics/sim';
 import type { Alt, Track } from '../physics/predict';
 import type { SensorMode } from '../physics/sensors';
+import type { Ghost, Level } from '../guide/types';
 
 export type Unit = 'cm' | 'ms' | 'kn';
 export type Palette = 'auto' | 'day' | 'dusk' | 'night';
@@ -32,6 +33,13 @@ export const S = {
   sensMode: 'real' as SensorMode,
   speedIdx: 0, paused: false,
   quay: [{ d: Infinity, rate: 0, n: 0, e: 0, pn: 0, pe: 0 }, { d: Infinity, rate: 0, n: 0, e: 0, pn: 0, pe: 0 }],
+  /** The optional training guide: off until the player turns it on. `seen` holds the tips they have marked as seen. */
+  guide: {
+    on: false, tips: true, steps: true, vectors: false, level: 'brief' as Level,
+    seen: new Set<string>(),
+    /** Suggested control settings, drawn as faint outlines on the dials and levers while VECTORS is on. */
+    ghost: null as Ghost | null,
+  },
   /** The berth to make for: picked in the menu (per scenario), and the CG pose it gives the ship in use. */
   berth: {
     pick: null as null | { sc: string; id: string; side: -1 | 1 },

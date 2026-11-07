@@ -58,6 +58,7 @@
     <button id="b-lock" class="mb" hidden aria-label="The lock: call the lock master, levels and signals">LOCK</button>
     <button id="b-ais" class="mb" hidden aria-label="AIS targets">AIS</button>
     <button id="b-dmg" class="mb" hidden aria-label="Damage control">DAMAGE</button>
+    <button id="b-coach" class="mb" hidden aria-label="Training guide: tips, steps and suggestions">COACH</button>
     <span class="zoom"><button id="b-zin" class="mb sq" aria-label="Zoom in">+</button><button id="b-zout" class="mb sq" aria-label="Zoom out">−</button></span>
   </nav>
 
@@ -97,6 +98,12 @@
     <div class="panel-head"><span class="tag" id="tug-head">TUGS</span><button class="x" data-close="p-tugs" aria-label="Close">×</button></div>
     <div id="tugs"></div>
     <p class="hint">About 20 s to change power, 60 s to swap between pushing and pulling. Tugs lose their grip above about 6 kn.</p>
+  </section>
+
+  <section class="panel" id="p-coach" hidden aria-label="Training guide">
+    <div class="panel-head"><span class="tag" id="coach-head">COACH</span><button class="x" data-close="p-coach" aria-label="Close">×</button></div>
+    <div id="coach-body" aria-live="polite"></div>
+    <div class="coach-btns" id="coach-btns"></div>
   </section>
 
   <footer class="tray">
@@ -183,6 +190,20 @@
         <div class="seg"><button id="b-editberth">Edit on the chart</button></div>
       </div>
       <p class="note">Every quay, pier and dolphin face is fitted out for the biggest ship that fits it: fenders sized for her berthing energy, bollards all along. Put your own on any of them too: tap near a face to add a bollard on it or a fender on it, or tap one to take it away. Your changes are kept for each scenario on this device; RESET puts the scenario's own back.</p>
+      </details>
+      <details class="sec" id="sec-guide"><summary><h2>Training guide <span class="sub">optional, off by default</span></h2></summary>
+      <div class="env-grid">
+        <label class="chk"><input type="checkbox" id="g-on" /> Training guide: tips, steps and suggestions built on published sources</label>
+        <label class="chk"><input type="checkbox" id="g-tips" /> Tips: a short hint when the situation calls for one</label>
+        <label class="chk"><input type="checkbox" id="g-steps" /> Steps: drills and exercises that you start yourself</label>
+        <label class="chk"><input type="checkbox" id="g-vec" /> Vectors: suggested control settings and directions on the dials and the chart</label>
+        <span class="lbl">Detail</span>
+        <div class="seg" id="seg-glevel"><button data-v="brief">Brief</button><button data-v="explain">Explain</button></div>
+        <span class="lbl">Tips seen</span>
+        <div class="seg"><button id="g-forget">Show them all again</button></div>
+      </div>
+      <p class="note">A training aid, not a procedure. Every statement says whether it is measured data, published guidance or what this simulator's model does. There is no single global standard for handling podded or azimuthing propulsion, so the ship's manual and your company's procedures always come first. Like the rest of SHIPSHAPE it is not for navigation.</p>
+      <div id="guide-ref" class="gref-list"></div>
       </details>
       <details class="sec"><summary><h2>Damage</h2></summary>
       <div class="env-grid">

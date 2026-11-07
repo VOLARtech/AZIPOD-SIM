@@ -19,6 +19,7 @@ import { drawDamagePlan, renderDamage } from './ui/dmgpanel';
 import { EditMode, editAt, loadBerth, resetBerth } from './ui/berthedit';
 import { initBerthPicker, renderBerthPicker, targetFor } from './ui/berthpicker';
 import { initLockPanel, updateLockPanel } from './ui/lockpanel';
+import { initGuide, resetGuide, updateGuide } from './ui/guide';
 import { nearestBerth, type BerthSpec } from './physics/berths';
 import { IceState } from './physics/ice';
 import { buildDpStation, buildJetStation, buildStation, buildTugStation, initialOrders, Station } from './ui/stations';
@@ -108,6 +109,7 @@ function loadScenario(sc: Scenario, at?: { n: number; e: number; psi: number; kn
   $('b-lines').hidden = !S.rt.lines.length; $('b-tugs').hidden = !S.rt.tugs.length;     // a tug as own ship does not call tugs
   $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = true;
   initLockPanel();
+  resetGuide();
   ($('bt') as HTMLInputElement).value = '0';
   setLever('twin');
   mountStation();
@@ -695,15 +697,15 @@ function updateTugsPanel() {
   });
 }
 function placePanels() {
-  for (const id of ['p-lines', 'p-tugs', 'p-dmg', 'p-lock']) {
+  for (const id of ['p-lines', 'p-tugs', 'p-dmg', 'p-lock', 'p-coach']) {
     const el = $(id);
     el.style.bottom = `${innerHeight - D.LAY.trayTop + 8}px`;
     el.style.maxHeight = `${Math.max(140, D.LAY.trayTop - D.LAY.chipsBottom - 16)}px`;
   }
 }
 document.querySelectorAll<HTMLButtonElement>('[data-close]').forEach(b => (b.onclick = () => ($(b.dataset.close!).hidden = true)));
-$('b-lines').onclick = () => { const p = $('p-lines'); p.hidden = !p.hidden; $('p-tugs').hidden = $('p-dmg').hidden = $('p-lock').hidden = true; buildLines(); placePanels(); };
-$('b-lock').onclick = () => { const p = $('p-lock'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = true; placePanels(); updateLockPanel(true); };
+$('b-lines').onclick = () => { const p = $('p-lines'); p.hidden = !p.hidden; $('p-tugs').hidden = $('p-dmg').hidden = $('p-lock').hidden = $('p-coach').hidden = true; buildLines(); placePanels(); };
+$('b-lock').onclick = () => { const p = $('p-lock'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = $('p-coach').hidden = true; placePanels(); updateLockPanel(true); };
 // ---------------------------------------------------------------- random traffic and the AIS card
 /** (Re)draw the random traffic for this scenario round own ship; scripted scenario traffic stays. */
 function setRandomTraffic(rebuild3d = true) {
@@ -737,7 +739,7 @@ $('b-retraffic').onclick = () => {
 let editMode: EditMode | null = null;
 function setEdit(m: EditMode | null) {
   const was = editMode; editMode = m; D.setEditing(!!m);
-  if (m) $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = $('p-lock').hidden = true;   // the chart clear to tap on
+  if (m) $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = $('p-lock').hidden = $('p-coach').hidden = true;   // the chart clear to tap on
   $('edit-bar').hidden = !m;
   document.querySelectorAll<HTMLButtonElement>('[data-em]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.em === m)));
   if (m) $('edit-hint').textContent = m === 'remove' ? 'Tap a bollard or fender to take it away.' : `Tap near a quay edge to put a ${m} there.`;
@@ -774,7 +776,7 @@ initBerthPicker({
 
 // ---------------------------------------------------------------- damage control
 let lostShown = false;
-$('b-dmg').onclick = () => { const p = $('p-dmg'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-tugs').hidden = $('p-lock').hidden = true; placePanels(); updateDamage(); };
+$('b-dmg').onclick = () => { const p = $('p-dmg'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-tugs').hidden = $('p-lock').hidden = $('p-coach').hidden = true; placePanels(); updateDamage(); };
 function updateDamage() {
   const d = S.rt.damage;
   $('b-dmg').hidden = !S.rt.damageOn || !d.any;
@@ -786,7 +788,7 @@ function updateDamage() {
     $('p-dmg').hidden = false; placePanels();
   }
 }
-$('b-tugs').onclick = () => { const p = $('p-tugs'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-dmg').hidden = $('p-lock').hidden = true; placePanels(); };
+$('b-tugs').onclick = () => { const p = $('p-tugs'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-dmg').hidden = $('p-lock').hidden = $('p-coach').hidden = true; placePanels(); };
 
 // ---------------------------------------------------------------- map gestures
 const ptrs = new Map<number, { x: number; y: number }>();
@@ -1092,7 +1094,7 @@ function frame(now: number) {
   if (station) station.draw();
   else { for (const d of dials) d.draw(); for (const l of levers) l.draw(); }
   slowT -= dtReal;
-  if (slowT <= 0) { slowT = 0.1; updateHud(); updateLinesPanel(); updateTugsPanel(); updateLockPanel(); updateDamage(); if (S.rt.traffic.length) computeAis(); }
+  if (slowT <= 0) { slowT = 0.1; updateHud(); updateLinesPanel(); updateTugsPanel(); updateLockPanel(); updateGuide(); updateDamage(); if (S.rt.traffic.length) computeAis(); }
   if (S.rt.traffic.length && !$('ais').hidden && $('ais-head').getAttribute('aria-expanded') === 'true') aisMap.draw();
   // adaptive resolution: if frames run long for 2 s, render at a lower pixel density
   frameEma += (performance.now() - t0 - frameEma) * 0.05;
@@ -1135,12 +1137,38 @@ persist('azb-settings',
     if (typeof v.speedIdx === 'number') S.speedIdx = v.speedIdx;
     if (S.disp.palette !== 'auto') document.documentElement.setAttribute('data-palette', S.disp.palette);
   });
+persist('azb-guide',
+  () => ({ on: S.guide.on, tips: S.guide.tips, steps: S.guide.steps, vectors: S.guide.vectors, level: S.guide.level, seen: [...S.guide.seen] }),
+  v => {
+    const g = S.guide;
+    if (typeof v.on === 'boolean') g.on = v.on;
+    if (typeof v.tips === 'boolean') g.tips = v.tips;
+    if (typeof v.steps === 'boolean') g.steps = v.steps;
+    if (typeof v.vectors === 'boolean') g.vectors = v.vectors;
+    if (v.level === 'brief' || v.level === 'explain') g.level = v.level;
+    if (Array.isArray(v.seen)) g.seen = new Set(v.seen.filter((x): x is string => typeof x === 'string'));
+  });
 D.readTheme();
 resize();
 // deep links: ?scenario=<id>&ship=<id>&view=2d|split|3d&cam=bridge|port|stbd|chase|pods&tod=day|dusk|night
 // &t=<s to run on>&zoom=<× the scenario's>
 const Q = new URLSearchParams(location.search);
 const qShip = Q.get('ship'), qView = Q.get('view'), qCam = Q.get('cam'), qTod = Q.get('tod');
+// &guide=on[,vectors][,explain][,notips][,nosteps] turns the training guide on for this visit
+const qGuide = Q.get('guide');
+if (qGuide) {
+  const f = new Set(qGuide.split(',')), g = S.guide;
+  g.on = true; g.seen.add('intro');
+  if (f.has('vectors')) g.vectors = true;
+  if (f.has('explain')) g.level = 'explain';
+  if (f.has('notips')) g.tips = false;
+  if (f.has('nosteps')) g.steps = false;
+}
+initGuide({
+  placePanels,
+  closeOthers: () => { $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = $('p-lock').hidden = true; },
+  openMenu: () => { if ($('sheet').hidden) $('b-menu').click(); },
+});
 if (qShip && SHIPS[qShip]) S.shipId = qShip;
 if (qView === '2d' || qView === 'split' || qView === '3d') S.disp.view = qView;
 if (qCam && CAMS.some(([c]) => c === qCam)) S.disp.cam = qCam as typeof S.disp.cam;
