@@ -19,6 +19,8 @@ import { drawDamagePlan, renderDamage } from './ui/dmgpanel';
 import { EditMode, editAt, loadBerth, resetBerth } from './ui/berthedit';
 import { initBerthPicker, renderBerthPicker, targetFor } from './ui/berthpicker';
 import { initLockPanel, updateLockPanel } from './ui/lockpanel';
+import { initGuide, resetGuide, updateGuide } from './ui/guide';
+import type { Exercise } from './guide/types';
 import { nearestBerth, type BerthSpec } from './physics/berths';
 import { IceState } from './physics/ice';
 import { buildDpStation, buildJetStation, buildStation, buildTugStation, initialOrders, Station } from './ui/stations';
@@ -108,6 +110,7 @@ function loadScenario(sc: Scenario, at?: { n: number; e: number; psi: number; kn
   $('b-lines').hidden = !S.rt.lines.length; $('b-tugs').hidden = !S.rt.tugs.length;     // a tug as own ship does not call tugs
   $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = true;
   initLockPanel();
+  resetGuide();
   ($('bt') as HTMLInputElement).value = '0';
   setLever('twin');
   mountStation();
@@ -142,7 +145,7 @@ let sheetStarted = false;
 const postedData = new Set<string>();
 let openSeq = 0;
 /** Load a scenario, fetching its chart and depth data first if it has any. */
-async function openScenario(sc: Scenario) {
+async function openScenario(sc: Scenario, at?: { n: number; e: number; psi: number; kn: number }) {
   const seq = ++openSeq;                                  // a later pick wins over a download still in flight
   // a ship that draws too much for this water: take the scenario's own ship instead
   const want = SHIPS[S.shipId ?? sc.ship ?? 'becancour'];
@@ -161,7 +164,17 @@ async function openScenario(sc: Scenario) {
     }
     if (seq !== openSeq) return;
   }
-  loadScenario(sc);
+  loadScenario(sc, at);
+}
+/** The training guide starts an exercise: her scenario, her ship, her speed and the weather the exercise asks for. */
+async function startExercise(ex: Exercise) {
+  const sc = SCENARIOS.find(s => s.id === ex.scenario)!;
+  S.shipId = ex.ship;
+  if (!$('sheet').hidden) $('b-close').click();
+  await openScenario(sc, ex.kn !== undefined ? { n: sc.start.n, e: sc.start.e, psi: sc.start.psi, kn: ex.kn } : undefined);
+  const w = ex.env;
+  if (w) { if (w.windKn !== undefined) S.env.windKn = w.windKn; if (w.windFrom !== undefined) S.env.windFrom = w.windFrom; if (w.curKn !== undefined) S.env.curKn = w.curKn; if (w.curSet !== undefined) S.env.curSet = w.curSet; applyEnv(); }
+  S.paused = false; syncButtons();
 }
 let onScenarioLoaded = () => { v3?.build(); set3dTag(); };
 let creditFn: ((id: string) => string) | null = null;
@@ -463,6 +476,13 @@ class Dial {
     g.beginPath(); g.arc(hx, hy, 9, 0, Math.PI * 2); g.fill(); g.stroke();
     g.fillStyle = col; g.beginPath(); g.arc(hx, hy, 3.5, 0, Math.PI * 2); g.fill();
     this.extras(R);
+    const gh = S.guide.vectors ? S.guide.ghost?.units?.[this.i] : undefined;      // the training guide's suggested azimuth
+    if (gh?.alpha !== undefined) {
+      const gx = Math.sin(gh.alpha) * rc, gy = -Math.cos(gh.alpha) * rc;
+      g.save(); g.strokeStyle = g.fillStyle = D.K.guide; g.lineWidth = 2; g.setLineDash([3, 3]);
+      g.beginPath(); g.arc(gx, gy, 12, 0, Math.PI * 2); g.stroke(); g.setLineDash([]);
+      g.beginPath(); g.arc(gx, gy, 2.5, 0, Math.PI * 2); g.fill(); g.restore();
+    }
   }
   /** Power arc outside the ticks and control-system warnings inside the dial. */
   extras(R: number) {
@@ -596,6 +616,12 @@ class RpmLever {
     g.fillStyle = D.K['panel-solid']; g.strokeStyle = S.cmd.pods[this.i].rpm < 0 ? D.K.warn : col; g.lineWidth = 2;
     g.beginPath(); g.roundRect(x0 - hw / 2, yc - 7, hw, 14, 3); g.fill(); g.stroke();
     g.strokeStyle = g.fillStyle = col; g.beginPath(); g.moveTo(x0 - hw / 2 + 4, yc); g.lineTo(x0 + hw / 2 - 4, yc); g.lineWidth = 1.5; g.stroke();
+    const gh = S.guide.vectors ? S.guide.ghost?.units?.[this.i] : undefined;      // the training guide's suggested rpm
+    if (gh?.rpm !== undefined) {
+      const yg = this.y(gh.rpm);
+      g.save(); g.strokeStyle = D.K.guide; g.lineWidth = 2; g.setLineDash([3, 3]);
+      g.beginPath(); g.roundRect(x0 - hw / 2 - 2, yg - 9, hw + 4, 18, 4); g.stroke(); g.restore();
+    }
   }
 }
 const dials = [new Dial(0), new Dial(1)];
@@ -682,9 +708,10 @@ function buildTugs() {
   $('tug-head').textContent = `TUGS · ${Math.round((S.rt.tugs[0]?.Fmax ?? 0) / 9.81e3)} t BOLLARD PULL`;
   box.innerHTML = S.rt.tugs.map((t, i) => `
     <div class="tugrow"><span class="tag">${t.name}</span>
-      <input type="range" id="tg-${i}" min="-100" max="100" step="25" value="0" aria-label="${t.name} order: pull to push" />
+      <span class="btslide"><input type="range" id="tg-${i}" min="-100" max="100" step="25" value="0" aria-label="${t.name} order: pull to push" /><i class="btghost" id="tgg-${i}" hidden></i></span>
       <span class="t" id="tt-${i}">idle</span></div>
-    <div class="btscale"><span></span><span>PULL ← · → PUSH (${t.side > 0 ? 'toward port' : 'toward stbd'})</span><span></span></div>`).join('');
+    <div class="btscale"><span></span><span>PULL ← · → PUSH (${t.side > 0 ? 'toward port' : 'toward stbd'})</span><span></span></div>
+    <div class="tugsug" id="tgs-${i}" hidden></div>`).join('');
   S.rt.tugs.forEach((t, i) => { ($('tg-' + i) as HTMLInputElement).oninput = e => (t.order = +(e.target as HTMLInputElement).value / 100); });
 }
 function updateTugsPanel() {
@@ -695,15 +722,18 @@ function updateTugsPanel() {
   });
 }
 function placePanels() {
-  for (const id of ['p-lines', 'p-tugs', 'p-dmg', 'p-lock']) {
+  for (const id of ['p-lines', 'p-tugs', 'p-dmg', 'p-lock', 'p-coach']) {
     const el = $(id);
     el.style.bottom = `${innerHeight - D.LAY.trayTop + 8}px`;
-    el.style.maxHeight = `${Math.max(140, D.LAY.trayTop - D.LAY.chipsBottom - 16)}px`;
+    // a phone on its side has little room between the readouts and the controls: the guide's panel, which only
+    // grows as far as its content, may cover the readouts rather than hide its buttons
+    const short = id === 'p-coach' && innerHeight < 520;
+    el.style.maxHeight = `${Math.max(140, D.LAY.trayTop - (short ? 0 : D.LAY.chipsBottom) - 16)}px`;
   }
 }
 document.querySelectorAll<HTMLButtonElement>('[data-close]').forEach(b => (b.onclick = () => ($(b.dataset.close!).hidden = true)));
-$('b-lines').onclick = () => { const p = $('p-lines'); p.hidden = !p.hidden; $('p-tugs').hidden = $('p-dmg').hidden = $('p-lock').hidden = true; buildLines(); placePanels(); };
-$('b-lock').onclick = () => { const p = $('p-lock'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = true; placePanels(); updateLockPanel(true); };
+$('b-lines').onclick = () => { const p = $('p-lines'); p.hidden = !p.hidden; $('p-tugs').hidden = $('p-dmg').hidden = $('p-lock').hidden = $('p-coach').hidden = true; buildLines(); placePanels(); };
+$('b-lock').onclick = () => { const p = $('p-lock'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = $('p-coach').hidden = true; placePanels(); updateLockPanel(true); };
 // ---------------------------------------------------------------- random traffic and the AIS card
 /** (Re)draw the random traffic for this scenario round own ship; scripted scenario traffic stays. */
 function setRandomTraffic(rebuild3d = true) {
@@ -737,7 +767,7 @@ $('b-retraffic').onclick = () => {
 let editMode: EditMode | null = null;
 function setEdit(m: EditMode | null) {
   const was = editMode; editMode = m; D.setEditing(!!m);
-  if (m) $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = $('p-lock').hidden = true;   // the chart clear to tap on
+  if (m) $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = $('p-lock').hidden = $('p-coach').hidden = true;   // the chart clear to tap on
   $('edit-bar').hidden = !m;
   document.querySelectorAll<HTMLButtonElement>('[data-em]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.em === m)));
   if (m) $('edit-hint').textContent = m === 'remove' ? 'Tap a bollard or fender to take it away.' : `Tap near a quay edge to put a ${m} there.`;
@@ -774,7 +804,7 @@ initBerthPicker({
 
 // ---------------------------------------------------------------- damage control
 let lostShown = false;
-$('b-dmg').onclick = () => { const p = $('p-dmg'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-tugs').hidden = $('p-lock').hidden = true; placePanels(); updateDamage(); };
+$('b-dmg').onclick = () => { const p = $('p-dmg'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-tugs').hidden = $('p-lock').hidden = $('p-coach').hidden = true; placePanels(); updateDamage(); };
 function updateDamage() {
   const d = S.rt.damage;
   $('b-dmg').hidden = !S.rt.damageOn || !d.any;
@@ -786,7 +816,7 @@ function updateDamage() {
     $('p-dmg').hidden = false; placePanels();
   }
 }
-$('b-tugs').onclick = () => { const p = $('p-tugs'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-dmg').hidden = $('p-lock').hidden = true; placePanels(); };
+$('b-tugs').onclick = () => { const p = $('p-tugs'); p.hidden = !p.hidden; $('p-lines').hidden = $('p-dmg').hidden = $('p-lock').hidden = $('p-coach').hidden = true; placePanels(); };
 
 // ---------------------------------------------------------------- map gestures
 const ptrs = new Map<number, { x: number; y: number }>();
@@ -1092,7 +1122,7 @@ function frame(now: number) {
   if (station) station.draw();
   else { for (const d of dials) d.draw(); for (const l of levers) l.draw(); }
   slowT -= dtReal;
-  if (slowT <= 0) { slowT = 0.1; updateHud(); updateLinesPanel(); updateTugsPanel(); updateLockPanel(); updateDamage(); if (S.rt.traffic.length) computeAis(); }
+  if (slowT <= 0) { slowT = 0.1; updateHud(); updateLinesPanel(); updateTugsPanel(); updateLockPanel(); updateGuide(); updateDamage(); if (S.rt.traffic.length) computeAis(); }
   if (S.rt.traffic.length && !$('ais').hidden && $('ais-head').getAttribute('aria-expanded') === 'true') aisMap.draw();
   // adaptive resolution: if frames run long for 2 s, render at a lower pixel density
   frameEma += (performance.now() - t0 - frameEma) * 0.05;
@@ -1135,12 +1165,39 @@ persist('azb-settings',
     if (typeof v.speedIdx === 'number') S.speedIdx = v.speedIdx;
     if (S.disp.palette !== 'auto') document.documentElement.setAttribute('data-palette', S.disp.palette);
   });
+persist('azb-guide',
+  () => ({ on: S.guide.on, tips: S.guide.tips, steps: S.guide.steps, vectors: S.guide.vectors, level: S.guide.level, seen: [...S.guide.seen] }),
+  v => {
+    const g = S.guide;
+    if (typeof v.on === 'boolean') g.on = v.on;
+    if (typeof v.tips === 'boolean') g.tips = v.tips;
+    if (typeof v.steps === 'boolean') g.steps = v.steps;
+    if (typeof v.vectors === 'boolean') g.vectors = v.vectors;
+    if (v.level === 'brief' || v.level === 'explain') g.level = v.level;
+    if (Array.isArray(v.seen)) g.seen = new Set(v.seen.filter((x): x is string => typeof x === 'string'));
+  });
 D.readTheme();
 resize();
 // deep links: ?scenario=<id>&ship=<id>&view=2d|split|3d&cam=bridge|port|stbd|chase|pods&tod=day|dusk|night
 // &t=<s to run on>&zoom=<× the scenario's>
 const Q = new URLSearchParams(location.search);
 const qShip = Q.get('ship'), qView = Q.get('view'), qCam = Q.get('cam'), qTod = Q.get('tod');
+// &guide=on[,vectors][,explain][,notips][,nosteps] turns the training guide on for this visit
+const qGuide = Q.get('guide');
+if (qGuide) {
+  const f = new Set(qGuide.split(',')), g = S.guide;
+  g.on = true; g.seen.add('intro');
+  if (f.has('vectors')) g.vectors = true;
+  if (f.has('explain')) g.level = 'explain';
+  if (f.has('notips')) g.tips = false;
+  if (f.has('nosteps')) g.steps = false;
+}
+initGuide({
+  placePanels,
+  closeOthers: () => { $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = $('p-lock').hidden = true; },
+  openMenu: () => { if ($('sheet').hidden) $('b-menu').click(); },
+  startExercise,
+});
 if (qShip && SHIPS[qShip]) S.shipId = qShip;
 if (qView === '2d' || qView === 'split' || qView === '3d') S.disp.view = qView;
 if (qCam && CAMS.some(([c]) => c === qCam)) S.disp.cam = qCam as typeof S.disp.cam;

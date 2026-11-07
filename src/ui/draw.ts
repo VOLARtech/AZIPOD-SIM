@@ -10,6 +10,8 @@ import { LINE, tugEngaged } from '../physics/mooring';
 import type { Alt, Track } from '../physics/predict';
 import type { Traffic } from '../physics/traffic';
 import { S, SPEEDS, full } from './state';
+import { closingSpeed, guideSpeed } from '../guide/align';
+import { pivotPoint } from '../guide/vectors';
 import { chartOf, drawChartBase, drawChartMarks as drawMarks } from './chart';
 
 export const C: Record<string, string> = {};
@@ -19,7 +21,7 @@ export function setEditing(v: boolean) { editing = v; }
 export let podColors = ['#c00', '#0a0'];
 export function readTheme() {
   const cs = getComputedStyle(document.documentElement);
-  for (const k of ['water', 'water-2', 'grid', 'land', 'land-edge', 'shoal', 'ink', 'muted', 'own', 'hull', 'port', 'stbd', 'predict', 'warn', 'ok', 'rule', 'panel-solid', 'alt-crash', 'alt-coast', 'dep-dw', 'dep-md', 'dep-ms', 'dep-vs', 'dep-it', 'sound', 'sound-sh', 'contour', 'safety', 'aid-light'])
+  for (const k of ['water', 'water-2', 'grid', 'land', 'land-edge', 'shoal', 'ink', 'muted', 'own', 'hull', 'port', 'stbd', 'predict', 'warn', 'ok', 'rule', 'panel-solid', 'alt-crash', 'alt-coast', 'dep-dw', 'dep-md', 'dep-ms', 'dep-vs', 'dep-it', 'sound', 'sound-sh', 'contour', 'safety', 'aid-light', 'guide'])
     C[k] = cs.getPropertyValue('--' + k).trim();
   C.fontNum = cs.getPropertyValue('--font-num');
   C.fontLabel = cs.getPropertyValue('--font-label');
@@ -33,7 +35,7 @@ export let kPod = ['#ef4452', '#33c46a'];
 function readConsole() {
   const el = document.querySelector('.tray'); if (!el) return;
   const cs = getComputedStyle(el);
-  for (const k of ['ink', 'muted', 'own', 'port', 'stbd', 'warn', 'ok', 'rule', 'panel-solid', 'face', 'face-2', 'cur'])
+  for (const k of ['ink', 'muted', 'own', 'port', 'stbd', 'warn', 'ok', 'rule', 'panel-solid', 'face', 'face-2', 'cur', 'guide'])
     K[k] = cs.getPropertyValue('--' + k).trim();
   K.fontNum = C.fontNum; K.fontLabel = C.fontLabel;
   kPod = [K.port, K.stbd];
@@ -694,6 +696,18 @@ export function latFmt(v: number) {
 }
 export const latUnit = () => ({ cm: 'cm/s', ms: 'm/s', kn: 'kn' })[S.disp.unit];
 
+/** Training guide, VECTORS on: the pivot point, where her sideways speed is zero. Drawn only while she turns. */
+function drawPivot(est: Pose & { v: number; r: number }, tag: (x: number, y: number, txt: string, col: string) => void) {
+  const pv = pivotPoint(SHIP, est.v, est.r); if (!pv) return;
+  const [x, y] = toScr(...bodyToWorld(est, pv.x, 0));
+  ctx.save();
+  ctx.strokeStyle = C.guide; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.moveTo(x - 10, y); ctx.lineTo(x + 10, y); ctx.moveTo(x, y - 10); ctx.lineTo(x, y + 10); ctx.stroke();
+  ctx.restore();
+  ctx.font = `500 11px ${C.fontNum}`;
+  tag(x + 34, y - 14, `PIVOT ${pv.fromBow.toFixed(2)} L`, C.guide);
+}
+
 export function drawOverlay() {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   const est = shownPose();
@@ -735,13 +749,22 @@ export function drawOverlay() {
     placed.push([x, y]); tag(x, y, g.text, g.color);
   }
   // quay distances
+  const gv = S.guide.on && S.guide.vectors;
   for (const [k, q] of S.quay.entries()) {
     if (!isFinite(q.d) || q.d > (full() ? 250 : 60)) continue;  // clean: only once you are close in
     const [x0, y0] = toScr(q.pn, q.pe), [x1, y1] = toScr(q.n, q.e);
     const closing = q.rate < -0.005;
-    const txt = full() ? `${k ? 'AFT' : 'FWD'} ${q.d.toFixed(1)} m ${closing ? '▾' : q.rate > 0.005 ? '▴' : ''}${latFmt(q.rate)}` : `${q.d.toFixed(1)} m`;
-    tag((x0 + x1) / 2, (y0 + y1) / 2, txt, closing && q.d < 15 && -q.rate > 0.15 ? C.warn : C.muted);
+    let txt = full() ? `${k ? 'AFT' : 'FWD'} ${q.d.toFixed(1)} m ${closing ? '▾' : q.rate > 0.005 ? '▴' : ''}${latFmt(q.rate)}` : `${q.d.toFixed(1)} m`;
+    let col = closing && q.d < 15 && -q.rate > 0.15 ? C.warn : C.muted;
+    const cl = gv ? closingSpeed(est, q) : 0;
+    if (gv && cl > 0.005) {                   // training guide: the closing speed against the guideline for this distance
+      const g = guideSpeed(SHIP, q.d);
+      txt = full() ? `${k ? 'AFT' : 'FWD'} ${q.d.toFixed(1)} m ▾${latFmt(cl)} / ${latFmt(g)}` : `${q.d.toFixed(1)} m ▾${latFmt(cl)} / ${latFmt(g)}`;
+      col = cl > 1.5 * g ? C.warn : C.guide;
+    }
+    tag((x0 + x1) / 2, (y0 + y1) / 2, txt, col);
   }
+  if (gv) drawPivot(est, tag);
   // shoal soundings
   ctx.font = `italic 500 12px ${C.fontNum}`;
   for (const sh of S.sc.shoals) {
