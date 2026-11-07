@@ -465,6 +465,13 @@ class Dial {
     g.beginPath(); g.arc(hx, hy, 9, 0, Math.PI * 2); g.fill(); g.stroke();
     g.fillStyle = col; g.beginPath(); g.arc(hx, hy, 3.5, 0, Math.PI * 2); g.fill();
     this.extras(R);
+    const gh = S.guide.vectors ? S.guide.ghost?.units?.[this.i] : undefined;      // the training guide's suggested azimuth
+    if (gh?.alpha !== undefined) {
+      const gx = Math.sin(gh.alpha) * rc, gy = -Math.cos(gh.alpha) * rc;
+      g.save(); g.strokeStyle = g.fillStyle = D.K.guide; g.lineWidth = 2; g.setLineDash([3, 3]);
+      g.beginPath(); g.arc(gx, gy, 12, 0, Math.PI * 2); g.stroke(); g.setLineDash([]);
+      g.beginPath(); g.arc(gx, gy, 2.5, 0, Math.PI * 2); g.fill(); g.restore();
+    }
   }
   /** Power arc outside the ticks and control-system warnings inside the dial. */
   extras(R: number) {
@@ -598,6 +605,12 @@ class RpmLever {
     g.fillStyle = D.K['panel-solid']; g.strokeStyle = S.cmd.pods[this.i].rpm < 0 ? D.K.warn : col; g.lineWidth = 2;
     g.beginPath(); g.roundRect(x0 - hw / 2, yc - 7, hw, 14, 3); g.fill(); g.stroke();
     g.strokeStyle = g.fillStyle = col; g.beginPath(); g.moveTo(x0 - hw / 2 + 4, yc); g.lineTo(x0 + hw / 2 - 4, yc); g.lineWidth = 1.5; g.stroke();
+    const gh = S.guide.vectors ? S.guide.ghost?.units?.[this.i] : undefined;      // the training guide's suggested rpm
+    if (gh?.rpm !== undefined) {
+      const yg = this.y(gh.rpm);
+      g.save(); g.strokeStyle = D.K.guide; g.lineWidth = 2; g.setLineDash([3, 3]);
+      g.beginPath(); g.roundRect(x0 - hw / 2 - 2, yg - 9, hw + 4, 18, 4); g.stroke(); g.restore();
+    }
   }
 }
 const dials = [new Dial(0), new Dial(1)];

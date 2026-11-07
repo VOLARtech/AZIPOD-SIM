@@ -118,7 +118,7 @@
     <div class="center">
       <div class="btwrap">
         <label for="bt" class="tag" id="bt-label">BOW THRUSTER</label>
-        <input type="range" id="bt" min="-100" max="100" step="1" value="0" />
+        <span class="btslide"><input type="range" id="bt" min="-100" max="100" step="1" value="0" /><i class="btghost" id="bt-ghost" hidden></i></span>
         <div class="btscale"><span id="bt-l">PORT</span><span id="bt-val">0</span><span id="bt-r">STBD</span></div>
       </div>
       <div class="ctl">
@@ -196,7 +196,7 @@
         <label class="chk"><input type="checkbox" id="g-on" /> Training guide: tips, steps and suggestions built on published sources</label>
         <label class="chk"><input type="checkbox" id="g-tips" /> Tips: a short hint when the situation calls for one</label>
         <label class="chk"><input type="checkbox" id="g-steps" /> Steps: drills and exercises that you start yourself</label>
-        <label class="chk"><input type="checkbox" id="g-vec" /> Vectors: suggested control settings and directions on the dials and the chart</label>
+        <label class="chk"><input type="checkbox" id="g-vec" /> Vectors: suggested settings on the dials (INDEP mode) and marks on the chart</label>
         <span class="lbl">Detail</span>
         <div class="seg" id="seg-glevel"><button data-v="brief">Brief</button><button data-v="explain">Explain</button></div>
         <span class="lbl">Tips seen</span>

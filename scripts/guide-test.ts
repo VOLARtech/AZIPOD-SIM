@@ -3,14 +3,18 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { DEG, KN, SHIPS } from '../src/physics/ship';
-import { Runtime } from '../src/physics/runtime';
-import { makeState } from '../src/physics/sim';
+import { DT, Runtime } from '../src/physics/runtime';
+import { runValidation } from '../src/physics/validation';
+import { joyLimits } from '../src/physics/allocation';
+import { makeState, thrusterEff } from '../src/physics/sim';
 import type { Env } from '../src/physics/sim';
 import { SCENARIOS } from '../src/scenarios';
+import { closingFast, closingSpeed, guideSpeed } from '../src/guide/align';
 import { Coach, MIN_SHOW } from '../src/guide/coach';
 import { guideCtx } from '../src/guide/context';
 import type { Ctx } from '../src/guide/context';
 import { RULES } from '../src/guide/rules';
+import { dockingStick, ghostFromStick, pivotPoint, podGhost } from '../src/guide/vectors';
 import type { Rule } from '../src/guide/rules';
 import { CONTENT } from '../src/guide/content';
 import { renderClaims } from '../src/guide/dossier';
@@ -219,8 +223,8 @@ console.log('coach');
     tip: { when, hold: 2, cool: 60, prio: 2, ...o }, ...over,
   });
   const ctx = (t: number, over: Partial<Ctx> = {}): Ctx => ({
-    t, spec: sp, fam: 'pod', lever: 'twin', sog: 0, u: 0, v: 0, r: 0, bow: 0, stern: 0, wind: 0, ukc: Infinity,
-    units: [], revBlocked: [], berth: null, quay: [], ...over,
+    t, spec: sp, fam: 'pod', lever: 'twin', sog: 0, psi: 0, u: 0, v: 0, r: 0, bow: 0, stern: 0, wind: 0, ukc: Infinity,
+    units: [], revBlocked: [], powerLimited: false, berth: null, quay: [], ...over,
   });
   const fast: Rule = c => c.sog > 1, slow: Rule = c => c.sog < 0.5;
   const on = { tips: true, seen: new Set<string>() };
@@ -288,6 +292,189 @@ console.log('coach');
     const co = new Coach([tip('a', 'fast', { hold: 0 })], { fast });
     co.step(ctx(1, { sog: 2 }), 1, on); co.reset();
     assert.equal(co.step(ctx(2, { sog: 2 }), 1, on)?.id, 'a');
+  });
+}
+
+console.log('azipod cards: what the notes on the model say');
+{
+  const TWIN = ['becancour', 'lady', 'spirit', 'paspaley-pearl'];
+  /** A pod ship under way at `kn` with her pods turning for it. */
+  const spin = (id: string, kn: number) => {
+    const rt = mkRt(id, 0, kn), r0 = Math.min(1, kn / SHIPS[id].vmaxKn);
+    rt.state.pods.forEach(p => (p.rpm = r0)); rt.cmd.pods.forEach(p => (p.rpm = r0));
+    return rt;
+  };
+  /** Run with rpm orders [time, rpm] and read the speed [kn] at the probe times. */
+  const run = (rt: Runtime, orders: [number, number][], probes: number[]) => {
+    const u: number[] = []; let k = 0, p = 0;
+    for (let t = 0; p < probes.length; t += DT) {
+      while (k < orders.length && t >= orders[k][0] - DT / 2) { rt.cmd.pods.forEach(c => (c.rpm = orders[k][1])); k++; }
+      if (t >= probes[p] - DT / 2) { u.push(rt.state.u / KN); p++; }
+      rt.step(DT);
+    }
+    return u;
+  };
+
+  test('pod-reverse-order: above the limit the order is ignored and the pod holds its rpm', () => {
+    const rt = spin('spirit', 10), r0 = rt.state.pods[0].rpm;
+    run(rt, [[5, -0.3]], [60]);
+    assert.ok(rt.status.revBlocked[0] && rt.status.revBlocked[1], 'not blocked');
+    assert.ok(Math.abs(rt.state.pods[0].rpm - r0) < 0.01, `rpm ${rt.state.pods[0].rpm} vs ${r0}`);       // "does not go on to set the rpm to zero"
+  });
+  test('pod-zero-lever: zero rpm barely slows her, and a small astern order brakes her much more', () => {
+    const a = run(spin('spirit', 10), [[5, 0]], [60, 160]);
+    const b = run(spin('spirit', 10), [[5, 0], [60, -0.3]], [60, 160]);
+    const dropZero = a[0] - a[1], dropAstern = b[0] - b[1];
+    assert.ok(dropZero > 0 && dropAstern > 2 * dropZero, `zero ${dropZero.toFixed(2)} kn, astern ${dropAstern.toFixed(2)} kn in 100 s`);
+  });
+  test('pod-berth-pods: one pod along and one across holds the cross pod back (SPLIT)', () => {
+    const rt = mkRt('spirit', 0, 0);
+    rt.setLever('indep');
+    rt.cmd.pods[0].alpha = 0; rt.cmd.pods[1].alpha = 90 * DEG; rt.cmd.pods.forEach(c => (c.rpm = 0.5));
+    for (let i = 0; i < 20 * 60; i++) rt.step(DT);                    // 60 s: the pod has swung across
+    assert.ok(rt.status.split[1] && !rt.status.split[0], JSON.stringify(rt.status.split));
+    assert.ok(rt.status.rpmLimit[1] < 1 && rt.status.rpmLimit[0] === 1);
+  });
+  test('the pod ships\' reverse limit and astern cap are the memento\'s 50 and 150 rpm of 180', () => {
+    for (const id of [...TWIN, 'icebreaker']) {
+      assert.ok(Math.abs(SHIPS[id].revInterlock - 50 / 180) < 0.005, `${id} revInterlock ${SHIPS[id].revInterlock}`);
+      assert.ok(Math.abs(SHIPS[id].asternMax - 150 / 180) < 0.005, `${id} asternMax ${SHIPS[id].asternMax}`);
+    }
+  });
+  test('pod-stopping: four of the six published methods match to within a quarter, the two 90° "rpm kept" stops run far too long', () => {
+    const v = runValidation(), by = Object.fromEntries(v.rows.map(r => [r.key, r.err]));
+    for (const k of ['inertia', 'swing180', 'reverse', 'indirect']) assert.ok(Math.abs(by[k]) <= 0.25, `${k} ${(by[k] * 100).toFixed(0)} %`);
+    for (const k of ['out90', 'in90']) assert.ok(by[k] >= 0.4, `${k} ${(by[k] * 100).toFixed(0)} %`);
+  });
+  test('the published stopping distances are the ones in Nowicki\'s Table 2', () => {
+    assert.deepEqual(fill('{pub.inertia} {pub.out90} {pub.in90} {pub.swing180} {pub.reverse} {pub.indirect}', SHIPS.spirit), '11.2 4.0 3.8 2.7 4.4 3.7');
+  });
+}
+
+console.log('azipod tips and the closing-speed guideline');
+{
+  const sp = SHIPS.spirit;
+  const base = (over: Partial<Ctx> = {}): Ctx => ({
+    t: 0, spec: sp, fam: 'pod', lever: 'twin', sog: 0, psi: 0, u: 0, v: 0, r: 0, bow: 0, stern: 0, wind: 0, ukc: Infinity,
+    units: [{ alpha: 0, rpm: 0, cmdAlpha: 0, cmdRpm: 0 }, { alpha: 0, rpm: 0, cmdAlpha: 0, cmdRpm: 0 }], revBlocked: [false, false], powerLimited: false,
+    berth: null, quay: [], ...over,
+  });
+  test('the guideline is half the distance in cm/s, capped by the approach-speed limit and floored', () => {
+    assert.ok(Math.abs(guideSpeed(sp, 10) - 0.05) < 1e-9);                 // 10 m: 5 cm/s
+    assert.ok(Math.abs(guideSpeed(sp, 20) - 0.10) < 1e-9);
+    assert.ok(guideSpeed(sp, 400) < 0.2 && guideSpeed(sp, 400) > 0.1);     // capped at the limit for her displacement (about 13 cm/s)
+    assert.equal(guideSpeed(sp, 0.5), 0.02);                               // never below the floor
+    assert.ok(guideSpeed(SHIPS.lady, 60) <= guideSpeed(SHIPS['paspaley-pearl'], 60));  // a heavier ship is held to a lower limit
+  });
+  test('closing too fast: only within range, only clearly over the guideline', () => {
+    const q = (d: number, closing: number) => ({ d, closing, side: 1 as const, x: 0 });
+    assert.ok(closingFast(sp, q(10, 0.2)));
+    assert.ok(!closingFast(sp, q(10, 0.06)));
+    assert.ok(!closingFast(sp, q(10, -0.3)), 'moving away');
+    assert.ok(!closingFast(sp, q(90, 0.5)), 'out of range');
+    assert.ok(!closingFast(sp, q(Infinity, 0)));
+  });
+  test('the closing speed comes from the estimated velocities: sideways at the end, rotation included', () => {
+    const est = { n: 0, e: 0, psi: 90 * DEG, u: 0, v: 0.2, r: 0 };           // heading east, drifting to starboard (south) at 0.2 m/s
+    const quayS = { n: -20, e: 0, pn: -16, pe: 0 };                             // a quay to the south, 4 m from a point amidships
+    assert.ok(Math.abs(closingSpeed(est, quayS) - 0.2) < 1e-6);
+    assert.ok(Math.abs(closingSpeed({ ...est, v: -0.2 }, quayS) + 0.2) < 1e-6);   // drifting away: negative
+    // swinging the bow to starboard at 0.01 rad/s: a point 100 m forward moves 1 m/s to starboard, i.e. south
+    const bow = { n: -20, e: 100, pn: -16, pe: 100 };
+    assert.ok(Math.abs(closingSpeed({ ...est, v: 0, r: 0.01 }, bow) - 1.0) < 1e-6);
+  });
+  test('the tip rules read the situation', () => {
+    assert.ok(RULES['rev-blocked'](base({ revBlocked: [true, false] })) && !RULES['rev-blocked'](base()));
+    const across = base({ sog: 6 * KN, units: [{ alpha: 90 * DEG, rpm: 0.9, cmdAlpha: 90 * DEG, cmdRpm: 0.9 }, { alpha: 35 * DEG, rpm: 0.9, cmdAlpha: 35 * DEG, cmdRpm: 0.9 }] });
+    assert.ok(RULES['pods-across-flow'](across));
+    assert.ok(!RULES['pods-across-flow'](base({ ...across, sog: 1 * KN })), 'too slow to matter');
+    assert.ok(!RULES['pods-across-flow'](base({ sog: 6 * KN, units: [{ alpha: 35 * DEG, rpm: 0.9, cmdAlpha: 0, cmdRpm: 0 }] })), 'ordinary steering');
+    assert.ok(RULES['power-limited'](base({ powerLimited: true })) && !RULES['power-limited'](base()));
+    assert.ok(RULES['closing-fast'](base({ quay: [{ d: 8, closing: 0.25, side: 1, x: 100 }, { d: 30, closing: 0, side: 1, x: -100 }] })) && !RULES['closing-fast'](base()));
+  });
+}
+
+console.log('docking suggestion and pivot point');
+{
+  const sp = SHIPS.spirit, rt0 = mkRt('spirit', 90, 0), h = rt0.model.h;
+  const masses = { surge: h.M[0], sway: h.M[4], yaw: h.M[8] }, lim = joyLimits(sp, 1);
+  const base = (over: Partial<Ctx> = {}): Ctx => ({
+    t: 0, spec: sp, fam: 'pod', lever: 'indep', sog: 0, psi: 90 * DEG, u: 0, v: 0, r: 0, bow: 0, stern: 0, wind: 0, ukc: Infinity,
+    units: [], revBlocked: [], powerLimited: false, berth: { name: 'B', along: -30, off: 0, dpsi: 0, dist: 30 },
+    quay: [{ d: 20, closing: 0.3, side: 1, x: 100 }, { d: 20, closing: 0.3, side: 1, x: -100 }], ...over,
+  });
+  const ends = (side: 1 | -1, bow: number, stern: number, d = 20) => [{ d, closing: bow, side, x: 100 }, { d, closing: stern, side, x: -100 }];
+
+  test('closing too fast on both ends: push away from the quay, whichever side it is on', () => {
+    assert.ok(dockingStick(base({ quay: ends(1, 0.3, 0.3) }), masses, lim)!.x < 0);       // quay to starboard: push to port
+    assert.ok(dockingStick(base({ quay: ends(-1, 0.3, 0.3) }), masses, lim)!.x > 0);      // quay to port: push to starboard
+  });
+  test('both ends slower than the guideline: ask to close it', () => {
+    assert.ok(dockingStick(base({ quay: ends(1, 0, 0) }), masses, lim)!.x > 0);
+    assert.ok(dockingStick(base({ quay: ends(-1, 0, 0) }), masses, lim)!.x < 0);
+  });
+  test('the bow closing faster than the stern: turn the bow away from the quay', () => {
+    assert.ok(dockingStick(base({ quay: ends(1, 0.3, 0.02) }), masses, lim)!.r < 0);      // quay to starboard: bow to port
+    assert.ok(dockingStick(base({ quay: ends(-1, 0.3, 0.02) }), masses, lim)!.r > 0);
+    assert.ok(dockingStick(base({ quay: ends(1, 0.02, 0.3) }), masses, lim)!.r > 0);      // the stern too fast: bow toward the quay
+  });
+  test('too fast along the berth: brake; within the limit: no surge order', () => {
+    assert.ok(dockingStick(base({ u: 1.0, berth: { name: 'B', along: -5, off: 0, dpsi: 0, dist: 5 } }), masses, lim)!.y < 0);
+    assert.equal(dockingStick(base({ u: 0.1, berth: { name: 'B', along: -30, off: 0, dpsi: 0, dist: 30 } }), masses, lim)!.y, 0);
+  });
+  test('no suggestion without a berth, out of range of a quay, or when she is across the berth', () => {
+    assert.equal(dockingStick(base({ berth: null }), masses, lim), null);
+    assert.equal(dockingStick(base({ quay: ends(1, 0.3, 0.3, 90) }), masses, lim), null);
+    assert.equal(dockingStick(base({ quay: [{ d: Infinity, closing: 0, side: 1, x: 100 }] }), masses, lim), null);
+    assert.equal(dockingStick(base({ berth: { name: 'B', along: -30, off: 0, dpsi: 90 * DEG, dist: 30 } }), masses, lim), null);
+  });
+  test('the stick stays within the stick\'s range', () => {
+    const s = dockingStick(base({ u: 5, quay: ends(1, 3, -3) }), masses, lim)!;
+    for (const v of [s.x, s.y, s.r]) assert.ok(v >= -1 && v <= 1);
+  });
+  test('the ghost is what the joystick allocator makes of the stick: the sideways force it gives is the one asked for', () => {
+    const stick = dockingStick(base({ quay: ends(1, 0.3, 0.3) }), masses, lim)!;
+    const g = ghostFromStick(sp, rt0.state, { ...stick, r: 0, y: 0 }, 1)!;
+    const Tmax = sp.pods.map(p => p.Tb * (1 - sp.tded)), btMax = sp.bowThruster.Tmax;
+    const Fy = g.units!.reduce((a, u, i) => a + Tmax[i] * u.rpm! ** 2 * Math.sin(u.alpha!), 0) + btMax * Math.sign(g.bt!) * g.bt! ** 2;
+    assert.ok(Math.abs(Fy - stick.x * lim.Y) < 0.02 * Math.abs(stick.x * lim.Y), `Fy ${Fy} vs ${stick.x * lim.Y}`);
+    assert.equal(ghostFromStick(SHIPS.kcs, rt0.state, stick, 1), null, 'only twin pods with a bow thruster');
+    assert.equal(ghostFromStick(SHIPS.icebreaker, rt0.state, stick, 1), null);
+  });
+
+  /** A Spirit drifting onto a quay to starboard at 0.2 m/s from 20 m: does following the suggestion take the way off? */
+  const drift = (follow: boolean) => {
+    const spec = SHIPS.spirit, wallN = -(spec.B / 2 + 20), rt = mkRt('spirit', 90, 0);
+    rt.state.v = 0.2; rt.setLever('indep');
+    const berth = { n: wallN + spec.B / 2 + 0.1, e: 0, psi: 90, name: 'B' };
+    const refs = [spec.L * 0.35 - spec.xg, -spec.L * 0.4 - spec.xg];
+    let sum = 0, n = 0;
+    for (let t = 0; t < 40; t += DT) {
+      if (Math.abs(t % 1) < DT / 2) {
+        const est = rt.sensors.out.est, c = Math.cos(est.psi), s = Math.sin(est.psi);
+        const q = refs.map(x => { const pn = est.n + x * c - (spec.B / 2) * s, pe = est.e + x * s + (spec.B / 2) * c; return { d: Math.abs(wallN - pn), n: wallN, e: pe, pn, pe }; });
+        const ctx = guideCtx(rt, berth, q);
+        if (follow) {
+          const g = podGhost(spec, rt.state, ctx, { surge: rt.model.h.M[0], sway: rt.model.h.M[4], yaw: rt.model.h.M[8] }, thrusterEff(rt.state.u));
+          if (g) { g.units!.forEach((u, i) => { rt.cmd.pods[i].alpha = u.alpha!; rt.cmd.pods[i].rpm = u.rpm!; }); rt.cmd.bt = g.bt!; }
+        }
+        if (t >= 20) { sum += (ctx.quay[0].closing + ctx.quay[1].closing) / 2; n++; }
+      }
+      rt.step(DT);
+    }
+    return sum / n;
+  };
+  test('following the suggestion for 40 s takes at least a fifth off the closing speed of a ship drifting onto the quay', () => {
+    const idle = drift(false), followed = drift(true);
+    assert.ok(idle > 0.1 && followed < 0.8 * idle, `idle ${idle.toFixed(3)}, followed ${followed.toFixed(3)} m/s`);
+  });
+
+  test('the pivot point is where the sideways speed is zero, measured from the bow as the trials table does', () => {
+    assert.equal(pivotPoint(sp, 0.1, 0.0001), null, 'not turning');
+    assert.equal(pivotPoint(sp, 5, 0.01), null, 'far off the hull: a drift, not a pivot');
+    const p = pivotPoint(sp, -0.5, 0.01)!;                         // v + r x = 0 at x = 50 m ahead of the CG
+    assert.ok(Math.abs(p.x - 50) < 1e-9);
+    assert.ok(Math.abs(p.fromBow - (sp.L / 2 - sp.xg - 50) / sp.L) < 1e-9);
   });
 }
 

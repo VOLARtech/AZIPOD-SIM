@@ -4,7 +4,7 @@
   --water: #e6eff2; --water-2: #d3e3ea; --grid: #c3d4dc; --land: #d8c993; --land-edge: #8f7d45; --shoal: #b9d4e2;
   --ink: #14242d; --muted: #566a74; --panel: rgba(247, 250, 251, 0.94); --panel-solid: #f4f8f9; --rule: #c2d0d6;
   --own: #cf6410; --hull: #fbfcfc; --port: #c4142f; --stbd: #0b8a3e; --predict: #b5137f; --warn: #b8290f; --ok: #0b8a3e;
-  --alt-crash: #a8740c; --alt-coast: #5d6f7a;
+  --alt-crash: #a8740c; --alt-coast: #5d6f7a; --guide: #0e7c86;
   color-scheme: light;
   --font-label: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
   --font-body: "Barlow", "Segoe UI", system-ui, sans-serif;
@@ -17,7 +17,7 @@
     --water: #06121a; --water-2: #0a1c27; --grid: #10283a; --land: #2b2513; --land-edge: #5e512a; --shoal: #0d2a3a;
     --ink: #d4c49a; --muted: #7d7660; --panel: rgba(6, 13, 18, 0.9); --panel-solid: #08121a; --rule: #1e3242;
     --own: #d27a2a; --hull: #13232e; --port: #d2475a; --stbd: #36ad66; --predict: #c4489a; --warn: #e0583a; --ok: #36ad66;
-    --alt-crash: #d9a43a; --alt-coast: #8a9aa6;
+    --alt-crash: #d9a43a; --alt-coast: #8a9aa6; --guide: #41c9c0;
     color-scheme: dark;
   }
 }
@@ -25,28 +25,28 @@
   --water: #06121a; --water-2: #0a1c27; --grid: #10283a; --land: #2b2513; --land-edge: #5e512a; --shoal: #0d2a3a;
   --ink: #d4c49a; --muted: #7d7660; --panel: rgba(6, 13, 18, 0.9); --panel-solid: #08121a; --rule: #1e3242;
   --own: #d27a2a; --hull: #13232e; --port: #d2475a; --stbd: #36ad66; --predict: #c4489a; --warn: #e0583a; --ok: #36ad66;
-  --alt-crash: #d9a43a; --alt-coast: #8a9aa6;
+  --alt-crash: #d9a43a; --alt-coast: #8a9aa6; --guide: #41c9c0;
   color-scheme: dark;
 }
 :root[data-palette="day"] {
   --water: #e6eff2; --water-2: #d3e3ea; --grid: #c3d4dc; --land: #d8c993; --land-edge: #8f7d45; --shoal: #b9d4e2;
   --ink: #14242d; --muted: #566a74; --panel: rgba(247, 250, 251, 0.94); --panel-solid: #f4f8f9; --rule: #c2d0d6;
   --own: #cf6410; --hull: #fbfcfc; --port: #c4142f; --stbd: #0b8a3e; --predict: #b5137f; --warn: #b8290f; --ok: #0b8a3e;
-  --alt-crash: #a8740c; --alt-coast: #5d6f7a;
+  --alt-crash: #a8740c; --alt-coast: #5d6f7a; --guide: #0e7c86;
   color-scheme: light;
 }
 :root[data-palette="dusk"] {
   --water: #16232c; --water-2: #1d2f3b; --grid: #243a49; --land: #4a4128; --land-edge: #7b6b3d; --shoal: #20394a;
   --ink: #e2d6b4; --muted: #9a917a; --panel: rgba(20, 30, 38, 0.92); --panel-solid: #16222b; --rule: #33495a;
   --own: #e58a34; --hull: #24343f; --port: #e0566a; --stbd: #47bd75; --predict: #d65aad; --warn: #f06a48; --ok: #47bd75;
-  --alt-crash: #e7b54b; --alt-coast: #a3b1bc;
+  --alt-crash: #e7b54b; --alt-coast: #a3b1bc; --guide: #41c9c0;
   color-scheme: dark;
 }
 :root[data-palette="night"] {
   --water: #06121a; --water-2: #0a1c27; --grid: #10283a; --land: #2b2513; --land-edge: #5e512a; --shoal: #0d2a3a;
   --ink: #d4c49a; --muted: #7d7660; --panel: rgba(6, 13, 18, 0.9); --panel-solid: #08121a; --rule: #1e3242;
   --own: #d27a2a; --hull: #13232e; --port: #d2475a; --stbd: #36ad66; --predict: #c4489a; --warn: #e0583a; --ok: #36ad66;
-  --alt-crash: #d9a43a; --alt-coast: #8a9aa6;
+  --alt-crash: #d9a43a; --alt-coast: #8a9aa6; --guide: #41c9c0;
   color-scheme: dark;
 }
 
@@ -506,8 +506,8 @@ details.sec[open] { display: flex; flex-direction: column; gap: 10px; padding-bo
 .hud, .mapbtns, .tray, .panel, .legend, .toast, .sheet, .gate, .ais, .edit-bar {
   --panel: rgba(20, 26, 32, 0.86); --panel-solid: #171e25; --rule: #303b45;
   --ink: #eef3f5; --muted: #8d9aa4; --own: #f39a2b; --port: #ef4452; --stbd: #33c46a;
-  --warn: #ff6b3d; --ok: #33c46a; --predict: #d65aad; --alt-crash: #e7b54b; --alt-coast: #a3b1bc;
-  --face: #2a333c; --face-2: #12181d; --cur: #3cc8d8;
+  --warn: #ff6b3d; --ok: #33c46a; --predict: #d65aad; --alt-crash: #e7b54b; --alt-coast: #a3b1bc; --guide: #41c9c0;
+  --face: #2a333c; --face-2: #12181d; --cur: #3cc8d8; --guide: #41c9c0;
   --tile: linear-gradient(180deg, #2c353e 0%, #1c2329 100%);
   --tile-on: linear-gradient(180deg, #3a2a17 0%, #23190e 100%);
   --edge: rgba(255, 255, 255, 0.08);
@@ -664,3 +664,8 @@ details.sec[open] { display: flex; flex-direction: column; gap: 10px; padding-bo
 .gref-list details { border-top: 1px solid var(--rule); padding: 6px 0; }
 .gref-list summary { cursor: pointer; font-family: var(--font-label); font-weight: 600; font-size: 14px; letter-spacing: 0.03em; }
 .gref-list details > .coach-brief, .gref-list details > .coach-more { margin-top: 4px; }
+
+/* the training guide's suggested bow-thruster setting: a dashed outline of the thumb where the order would go */
+.btslide { position: relative; display: block; --th: 30px; }
+.btghost { position: absolute; top: 50%; left: calc(var(--th) / 2 + (100% - var(--th)) * var(--g, 0.5)); width: var(--th); height: var(--th);
+  transform: translate(-50%, -50%); border: 2px dashed var(--guide); border-radius: 6px; pointer-events: none; }

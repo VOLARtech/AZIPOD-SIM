@@ -20,10 +20,17 @@ const SPEC: Record<string, (s: ShipSpec) => string> = {
   /** Seconds from zero to full pod rpm, and from full ahead to full astern. */
   rpmTime: s => num(s.podRpmTime),
   rpmReverse: s => num(2 * s.podRpmTime),
+  /** Seconds for a pod to swing half a turn. */
+  slew180: s => num(180 / (s.podSlew / DEG)),
+  /** Electrical power for pods and thrusters together [MW]. */
+  avail: s => num(s.powerAvail / 1e6, 1),
+  /** Bollard thrust of the bow thruster and of one pod [t]. */
+  btT: s => num(s.bowThruster.Tmax / 9.81e3),
+  podT: s => num(s.pods[0].Tb / 9.81e3),
 };
 
 /** Published stopping distances for the Azipod model tests, in ship lengths: {pub.swing180}. */
-const PUB: Record<string, string> = Object.fromEntries(PUBLISHED.map(p => [`pub.${p.key}`, num(p.sd, 1)]));
+const PUB: Record<string, string> = Object.fromEntries(PUBLISHED.map(p => [`pub.${p.key}`, p.sd.toFixed(1)]));
 
 const TOKEN = /\{([A-Za-z][\w.]*)\}/g;
 

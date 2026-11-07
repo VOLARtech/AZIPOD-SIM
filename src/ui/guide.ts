@@ -3,13 +3,18 @@
 import { S } from './state';
 import { SHIP } from '../physics/ship';
 import { toast } from '../app';
+import { joyLimits } from '../physics/allocation';
+import type { JoyInput } from '../physics/allocation';
+import { thrusterEff } from '../physics/sim';
 import { CONTENT } from '../guide/content';
 import { Coach } from '../guide/coach';
 import { guideCtx } from '../guide/context';
+import type { Ctx } from '../guide/context';
 import { appliesTo, familyOf } from '../guide/families';
 import { RULES } from '../guide/rules';
 import { SRC } from '../guide/sources';
 import { fill } from '../guide/tokens';
+import { dockingStick, ghostFromStick } from '../guide/vectors';
 import type { Card, Claim, Conf, Fam, Level } from '../guide/types';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -32,6 +37,8 @@ let view: View = 'none';
 let pinned = false;           // the player opened or expanded the panel: it stays until they close it
 let deferred = false;         // a tip is waiting for another panel to close
 let lastT = NaN;
+let stickS: JoyInput = { x: 0, y: 0, r: 0 }, haveStick = false;       // the docking stick, smoothed so the outlines don't jitter
+let needIndep = false;                                                // a suggestion is waiting for INDEP mode
 let hooks: { placePanels(): void; closeOthers(): void; openMenu(): void } = { placePanels() {}, closeOthers() {}, openMenu() {} };
 
 // ---------------------------------------------------------------- text
@@ -72,7 +79,7 @@ function render() {
     $('coach-head').textContent = 'COACH';
   } else {
     const n = CONTENT.cards.filter(k => appliesTo(k, SHIP)).length;
-    body.innerHTML = `<p class="coach-title">Nothing to suggest right now</p><p class="coach-brief">${g.tips ? 'A tip appears here when the situation calls for one.' : 'Tips are off.'}${n ? ` The reference has ${n} card${n > 1 ? 's' : ''} for ${esc(FAM_NAME[familyOf(SHIP)].toLowerCase())}.` : ''}</p>`;
+    body.innerHTML = `<p class="coach-title">Nothing to suggest right now</p><p class="coach-brief">${g.tips ? 'A tip appears here when the situation calls for one.' : 'Tips are off.'}${n ? ` The reference has ${n} card${n > 1 ? 's' : ''} for ${esc(FAM_NAME[familyOf(SHIP)].toLowerCase())}.` : ''}${needIndep ? ' Pod suggestions show in INDEP mode: tap LINKED to change.' : ''}</p>`;
     btns.innerHTML = `<button class="cb" data-a="more">${more}</button><button class="cb" data-a="ref">REFERENCE</button>`;
     $('coach-head').textContent = 'COACH';
   }
@@ -125,7 +132,8 @@ export function renderReference() {
 export function syncGuide() {
   const g = S.guide;
   $('b-coach').hidden = !g.on;
-  if (!g.on) { if (panelOpen()) closePanel(); view = 'none'; coach.dismiss(); S.guide.ghost = null; }
+  if (!g.on) { if (panelOpen()) closePanel(); view = 'none'; coach.dismiss(); S.guide.ghost = null; haveStick = false; needIndep = false; }
+  showBtGhost();
   syncMenu();
   renderReference();
 }
@@ -136,6 +144,33 @@ export function resetGuide() {
   renderReference();
 }
 
+/** The suggested pod settings for the docking stick, as outlines on the dials, levers and bow-thruster slider. */
+function updateGhost(dt: number, c: Ctx) {
+  const g = S.guide, rt = S.rt, was = needIndep;
+  needIndep = false;
+  if (!g.vectors || !rt.canJoy || rt.lever === 'joy') { g.ghost = null; haveStick = false; }
+  else {
+    const h = rt.model.h, st = rt.state, cur = rt.env.current(st.n, st.e);
+    const btEff = thrusterEff(st.u - (Math.cos(st.psi) * cur[0] + Math.sin(st.psi) * cur[1]));
+    const stick = dockingStick(c, { surge: h.M[0], sway: h.M[4], yaw: h.M[8] }, joyLimits(rt.spec, btEff));
+    if (!stick) { g.ghost = null; haveStick = false; }
+    else if (rt.lever !== 'indep') { g.ghost = null; haveStick = false; needIndep = true; }     // the two pods must be free to differ
+    else {
+      const k = haveStick ? Math.min(1, dt / 4) : 1;
+      stickS = { x: stickS.x + (stick.x - stickS.x) * k, y: stickS.y + (stick.y - stickS.y) * k, r: stickS.r + (stick.r - stickS.r) * k };
+      haveStick = true;
+      g.ghost = ghostFromStick(rt.spec, st, stickS, btEff);
+    }
+  }
+  showBtGhost();
+  if (needIndep !== was && view === 'idle' && panelOpen()) render();
+}
+function showBtGhost() {
+  const el = $('bt-ghost'), b = S.guide.vectors ? S.guide.ghost?.bt : undefined;
+  if (b === undefined) el.hidden = true;
+  else { el.hidden = false; el.style.setProperty('--g', String((Math.max(-1, Math.min(1, b)) + 1) / 2)); }
+}
+
 /** Every slow tick (about 10 Hz): advance the coach and show or clear its tip. Does nothing while the guide is off. */
 export function updateGuide() {
   const g = S.guide;
@@ -143,7 +178,9 @@ export function updateGuide() {
   const rt = S.rt, t = rt.state.t, dt = Number.isFinite(lastT) ? Math.max(0, Math.min(2, t - lastT)) : 0;
   lastT = t;
   const before = coach.current?.id ?? null;
-  const card = coach.step(guideCtx(rt, S.berth.target, S.quay), dt, { tips: g.tips, seen: g.seen });
+  const ctx = guideCtx(rt, S.berth.target, S.quay);
+  updateGhost(dt, ctx);
+  const card = coach.step(ctx, dt, { tips: g.tips, seen: g.seen });
   const now = card?.id ?? null;
   if (now !== before) {
     if (card) { view = 'tip'; if (otherPanelOpen()) deferred = true; else { openPanel(); } }
@@ -166,7 +203,7 @@ export function initGuide(h: typeof hooks) {
   };
   ($('g-tips') as HTMLInputElement).onchange = e => { g.tips = (e.target as HTMLInputElement).checked; if (!g.tips) { coach.dismiss(); if (view === 'tip') { view = 'none'; closePanel(); } } syncMenu(); };
   ($('g-steps') as HTMLInputElement).onchange = e => { g.steps = (e.target as HTMLInputElement).checked; syncMenu(); };
-  ($('g-vec') as HTMLInputElement).onchange = e => { g.vectors = (e.target as HTMLInputElement).checked; if (!g.vectors) g.ghost = null; syncMenu(); };
+  ($('g-vec') as HTMLInputElement).onchange = e => { g.vectors = (e.target as HTMLInputElement).checked; if (!g.vectors) { g.ghost = null; haveStick = false; needIndep = false; } showBtGhost(); syncMenu(); };
   $('seg-glevel').querySelectorAll('button').forEach(b => ((b as HTMLButtonElement).onclick = () => { g.level = b.dataset.v as Level; syncMenu(); if (panelOpen()) render(); }));
   $('g-forget').onclick = () => { g.seen.clear(); coach.reset(); syncMenu(); toast('Every tip can show again.'); };
   $('coach-btns').addEventListener('click', e => { const a = (e.target as HTMLElement).closest('button')?.dataset.a; if (a) onButton(a); });
