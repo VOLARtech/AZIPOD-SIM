@@ -669,3 +669,21 @@ details.sec[open] { display: flex; flex-direction: column; gap: 10px; padding-bo
 .btslide { position: relative; display: block; --th: 30px; }
 .btghost { position: absolute; top: 50%; left: calc(var(--th) / 2 + (100% - var(--th)) * var(--g, 0.5)); width: var(--th); height: var(--th);
   transform: translate(-50%, -50%); border: 2px dashed var(--guide); border-radius: 6px; pointer-events: none; }
+
+/* the guide's drills, exercises and debrief */
+.coach-h { margin: 6px 0 0; font-family: var(--font-label); font-weight: 600; font-size: 11px; letter-spacing: 0.08em; color: var(--muted); text-transform: uppercase; }
+.coach-list { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 0; font-size: 13.5px; }
+.coach-list small { display: block; color: var(--muted); font-size: 11.5px; }
+.coach-list .cb { height: 30px; padding: 0 12px; font-size: 12px; flex: none; }
+.coach-list .cb:disabled { opacity: 0.45; cursor: default; }
+.coach-steps { margin: 2px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; line-height: 1.35; color: var(--muted); }
+.coach-steps .ds-now { color: var(--ink); font-weight: 600; }
+.coach-steps .ds-done { color: var(--ok); }
+.coach-steps .ds-done::marker { content: "✓ "; }
+.coach-steps .ds-skipped { text-decoration: line-through; opacity: 0.7; }
+.coach-obj { margin: 2px 0; padding-left: 18px; font-size: 13.5px; line-height: 1.4; }
+.coach-rows { display: flex; flex-direction: column; gap: 5px; margin-top: 2px; }
+.coach-row2 { display: grid; grid-template-columns: 1fr auto; gap: 0 10px; align-items: baseline; }
+.coach-row2 .k { font-size: 13px; }
+.coach-row2 b { font-family: var(--font-num); font-weight: 500; font-size: 14px; }
+.coach-row2 .ref { grid-column: 1 / -1; font-size: 11.5px; color: var(--muted); line-height: 1.3; }

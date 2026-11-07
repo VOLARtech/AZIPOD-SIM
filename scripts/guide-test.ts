@@ -8,8 +8,11 @@ import { runValidation } from '../src/physics/validation';
 import { joyLimits } from '../src/physics/allocation';
 import { makeState, thrusterEff } from '../src/physics/sim';
 import type { Env } from '../src/physics/sim';
-import { SCENARIOS } from '../src/scenarios';
+import { SCENARIOS, berthFor, fits } from '../src/scenarios';
 import { closingFast, closingSpeed, guideSpeed } from '../src/guide/align';
+import { ExRun, METRICS } from '../src/guide/exercises';
+import { CHECKS, HOLD, Runner } from '../src/guide/procedures';
+import { scriptedStop } from '../src/guide/proofs';
 import { Coach, MIN_SHOW } from '../src/guide/coach';
 import { guideCtx } from '../src/guide/context';
 import type { Ctx } from '../src/guide/context';
@@ -34,9 +37,9 @@ const test = (name: string, fn: () => void) => {
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
 
 /** The registries the real content is checked against. Later steps add the rules, checks, proofs and metrics. */
-const realEnv = (): LintEnv => ({ sources: SRC, ships: SHIPS, scenarios: SCENARIOS, rules: new Set(Object.keys(RULES)), checks: new Set(), proofs: new Set(), metrics: new Set() });
+const realEnv = (): LintEnv => ({ sources: SRC, ships: SHIPS, scenarios: SCENARIOS, rules: new Set(Object.keys(RULES)), checks: new Set(Object.keys(CHECKS)), proofs: new Set(Object.keys(PROOF_TESTS)), metrics: new Set(Object.keys(METRICS)) });
 /** A small registry for the fixtures below. */
-const fxEnv = (): LintEnv => ({ ...realEnv(), rules: new Set(['x']), checks: new Set(['c']), proofs: new Set(['p']), metrics: new Set(['m']) });
+const fxEnv = (): LintEnv => ({ sources: SRC, ships: SHIPS, scenarios: SCENARIOS, rules: new Set(['x']), checks: new Set(['c']), proofs: new Set(['p']), metrics: new Set(['m']) });
 
 console.log('sources');
 {
@@ -136,7 +139,7 @@ console.log('content rules');
   });
   const ex = (over: Partial<Exercise> = {}): Exercise => ({
     id: 'fx-ex', track: 'azipod', fam: ['pod'], title: 'Crash stop', brief: 'Stop in open water and compare.',
-    scenario: 'trials', ship: 'spirit', objectives: ['Stop her.'], metrics: ['m'], real: [], review: 'draft', ...over,
+    scenario: 'trials', ship: 'spirit', objectives: ['Stop her.'], begin: 'order', end: 'stopped', limit: 600, metrics: ['m'], real: [], review: 'draft', ...over,
   });
   const lint = (c: Partial<Content>, env = fxEnv()) => lintContent({ cards: [], procedures: [], exercises: [], ...c }, env);
   const catches = (what: string, c: Partial<Content>, re: RegExp, env = fxEnv()) =>
@@ -223,7 +226,7 @@ console.log('coach');
     tip: { when, hold: 2, cool: 60, prio: 2, ...o }, ...over,
   });
   const ctx = (t: number, over: Partial<Ctx> = {}): Ctx => ({
-    t, spec: sp, fam: 'pod', lever: 'twin', sog: 0, psi: 0, u: 0, v: 0, r: 0, bow: 0, stern: 0, wind: 0, ukc: Infinity,
+    t, spec: sp, fam: 'pod', lever: 'twin', sog: 0, psi: 0, pos: { n: 0, e: 0 }, u: 0, v: 0, r: 0, bow: 0, stern: 0, wind: 0, ukc: Infinity,
     units: [], revBlocked: [], powerLimited: false, berth: null, quay: [], ...over,
   });
   const fast: Rule = c => c.sog > 1, slow: Rule = c => c.sog < 0.5;
@@ -355,7 +358,7 @@ console.log('azipod tips and the closing-speed guideline');
 {
   const sp = SHIPS.spirit;
   const base = (over: Partial<Ctx> = {}): Ctx => ({
-    t: 0, spec: sp, fam: 'pod', lever: 'twin', sog: 0, psi: 0, u: 0, v: 0, r: 0, bow: 0, stern: 0, wind: 0, ukc: Infinity,
+    t: 0, spec: sp, fam: 'pod', lever: 'twin', sog: 0, psi: 0, pos: { n: 0, e: 0 }, u: 0, v: 0, r: 0, bow: 0, stern: 0, wind: 0, ukc: Infinity,
     units: [{ alpha: 0, rpm: 0, cmdAlpha: 0, cmdRpm: 0 }, { alpha: 0, rpm: 0, cmdAlpha: 0, cmdRpm: 0 }], revBlocked: [false, false], powerLimited: false,
     berth: null, quay: [], ...over,
   });
@@ -399,7 +402,7 @@ console.log('docking suggestion and pivot point');
   const sp = SHIPS.spirit, rt0 = mkRt('spirit', 90, 0), h = rt0.model.h;
   const masses = { surge: h.M[0], sway: h.M[4], yaw: h.M[8] }, lim = joyLimits(sp, 1);
   const base = (over: Partial<Ctx> = {}): Ctx => ({
-    t: 0, spec: sp, fam: 'pod', lever: 'indep', sog: 0, psi: 90 * DEG, u: 0, v: 0, r: 0, bow: 0, stern: 0, wind: 0, ukc: Infinity,
+    t: 0, spec: sp, fam: 'pod', lever: 'indep', sog: 0, psi: 90 * DEG, pos: { n: 0, e: 0 }, u: 0, v: 0, r: 0, bow: 0, stern: 0, wind: 0, ukc: Infinity,
     units: [], revBlocked: [], powerLimited: false, berth: { name: 'B', along: -30, off: 0, dpsi: 0, dist: 30 },
     quay: [{ d: 20, closing: 0.3, side: 1, x: 100 }, { d: 20, closing: 0.3, side: 1, x: -100 }], ...over,
   });
@@ -475,6 +478,138 @@ console.log('docking suggestion and pivot point');
     const p = pivotPoint(sp, -0.5, 0.01)!;                         // v + r x = 0 at x = 50 m ahead of the CG
     assert.ok(Math.abs(p.x - 50) < 1e-9);
     assert.ok(Math.abs(p.fromBow - (sp.L / 2 - sp.xg - 50) / sp.L) < 1e-9);
+  });
+}
+
+console.log('drills and exercises');
+/** The scripted proof of every procedure: what its card says about the model, checked on every ship it speaks to. */
+const PROOF_TESTS: Record<string, () => void> = {
+  'pod-stop-turn-round': () => {
+    for (const id of ['becancour', 'lady', 'spirit', 'paspaley-pearl']) {
+      const swing = scriptedStop(SHIPS[id], 'swing180'), rev = scriptedStop(SHIPS[id], 'reverse'), ind = scriptedStop(SHIPS[id], 'indirect');
+      for (const r of [swing, rev, ind]) assert.ok(r.stopped && !r.blocked, `${id}: ${JSON.stringify(r)}`);
+      assert.ok(swing.reach > 1.2 && swing.reach < 3.5, `${id} swing ${swing.reach.toFixed(2)} L`);
+      assert.ok(swing.reach < ind.reach && swing.reach < rev.reach, `${id}: the 180° turn is not the shortest (${swing.reach.toFixed(2)}, ${ind.reach.toFixed(2)}, ${rev.reach.toFixed(2)})`);
+      assert.ok(Math.abs(swing.heading) < 5, `${id}: heading changed ${swing.heading.toFixed(1)}°`);
+    }
+  },
+  'pod-stop-reverse': () => {
+    for (const id of ['becancour', 'lady', 'spirit', 'paspaley-pearl']) {
+      const rev = scriptedStop(SHIPS[id], 'reverse'), swing = scriptedStop(SHIPS[id], 'swing180'), direct = scriptedStop(SHIPS[id], 'reverse-direct', 0.65, 600);
+      assert.ok(rev.stopped && !rev.blocked && rev.reach > 2 && rev.reach < 5, `${id} staged reversal ${JSON.stringify(rev)}`);
+      assert.ok(rev.reach > swing.reach, `${id}: reversing should take more ship lengths than the 180° turn`);
+      assert.ok(direct.blocked && !direct.stopped, `${id}: an astern order at once from speed should be ignored and she should run on (${JSON.stringify(direct)})`);
+    }
+  },
+};
+{
+  for (const [id, proof] of Object.entries(PROOF_TESTS)) test(`proof ${id}: what the card says about the model holds on every ship it speaks to`, proof);
+  test('every procedure in the content has a proof, and every proof has a procedure', () => {
+    assert.deepEqual(CONTENT.procedures.map(p => p.proof).sort(), Object.keys(PROOF_TESTS).sort());
+  });
+
+  const sp = SHIPS.spirit;
+  const cx = (over: Partial<Ctx> = {}): Ctx => ({
+    t: 0, spec: sp, fam: 'pod', lever: 'indep', sog: 6, psi: 0, pos: { n: 0, e: 0 }, u: 6, v: 0, r: 0, bow: 0, stern: 0, wind: 0, ukc: Infinity,
+    units: [{ alpha: 0, rpm: 0.5, cmdAlpha: 0, cmdRpm: 0.5 }, { alpha: 0, rpm: 0.5, cmdAlpha: 0, cmdRpm: 0.5 }],
+    revBlocked: [false, false], powerLimited: false, berth: null, quay: [], ...over,
+  });
+  const units = (alpha: number, rpm: number, cmdAlpha = alpha, cmdRpm = rpm) => [{ alpha, rpm, cmdAlpha, cmdRpm }, { alpha, rpm, cmdAlpha, cmdRpm }];
+  const proc = CONTENT.procedures.find(p => p.id === 'pod-stop-turn-round')!;
+  /** Feed the runner `secs` seconds of one situation. */
+  const feed = (r: Runner, c: Ctx, secs = HOLD + 0.2) => { for (let t = 0; t < secs; t += 0.1) r.step({ ...c, t: c.t + t }, 0.1); };
+
+  test('the runner starts at the first step and waits for the player to read it', () => {
+    const r = new Runner(proc, cx());
+    assert.equal(r.index, 0); assert.deepEqual(r.states.slice(0, 2), ['now', 'todo']);
+    feed(r, cx());
+    assert.equal(r.index, 0, 'a drill never starts itself');
+    r.ack(); feed(r, cx());
+    assert.equal(r.states[0], 'done'); assert.equal(r.index, 1);
+  });
+  test('the runner ticks a step off only once its situation has held for a moment', () => {
+    const r = new Runner(proc, cx()); r.ack(); feed(r, cx());
+    const round = cx({ units: units(0, 0.5, Math.PI, 0.5) });
+    r.step(round, 0.1);
+    assert.equal(r.index, 1, 'one tick is not enough');
+    feed(r, round);
+    assert.equal(r.states[1], 'done');
+  });
+  test('doing steps early or out of order is fine: the furthest step that holds counts and the ones before it are skipped', () => {
+    const r = new Runner(proc, cx());
+    feed(r, cx({ units: units(Math.PI, 0.9, Math.PI, 0.9) }));          // the pods are already round with the rpm up
+    assert.deepEqual(r.states.slice(0, 4), ['skipped', 'skipped', 'skipped', 'done']);
+    assert.equal(r.index, 4);
+  });
+  test('easing the rpm while the pods are ordered across is remembered', () => {
+    const r = new Runner(proc, cx());
+    r.step(cx({ units: units(0, 0.5, 90 * DEG, 0.2) }), 0.1);          // pods ordered across, rpm ordered well down
+    assert.ok(r.memo.flags.eased);
+    const r2 = new Runner(proc, cx());
+    r2.step(cx({ units: units(0, 0.5, 90 * DEG, 0.5) }), 0.1);         // pods across with the rpm kept
+    assert.ok(!r2.memo.flags.eased);
+  });
+  test('skip leaves a step undone, and the drill finishes after the last', () => {
+    const r = new Runner(proc, cx());
+    for (let i = 0; i < proc.steps.length; i++) r.skip();
+    assert.ok(r.finished && r.states.every(s => s === 'skipped'));
+  });
+  test('the runner records the track covered and the heading change as she goes', () => {
+    const r = new Runner(proc, cx());
+    for (let i = 0; i < 50; i++) r.step(cx({ sog: 5, psi: 0.02 }), 0.1);
+    assert.ok(Math.abs(r.path - 25) < 1e-6 && Math.abs(r.time - 5) < 1e-6 && Math.abs(r.heading - 0.02) < 1e-9);
+  });
+  test('the checks read the dials: reverse limit, astern and idle', () => {
+    assert.ok(!CHECKS['rpm-below-limit'](cx(), { rpm0: 0.5, flags: {} }) && CHECKS['rpm-below-limit'](cx({ units: units(0, 0.2) }), { rpm0: 0.5, flags: {} }));
+    assert.ok(CHECKS['astern-ordered'](cx({ units: units(0, 0.2, 0, -0.9) }), { rpm0: 0.5, flags: {} }));
+    assert.ok(CHECKS['pods-idle'](cx({ units: units(0, 0, 0, 0) }), { rpm0: 0.5, flags: {} }) && !CHECKS['pods-idle'](cx(), { rpm0: 0.5, flags: {} }));
+    assert.ok(CHECKS.stopped(cx({ sog: 0.1 }), { rpm0: 0, flags: {} }) && !CHECKS.stopped(cx(), { rpm0: 0, flags: {} }));
+  });
+
+  const stopEx = CONTENT.exercises.find(e => e.id === 'ex-pod-stop')!, landEx = CONTENT.exercises.find(e => e.id === 'ex-pod-alongside')!;
+  const noContact = { contactLog: [] } as unknown as Runtime;
+  test('a stopping exercise measures from the first order and ends when she has stopped', () => {
+    const c0 = cx({ t: 0, sog: 6 });
+    const run = new ExRun(stopEx, c0);
+    for (let t = 0; t < 5; t += 0.5) run.update(cx({ t, sog: 6 }), noContact);
+    assert.ok(!run.started, 'nothing ordered yet');
+    for (let t = 5; t < 25; t += 0.5) run.update(cx({ t, sog: 5, pos: { n: (t - 5) * 5, e: 0 }, units: units(0, 0.5, Math.PI, 0.5) }), noContact);
+    assert.ok(run.started && !run.finished);
+    for (let t = 25; t < 60; t += 0.5) run.update(cx({ t, sog: 0.1, pos: { n: 100, e: 0 }, units: units(Math.PI, 0.5, Math.PI, 0) }), noContact);
+    assert.ok(run.finished && !run.timedOut);
+    const rows = run.rows(cx());
+    assert.deepEqual(rows.map(r => r.label), ['Track reach', 'Time', 'Heading change', 'Off her track']);
+    assert.ok(/^\d+\.\d L$/.test(rows[0].you), rows[0].you);
+  });
+  test('an exercise gives up when its time limit has run', () => {
+    const run = new ExRun({ ...stopEx, limit: 30 }, cx({ t: 0 }));
+    for (let t = 0; t < 60; t += 0.5) run.update(cx({ t, sog: 5, units: units(0, 0.5, 0, t > 1 ? 0.1 : 0.5) }), noContact);
+    assert.ok(run.finished && run.timedOut);
+  });
+  test('an alongside exercise ends a few seconds after the first landing, and reports the landing', () => {
+    const run = new ExRun(landEx, cx({ t: 0 }));
+    const rt = { contactLog: [] as { t: number; vn: number; maxDefl: number }[] } as unknown as Runtime & { contactLog: { t: number; vn: number; maxDefl: number }[] };
+    for (let t = 0; t < 20; t += 0.5) run.update(cx({ t, sog: 0.2 }), rt);
+    assert.ok(!run.finished);
+    rt.contactLog.unshift({ t: 20, vn: 0.07, maxDefl: 0.3 });
+    for (let t = 20; t < 40; t += 0.5) run.update(cx({ t, sog: 0.05 }), rt);
+    assert.ok(run.finished && !run.timedOut);
+    const rows = Object.fromEntries(run.rows(cx()).map(r => [r.label, r.you]));
+    assert.equal(rows['Landing speed'], '7 cm/s'); assert.equal(rows['Fender squeeze'], '30 % of rated');
+  });
+  test('the closing-speed metric is the worst ratio to the guideline within 30 m', () => {
+    const acc = METRICS.closing(cx());
+    const q = (d: number, closing: number) => ({ d, closing, side: 1 as const, x: 0 });
+    acc.update(cx({ quay: [q(10, 0.1)] }), noContact, 1);              // guideline at 10 m is 0.05: twice
+    acc.update(cx({ quay: [q(25, 0.01)] }), noContact, 1);
+    acc.update(cx({ quay: [q(50, 5)] }), noContact, 1);                // beyond 30 m: ignored
+    assert.equal(acc.row(cx()).you, '2.0× the guideline');
+  });
+  test('every exercise can be played with its ship: she fits the scenario\'s water, tugs and DP', () => {
+    for (const e of CONTENT.exercises) {
+      const sc = SCENARIOS.find(x => x.id === e.scenario)!, ship = SHIPS[e.ship];
+      assert.ok(fits(sc, ship.T, sc.berthFace ? berthFor(sc, ship.B, 0) : sc.berth, !!ship.towPoints, ship.station === 'dp'), `${e.id}: ${ship.name} in ${sc.name}`);
+    }
   });
 }
 

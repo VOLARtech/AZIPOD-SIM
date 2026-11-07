@@ -31,14 +31,14 @@ export function renderClaims(c: Content, sources: Source[]): string {
       o.push('');
     }
     for (const p of procs) {
-      o.push(`### \`${p.id}\` · ${p.title} · procedure · ${p.review}`, '', `Applies to: ${p.fam.join(', ')}${p.ships ? ` (${p.ships.join(', ')})` : ''} · proof \`${p.proof}\``, '', `- **Brief:** ${p.brief}`);
+      o.push(`### \`${p.id}\` · ${p.title} · procedure · ${p.review}`, '', `Applies to: ${p.fam.join(', ')}${p.ships ? ` (${p.ships.join(', ')})` : ''} · proof \`${p.proof}\`${p.minKn ? ` · needs ${p.minKn} kn` : ''}`, '', `- **Brief:** ${p.brief}`);
       p.steps.forEach((s, i) => o.push(`  ${i + 1}. ${s.text}${s.why ? ` — ${s.why}` : ''} (check \`${s.check}\`)`));
       if (p.real.length) o.push('- **Real world:**', ...p.real.map(claim));
       if (p.sim) o.push(`- **In SHIPSHAPE:** ${p.sim}`);
       o.push('');
     }
     for (const e of exs) {
-      o.push(`### \`${e.id}\` · ${e.title} · exercise · ${e.review}`, '', `${e.ship} in \`${e.scenario}\``, '', `- **Brief:** ${e.brief}`, ...e.objectives.map(x => `  - ${x}`), `- **Debrief:** ${e.metrics.join(', ')}`);
+      o.push(`### \`${e.id}\` · ${e.title} · exercise · ${e.review}`, '', `${e.ship} in \`${e.scenario}\`${e.kn ? ` at ${e.kn} kn` : ''} · measured from ${e.begin === 'order' ? 'the first order' : 'the start'} until she has ${e.end}, at most ${e.limit} s`, '', `- **Brief:** ${e.brief}`, ...e.objectives.map(x => `  - ${x}`), `- **Debrief:** ${e.metrics.join(', ')}`);
       if (e.real.length) o.push('- **Real world:**', ...e.real.map(claim));
       o.push('');
     }

@@ -3,7 +3,7 @@
 Generated from `src/guide/content` by `npm run guide:dossier`. Do not edit by hand: `npm test` fails when it is out of date.
 The sources are listed in [TRAINING.md](TRAINING.md). Numbers written as `{token}` are filled in from the ship's own particulars or a published figure.
 
-**11 cards · 0 procedures · 0 exercises · 11 draft · 0 reviewed**
+**11 cards · 2 procedures · 2 exercises · 15 draft · 0 reviewed**
 
 ## Azipod ships
 
@@ -124,6 +124,61 @@ Applies to: pod · tip when `closing-fast` (hold 2 s, cool 60 s, priority 2)
 - **Real world:**
   - `measured` From 47 observed VLCC berthings: the approach speed of berthing (in cm/s) is conveniently half of the distance (in m) between the ship and the berth. Berthing speeds varied widely and depended strongly on who handled the ship. (Abstract only; the paper is in Japanese.) — *ishihata-1988*
 - **In SHIPSHAPE:** The guideline on the quay distances is the lower of that rule and this simulator's own approach-speed limit for her displacement. It is never set below a floor she can hold.
+
+### `pod-stop-turn-round` · Crash stop: turn the pods round · procedure · draft
+
+Applies to: pod (becancour, lady, spirit, paspaley-pearl) · proof `pod-stop-turn-round` · needs 4 kn
+
+- **Brief:** Stop a twin-pod ship by turning both pods round through 180° and giving full rpm.
+  1. Note your heading and check the water ahead. Model tests of a twin-pod ship needed {pub.swing180} to {pub.reverse} ship lengths. (check `ack`)
+  2. Swing both pods round together: set the dial to astern (180°). (check `pods-ordered-round`)
+  3. Ease the rpm while they swing across the flow: blade loads are worst about 60 to 70° to it. (check `rpm-eased`)
+  4. With the pods round, bring the rpm back up to take the way off. (check `rpm-up-round`)
+  5. Watch your heading and trim the pods to keep her straight until she stops. (check `stopped`)
+  6. Stopped: rpm to zero and the pods back ahead. (check `pods-idle`)
+- **Real world:**
+  - `measured` Turning the pods around is more effective than reversing the propellers on a twin-pod ship, but not for single-pod ships. Blade loading is the drawback, worst with a pod about 60 to 70° from the ship's velocity, and reducing the thrust while the pods turn may diminish it. In the model test of this method the rpm was reduced while the pods turned and returned afterwards: {pub.swing180} L from about 12 kn. — *nowicki-2014*
+  - `published` In a crash stop it is better to rotate the handle 180° and give the maximum rpm than to order directly astern, where the maximum is lower. — *striga-impa*
+  - `measured` A manual stop wanders: small asymmetries in pod angle or timing give a large deviation from a straight track. — *nowicki-2014*
+- **In SHIPSHAPE:** In this model the 180° turn is the shortest of the stops that use the pods' power, and the pods take {slew180} s to swing round.
+
+### `pod-stop-reverse` · Crash stop: reverse the propellers · procedure · draft
+
+Applies to: pod (becancour, lady, spirit, paspaley-pearl) · proof `pod-stop-reverse` · needs 4 kn
+
+- **Brief:** Stop by reversing both propellers once the rpm is below {rev} %: above it a reverse order is ignored.
+  1. Note your heading and check the water ahead. Model tests of a twin-pod ship needed {pub.swing180} to {pub.reverse} ship lengths. (check `ack`)
+  2. Bring both rpm down below {rev} %: the controller ignores a reverse order above it. (check `rpm-below-limit`)
+  3. Then order full astern, up to {astern} % of the ahead maximum. (check `astern-ordered`)
+  4. Watch your heading and trim the pods to keep her straight until she stops. (check `stopped`)
+  5. Stopped: rpm to zero. (check `pods-idle`)
+- **Real world:**
+  - `published` When the pod speed is over 50 rpm (of a 180 rpm maximum), an order in the opposite sense is treated as a mistake and the pod keeps its speed and direction of pull. The handler must bring the rpm under 50 before ordering astern. — *striga-impa*
+  - `measured` Reversing the propellers (astern rpm as ahead) took {pub.reverse} L from about 12 kn in the model tests, against {pub.swing180} L for turning the pods round. Reversing the electric drive takes about 60 s. — *nowicki-2014*
+- **In SHIPSHAPE:** Ordered at once from speed, an astern order is ignored here and she runs on. Staged as above she stops, in more ship lengths than by the 180° turn.
+
+### `ex-pod-stop` · Crash stop from speed · exercise · draft
+
+spirit in `trials` at 12 kn · measured from the first order until she has stopped, at most 600 s
+
+- **Brief:** Take the way off a Spirit-class ship in open water by any method, and compare it with the model tests.
+  - Stop her from speed in open water, by any method.
+  - Keep her as straight as you can.
+- **Debrief:** reach, time, heading, offtrack
+- **Real world:**
+  - `measured` Model tests of a twin-pod LNG carrier from about 12 kn gave track reaches of {pub.swing180} to {pub.reverse} L for the powered methods. — *nowicki-2014*
+
+### `ex-pod-alongside` · Alongside at Quai 27 · exercise · draft
+
+spirit in `quai27` · measured from the start until she has landed, at most 1500 s
+
+- **Brief:** Bring a Spirit-class ship alongside the main quay in the wind, and land her gently.
+  - Lie her alongside on the berth mark.
+  - Keep both ends under the closing-speed guideline.
+  - Land gently on the fenders.
+- **Debrief:** landing, fender, closing, time
+- **Real world:**
+  - `measured` From 47 observed VLCC berthings: the approach speed (in cm/s) is conveniently half of the distance (in m) between the ship and the berth. — *ishihata-1988*
 
 ## Tugs
 

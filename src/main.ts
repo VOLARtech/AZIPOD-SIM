@@ -20,6 +20,7 @@ import { EditMode, editAt, loadBerth, resetBerth } from './ui/berthedit';
 import { initBerthPicker, renderBerthPicker, targetFor } from './ui/berthpicker';
 import { initLockPanel, updateLockPanel } from './ui/lockpanel';
 import { initGuide, resetGuide, updateGuide } from './ui/guide';
+import type { Exercise } from './guide/types';
 import { nearestBerth, type BerthSpec } from './physics/berths';
 import { IceState } from './physics/ice';
 import { buildDpStation, buildJetStation, buildStation, buildTugStation, initialOrders, Station } from './ui/stations';
@@ -144,7 +145,7 @@ let sheetStarted = false;
 const postedData = new Set<string>();
 let openSeq = 0;
 /** Load a scenario, fetching its chart and depth data first if it has any. */
-async function openScenario(sc: Scenario) {
+async function openScenario(sc: Scenario, at?: { n: number; e: number; psi: number; kn: number }) {
   const seq = ++openSeq;                                  // a later pick wins over a download still in flight
   // a ship that draws too much for this water: take the scenario's own ship instead
   const want = SHIPS[S.shipId ?? sc.ship ?? 'becancour'];
@@ -163,7 +164,17 @@ async function openScenario(sc: Scenario) {
     }
     if (seq !== openSeq) return;
   }
-  loadScenario(sc);
+  loadScenario(sc, at);
+}
+/** The training guide starts an exercise: her scenario, her ship, her speed and the weather the exercise asks for. */
+async function startExercise(ex: Exercise) {
+  const sc = SCENARIOS.find(s => s.id === ex.scenario)!;
+  S.shipId = ex.ship;
+  if (!$('sheet').hidden) $('b-close').click();
+  await openScenario(sc, ex.kn !== undefined ? { n: sc.start.n, e: sc.start.e, psi: sc.start.psi, kn: ex.kn } : undefined);
+  const w = ex.env;
+  if (w) { if (w.windKn !== undefined) S.env.windKn = w.windKn; if (w.windFrom !== undefined) S.env.windFrom = w.windFrom; if (w.curKn !== undefined) S.env.curKn = w.curKn; if (w.curSet !== undefined) S.env.curSet = w.curSet; applyEnv(); }
+  S.paused = false; syncButtons();
 }
 let onScenarioLoaded = () => { v3?.build(); set3dTag(); };
 let creditFn: ((id: string) => string) | null = null;
@@ -1181,6 +1192,7 @@ initGuide({
   placePanels,
   closeOthers: () => { $('p-lines').hidden = $('p-tugs').hidden = $('p-dmg').hidden = $('p-lock').hidden = true; },
   openMenu: () => { if ($('sheet').hidden) $('b-menu').click(); },
+  startExercise,
 });
 if (qShip && SHIPS[qShip]) S.shipId = qShip;
 if (qView === '2d' || qView === 'split' || qView === '3d') S.disp.view = qView;

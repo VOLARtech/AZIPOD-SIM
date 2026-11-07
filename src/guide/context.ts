@@ -27,6 +27,8 @@ export interface Ctx {
   lever: LeverMode;
   /** Speed over ground [m/s], the heading [rad] and the CG velocities the bridge estimates: ahead u, sideways v [m/s], yaw rate r [rad/s]. */
   sog: number; psi: number; u: number; v: number; r: number;
+  /** Her position as the bridge sensors give it (north, east) [m]. */
+  pos: { n: number; e: number };
   /** Sideways speed at the bow and at the stern [m/s], + to starboard: the HUD's FWD and AFT. */
   bow: number; stern: number;
   /** True wind speed [m/s]. */
@@ -59,7 +61,7 @@ export function guideCtx(rt: Runtime, berth: BerthTarget | null = null, quay: Qu
   }
   return {
     t: st.t, spec, fam: familyOf(spec), lever: rt.lever,
-    sog: out.sog, psi: est.psi, u: est.u, v: est.v, r: est.r,
+    sog: out.sog, psi: est.psi, u: est.u, v: est.v, r: est.r, pos: { n: est.n, e: est.e },
     bow: est.v + est.r * (spec.L * 0.42 - spec.xg),
     stern: est.v + est.r * (-spec.L * 0.42 - spec.xg),
     wind: out.windTrueSpeed,

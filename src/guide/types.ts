@@ -77,6 +77,8 @@ export interface Procedure {
   title: string;
   brief: string;
   steps: Step[];
+  /** The drill needs her under way at least this fast [kn]; it will not start below it. */
+  minKn?: number;
   real: Claim[];
   sim?: string;
   proof: string;
@@ -92,13 +94,23 @@ export interface Exercise {
   brief: string;
   scenario: string;
   ship: string;
+  /** Her speed at the start [kn], instead of the scenario's own. */
+  kn?: number;
   env?: { windKn?: number; windFrom?: number; curKn?: number; curSet?: number };
   objectives: string[];
+  /** Measuring starts with the exercise, or with the first order the player gives; the run ends when she has stopped or has landed. */
+  begin: 'start' | 'order';
+  end: 'stopped' | 'landed';
+  /** Give up after this many simulated seconds. */
+  limit: number;
   /** Ids of the debrief metrics (exercises.ts). */
   metrics: string[];
   real: Claim[];
   review: Review;
 }
+
+/** One line of a debrief: what the player did, and what to set it beside. */
+export interface Row { label: string; you: string; ref?: string }
 
 export interface Content { cards: Card[]; procedures: Procedure[]; exercises: Exercise[] }
 

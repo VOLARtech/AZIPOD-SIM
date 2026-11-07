@@ -49,9 +49,9 @@ much of it has been read against the claims that cite it; it is updated as the c
 
 | id | Source | Kind | Used for | Checked |
 |---|---|---|---|---|
-| `nowicki-2014` | Nowicki (2014), *Stopping of Ships Equipped with Azipods*, TransNav 8(3) | paper | the six stopping methods (model of a ~150 000 m³ LNG carrier with two pulling azipods) and the *Elation* sea trial | not yet cited |
-| `striga-impa` | Striga, *AZIPODS memento for the pilots' use*, IMPA | guidance | pod handling cautions: lever orientation, opposite-order lockout, a little astern to slow, berth-side pod | not yet cited |
-| `abb-azipod-co` | ABB, *Azipod CO product introduction* | manual | how the pod works, operating principles | not yet cited |
+| `nowicki-2014` | Nowicki (2014), *Stopping of Ships Equipped with Azipods*, TransNav 8(3) | paper | the six stopping methods (model of a ~150 000 m³ LNG carrier with two pulling azipods) and the *Elation* sea trial | full text read (Nov 2026); numbers match `PUBLISHED` in `validation.ts` |
+| `striga-impa` | Striga, *AZIPODS memento for the pilots' use*, IMPA | guidance | pod handling cautions: lever orientation, opposite-order lockout, a little astern to slow, berth-side pod | full text read (Nov 2026) |
+| `abb-azipod-co` | ABB, *Azipod CO product introduction* | manual | how the pod works, operating principles | read for the pulling-propeller and steering-convention passages (Nov 2026) |
 | `azipilot-2011` | AZIPILOT project, Deliverable 3.10 (2011) | guidance | what training for azimuth control must cover | not yet cited |
 | `brolsma-1977` | Brolsma, Hirs and Langeveld (1977), PIANC congress | paper | berthing-speed curves (`berths.approachSpeed`) | not yet cited |
 | `pianc-wg33` | PIANC (2002), WG33 fender guidelines | standard | berthing energy and velocities | not yet cited |

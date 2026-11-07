@@ -1,6 +1,6 @@
 // Azipod ships: the twin-pod ships and the icebreaker's three pods. Statements about the real world are in
 // `real`, each with its sources; `sim` says what this simulator's model does. See docs/TRAINING.md.
-import type { Card, Content } from '../types';
+import type { Card, Content, Exercise, Procedure } from '../types';
 
 /** The twin-pod ships with a bow thruster (the icebreaker has three pods and none). */
 const TWIN = ['becancour', 'lady', 'spirit', 'paspaley-pearl'];
@@ -130,4 +130,66 @@ const CARDS: Card[] = [
   },
 ];
 
-export const AZIPOD: Content = { cards: CARDS, procedures: [], exercises: [] };
+const PROCEDURES: Procedure[] = [
+  {
+    id: 'pod-stop-turn-round', track: 'azipod', fam: ['pod'], ships: TWIN, review: 'draft', minKn: 4,
+    title: 'Crash stop: turn the pods round',
+    brief: 'Stop a twin-pod ship by turning both pods round through 180° and giving full rpm.',
+    steps: [
+      { id: 'note', text: 'Note your heading and check the water ahead. Model tests of a twin-pod ship needed {pub.swing180} to {pub.reverse} ship lengths.', check: 'ack' },
+      { id: 'swing', text: 'Swing both pods round together: set the dial to astern (180°).', check: 'pods-ordered-round' },
+      { id: 'ease', text: 'Ease the rpm while they swing across the flow: blade loads are worst about 60 to 70° to it.', check: 'rpm-eased' },
+      { id: 'up', text: 'With the pods round, bring the rpm back up to take the way off.', check: 'rpm-up-round' },
+      { id: 'straight', text: 'Watch your heading and trim the pods to keep her straight until she stops.', check: 'stopped' },
+      { id: 'clear', text: 'Stopped: rpm to zero and the pods back ahead.', check: 'pods-idle' },
+    ],
+    real: [
+      { text: 'Turning the pods around is more effective than reversing the propellers on a twin-pod ship, but not for single-pod ships. Blade loading is the drawback, worst with a pod about 60 to 70° from the ship\'s velocity, and reducing the thrust while the pods turn may diminish it. In the model test of this method the rpm was reduced while the pods turned and returned afterwards: {pub.swing180} L from about 12 kn.', src: ['nowicki-2014'], conf: 'measured' },
+      { text: 'In a crash stop it is better to rotate the handle 180° and give the maximum rpm than to order directly astern, where the maximum is lower.', src: ['striga-impa'], conf: 'published' },
+      { text: 'A manual stop wanders: small asymmetries in pod angle or timing give a large deviation from a straight track.', src: ['nowicki-2014'], conf: 'measured' },
+    ],
+    sim: 'In this model the 180° turn is the shortest of the stops that use the pods\' power, and the pods take {slew180} s to swing round.',
+    proof: 'pod-stop-turn-round',
+  },
+  {
+    id: 'pod-stop-reverse', track: 'azipod', fam: ['pod'], ships: TWIN, review: 'draft', minKn: 4,
+    title: 'Crash stop: reverse the propellers',
+    brief: 'Stop by reversing both propellers once the rpm is below {rev} %: above it a reverse order is ignored.',
+    steps: [
+      { id: 'note', text: 'Note your heading and check the water ahead. Model tests of a twin-pod ship needed {pub.swing180} to {pub.reverse} ship lengths.', check: 'ack' },
+      { id: 'down', text: 'Bring both rpm down below {rev} %: the controller ignores a reverse order above it.', check: 'rpm-below-limit' },
+      { id: 'astern', text: 'Then order full astern, up to {astern} % of the ahead maximum.', check: 'astern-ordered' },
+      { id: 'straight', text: 'Watch your heading and trim the pods to keep her straight until she stops.', check: 'stopped' },
+      { id: 'clear', text: 'Stopped: rpm to zero.', check: 'pods-idle' },
+    ],
+    real: [
+      { text: 'When the pod speed is over 50 rpm (of a 180 rpm maximum), an order in the opposite sense is treated as a mistake and the pod keeps its speed and direction of pull. The handler must bring the rpm under 50 before ordering astern.', src: ['striga-impa'], conf: 'published' },
+      { text: 'Reversing the propellers (astern rpm as ahead) took {pub.reverse} L from about 12 kn in the model tests, against {pub.swing180} L for turning the pods round. Reversing the electric drive takes about 60 s.', src: ['nowicki-2014'], conf: 'measured' },
+    ],
+    sim: 'Ordered at once from speed, an astern order is ignored here and she runs on. Staged as above she stops, in more ship lengths than by the 180° turn.',
+    proof: 'pod-stop-reverse',
+  },
+];
+
+const EXERCISES: Exercise[] = [
+  {
+    id: 'ex-pod-stop', track: 'azipod', fam: ['pod'], review: 'draft',
+    title: 'Crash stop from speed',
+    brief: 'Take the way off a Spirit-class ship in open water by any method, and compare it with the model tests.',
+    scenario: 'trials', ship: 'spirit', kn: 12, begin: 'order', end: 'stopped', limit: 600,
+    objectives: ['Stop her from speed in open water, by any method.', 'Keep her as straight as you can.'],
+    metrics: ['reach', 'time', 'heading', 'offtrack'],
+    real: [{ text: 'Model tests of a twin-pod LNG carrier from about 12 kn gave track reaches of {pub.swing180} to {pub.reverse} L for the powered methods.', src: ['nowicki-2014'], conf: 'measured' }],
+  },
+  {
+    id: 'ex-pod-alongside', track: 'azipod', fam: ['pod'], review: 'draft',
+    title: 'Alongside at Quai 27',
+    brief: 'Bring a Spirit-class ship alongside the main quay in the wind, and land her gently.',
+    scenario: 'quai27', ship: 'spirit', begin: 'start', end: 'landed', limit: 1500,
+    objectives: ['Lie her alongside on the berth mark.', 'Keep both ends under the closing-speed guideline.', 'Land gently on the fenders.'],
+    metrics: ['landing', 'fender', 'closing', 'time'],
+    real: [{ text: 'From 47 observed VLCC berthings: the approach speed (in cm/s) is conveniently half of the distance (in m) between the ship and the berth.', src: ['ishihata-1988'], conf: 'measured' }],
+  },
+];
+
+export const AZIPOD: Content = { cards: CARDS, procedures: PROCEDURES, exercises: EXERCISES };
