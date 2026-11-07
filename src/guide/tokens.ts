@@ -1,10 +1,14 @@
 // Numbers in guide text are {tokens}, so every figure shown is the ship's own particular or a published
 // figure and cannot drift from the model. fill() resolves them for one ship.
-import { DEG } from '../physics/consts';
+import { DEG, KN } from '../physics/consts';
+import { thrusterEff } from '../physics/sim';
+import { AIR_BRAKE_N, CAMSHAFT_T } from '../physics/units/shaft';
 import { PUBLISHED } from '../physics/validation';
 import type { ShipSpec } from '../physics/ship';
 
 const num = (x: number, d = 0) => String(+x.toFixed(d));
+/** The speed [kn] at which the cards say what a tunnel thruster still gives (the model tests found about half by 3 to 4 kn). */
+const THR_KN = 4;
 
 /** Particulars of the ship in use. */
 const SPEC: Record<string, (s: ShipSpec) => string> = {
@@ -27,6 +31,14 @@ const SPEC: Record<string, (s: ShipSpec) => string> = {
   /** Bollard thrust of the bow thruster and of one pod [t]. */
   btT: s => num(s.bowThruster.Tmax / 9.81e3),
   podT: s => num(s.pods[0].Tb / 9.81e3),
+  /** How far a waterjet's steering nozzle turns the jet either way [°]. */
+  nozzle: s => num((s.pods.find(p => p.jet)?.jet?.nozzleMax ?? 0) / DEG),
+  /** Direct-reversing engines: the shaft speed an astern start waits for [% of MCR rpm] and the camshaft change-over [s]. */
+  brakeN: () => num(AIR_BRAKE_N * 100),
+  camshaft: s => num(s.pods.find(p => p.shaft?.engine.reverseTime !== undefined)?.shaft?.engine.reverseTime ?? CAMSHAFT_T),
+  /** What a tunnel thruster still gives at {thrKn} kn through the water [% of its bollard push]. */
+  thrKn: () => num(THR_KN),
+  thrLeft: () => num(thrusterEff(THR_KN * KN) * 100),
 };
 
 /** Published stopping distances for the Azipod model tests, in ship lengths: {pub.swing180}. */

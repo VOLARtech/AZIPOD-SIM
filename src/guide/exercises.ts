@@ -7,7 +7,9 @@ import type { Runtime } from '../physics/runtime';
 import { wrapAngle } from '../physics/ship';
 import { PUBLISHED } from '../physics/validation';
 import { TUG_FADE } from '../physics/mooring';
+import { AIR_BRAKE_N } from '../physics/units/shaft';
 import { guideSpeed } from './align';
+import { wayOff } from './context';
 import type { Ctx } from './context';
 import type { Exercise, Row } from './types';
 
@@ -137,6 +139,59 @@ Object.assign(METRICS, {
   },
 });
 
+/** Metrics for the specialised-propulsion track. */
+Object.assign(METRICS, {
+  /** Track reach in ship lengths, against the IMO crash-stop criterion. */
+  reachimo: () => {
+    let path = 0;
+    return {
+      update: (c: Ctx, _rt: Runtime, dt: number) => { path += c.sog * dt; },
+      row: (c: Ctx): Row => ({ label: 'Track reach', you: `${(path / c.spec.L).toFixed(1)} L`, ref: 'the IMO criterion is under 15 L in a full astern crash stop; up to 20 L for low-powered large-displacement vessels, with approval (via ABS)' }),
+    };
+  },
+  /** Heading change since the run began, with nothing said about it: a ship with way on that goes astern may sheer off her heading. */
+  turned: (c0: Ctx) => {
+    let d = 0;
+    return {
+      update: (c: Ctx) => { d = wrapAngle(c.psi - c0.psi); },
+      row: (): Row => ({ label: 'Heading change', you: `${d >= 0 ? '+' : '−'}${Math.abs(d / DEG).toFixed(0)}°` }),
+    };
+  },
+  /** How long the engine took to start astern after the first order. */
+  astern: () => {
+    let t = 0, at = NaN;
+    return {
+      update: (c: Ctx, _rt: Runtime, dt: number) => { t += dt; if (Number.isNaN(at) && c.units.some(u => u.rpm < -0.02)) at = t; },
+      row: (): Row => ({ label: 'Shaft turning astern after', you: Number.isNaN(at) ? 'not yet' : `${Math.round(at)} s`, ref: `brake air is given once the rpm is below 40 % of MCR (marinesite.info); in the model the astern start waits for the shaft to fall to ${Math.round(AIR_BRAKE_N * 100)} %` }),
+    };
+  },
+  /** The furthest she strayed from her DP set point in auto position: as the console showed it, and in truth (references drifting together fool the console, not the ship). */
+  dperr: () => {
+    let shown = 0, truth = 0;
+    return {
+      update: (c: Ctx, rt: Runtime) => {
+        if (c.dp?.mode !== 'auto' || !rt.dps) return;
+        shown = Math.max(shown, c.dp.err);
+        truth = Math.max(truth, Math.hypot(rt.state.n - rt.dps.sp.n, rt.state.e - rt.dps.sp.e));
+      },
+      row: (): Row => ({ label: 'Furthest off her set point', you: `${truth.toFixed(1)} m in truth, ${shown.toFixed(1)} m on the console`, ref: 'the console follows the voted references, so a drift they share does not show on it' }),
+    };
+  },
+  /** The hardest any thruster was worked. */
+  dputil: () => {
+    let worst = 0;
+    return { update: (c: Ctx) => { if (c.dp?.mode === 'auto') worst = Math.max(worst, c.dp.util); }, row: (): Row => ({ label: 'Thruster use, at most', you: `${(worst * 100).toFixed(0)} %`, ref: 'a class 2 ship is meant to keep enough in hand that losing one unit does not lose her position' }) };
+  },
+  /** How long the demand was beyond what the thrusters could give. */
+  dplimit: () => {
+    let secs = 0;
+    return {
+      update: (c: Ctx, _rt: Runtime, dt: number) => { if (c.dp?.mode === 'auto' && c.dp.limit) secs += dt; },
+      row: (): Row => ({ label: 'Beyond her thrusters for', you: `${Math.round(secs)} s`, ref: 'a class 2 system is meant to survive any single fault in an active component (IMO MSC/Circ.645, as summarised by Wikipedia)' }),
+    };
+  },
+});
+
 /** A run of an exercise: measures from the start or the first order, and says when it is over. */
 export class ExRun {
   started: boolean;
@@ -172,7 +227,7 @@ export class ExRun {
     }
     for (const a of this.accs) a.update(c, rt, dt);
     const t = c.t - this.t0;
-    if (this.ex.end === 'stopped' && t > 10 && c.sog < 0.5 * KN) this.finished = true;
+    if (this.ex.end === 'stopped' && t > 10 && wayOff(c)) this.finished = true;
     if (this.ex.end === 'landed') {
       if (Number.isNaN(this.landedAt) && rt.contactLog.some(e => e.t >= this.t0)) this.landedAt = c.t;
       if (!Number.isNaN(this.landedAt) && c.t - this.landedAt > 8) this.finished = true;      // let her settle on the fenders

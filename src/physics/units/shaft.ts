@@ -158,6 +158,11 @@ export function initEngine(e: EngineSpec, running: number): EngineState {
 }
 export const qMcr = (e: EngineSpec) => e.P / (2 * Math.PI * e.n);
 
+/** Direct-reversing engines: shaft speed (fraction of MCR rpm) at or below which starting air can brake a turning shaft, so a start the other way waits for it. */
+export const AIR_BRAKE_N = 0.4;
+/** Seconds the camshaft takes to change over before a start the other way, when the engine spec does not say. */
+export const CAMSHAFT_T = 20;
+
 /** Highest torque the fuel limiters allow at shaft speed fraction |n| (scavenge-air limiter at low rpm). */
 function torqueCap(e: EngineSpec, nf: number) {
   if (e.type === 'electric') return 1.15;                     // motors give full torque from standstill
@@ -226,9 +231,9 @@ export function stepEngine(e: EngineSpec, es: EngineState, rpm: number, demand: 
         if (es.mode === 'wait' && es.t < 4) break;            // after a failed start: purge, re-try
         // starting air can brake a windmilling shaft from about 40 % of MCR rpm (it windmills at 30–35 % at full
         // manoeuvring speed, so a crash stop is not held up until the ship has slowed)
-        if (Math.abs(n) > 0.4 && Math.sign(n) !== ord) { es.msg = 'WAITING · SHAFT TOO FAST'; break; }
+        if (Math.abs(n) > AIR_BRAKE_N && Math.sign(n) !== ord) { es.msg = 'WAITING · SHAFT TOO FAST'; break; }
         // reversing: the camshaft (fuel pumps, starting-air distributor) is shifted before the start the other way
-        if (es.dir !== 0 && ord !== es.dir && es.t < (e.reverseTime ?? 20)) { es.msg = 'REVERSING · CAMSHAFT'; break; }
+        if (es.dir !== 0 && ord !== es.dir && es.t < (e.reverseTime ?? CAMSHAFT_T)) { es.msg = 'REVERSING · CAMSHAFT'; break; }
         if (es.tries >= 3) { es.msg = 'START BLOCKED · 3 FAILED'; break; }
         if (es.air < air.pMin) { es.msg = 'NO STARTING AIR'; break; }
         es.mode = 'start'; es.t = 0; es.dir = ord; es.tries++; es.starts++;

@@ -71,7 +71,7 @@ export function lintContent(c: Content, env: LintEnv): string[] {
     if (!TRACKS.includes(it.track as never)) bad(it.id, `unknown track "${it.track}"`);
     if (!it.fam.length) bad(it.id, 'no propulsion family');
     for (const f of it.fam) if (!FAMS.includes(f as never)) bad(it.id, `unknown family "${f}"`);
-    for (const f of it.fam) if (FAMS.includes(f as never) && it.track !== 'tugs' && trackOf(f as never) !== it.track) bad(it.id, `family "${f}" is not in the ${it.track} track`);     // any ship can be given tugs
+    for (const f of it.fam) if (FAMS.includes(f as never) && it.track === 'azipod' && trackOf(f as never) !== 'azipod') bad(it.id, `family "${f}" is not an Azipod family`);     // tugs and thrusters concern every ship
     for (const s of it.ships ?? []) {
       const sp = env.ships[s];
       if (!sp) bad(it.id, `unknown ship "${s}"`);

@@ -4,6 +4,7 @@
 import { DEG, KN } from '../physics/consts';
 import { buildHull, setHull } from '../physics/contact';
 import { DT, Runtime } from '../physics/runtime';
+import { engines, fullAstern, primeRunning } from '../physics/pilot';
 import { SHIP, setShip } from '../physics/ship';
 import type { ShipSpec } from '../physics/ship';
 import { makeState } from '../physics/sim';
@@ -59,4 +60,71 @@ export function scriptedStop(spec: ShipSpec, method: StopMethod, frac = 0.65, li
   } finally {
     setShip(prev.id); setHull(buildHull(prev.L, prev.B, prev.xg, prev.LOA));
   }
+}
+
+/** Runs `fn` with `spec` as the ship in use (the hull for contact is global), and puts the previous ship back. */
+export function withShip<T>(spec: ShipSpec, fn: () => T): T {
+  const prev = SHIP;
+  setShip(spec.id); setHull(buildHull(spec.L, spec.B, spec.xg, spec.LOA));
+  try { return fn(); } finally { setShip(prev.id); setHull(buildHull(prev.L, prev.B, prev.xg, prev.LOA)); }
+}
+
+export interface AsternRun {
+  /** Her speed when astern was ordered [kn]. */
+  kn0: number;
+  /** Track reach in ship lengths until her ahead speed changes sign (the IMO definition), and the time [s]. */
+  reach: number; time: number;
+  /** When the engine started astern [s after the order] and the shaft speed it started at (fraction of full rpm). */
+  startAt: number; startShaft: number;
+  /** The engine room's messages, in order, with repeats removed. */
+  msgs: string[];
+  stopped: boolean;
+}
+
+/** A direct-reversing ship running at engine order `order` (1 is navigation full), ordered full astern on the telegraph. */
+export function scriptedCrashAstern(spec: ShipSpec, limit = 2400, order = 1): AsternRun {
+  return withShip(spec, () => {
+    const kn0 = 0.97 * order * spec.vmaxKn;
+    const st = makeState(spec, 0, 0, 0, kn0);
+    primeRunning(spec, st, order);
+    const cmd = { pods: spec.pods.map(() => ({ alpha: 0, rpm: 0 })), bt: 0 };
+    engines(spec, cmd, order);
+    const rt = new Runtime(spec, st, cmd, calm, OPEN);
+    for (let t = 0; t < 5; t += DT) rt.step(DT);
+    engines(spec, cmd, fullAstern(spec));
+    const msgs: string[] = [];
+    let path = 0, pn = st.n, pe = st.e, t = 0, startAt = NaN, startShaft = NaN;
+    for (; t < limit; t += DT) {
+      rt.step(DT);
+      path += Math.hypot(st.n - pn, st.e - pe); pn = st.n; pe = st.e;
+      const m = rt.status.msg[0] ?? '';
+      if (m && msgs[msgs.length - 1] !== m) msgs.push(m);
+      if (Number.isNaN(startAt) && m === 'STARTING ASTERN') { startAt = t; startShaft = st.pods[0].rpm; }
+      if (st.u <= 0) break;
+    }
+    return { kn0, reach: path / spec.L, time: t, startAt, startShaft, msgs, stopped: st.u <= 0 };
+  });
+}
+
+export interface JetRun { kn0: number; reach: number; time: number; heading: number; stopped: boolean }
+
+/** A waterjet ship under way, stopped with the buckets down and the throttle up, or left to coast on the engines idling. */
+export function scriptedJetStop(spec: ShipSpec, mode: 'buckets' | 'coast', frac = 0.7, limit = 600): JetRun {
+  return withShip(spec, () => {
+    const kn0 = frac * spec.vmaxKn;
+    const st = makeState(spec, 0, 0, 0, kn0);
+    primeRunning(spec, st, frac);
+    const cmd = { pods: spec.pods.map(() => ({ alpha: 0, rpm: 0, bucket: 1 })), bt: 0 };
+    engines(spec, cmd, frac);
+    const rt = new Runtime(spec, st, cmd, calm, OPEN);
+    for (let t = 0; t < 5; t += DT) rt.step(DT);
+    if (mode === 'buckets') engines(spec, cmd, fullAstern(spec)); else cmd.pods.forEach(p => { p.rpm = 0; p.bucket = 1; });
+    let path = 0, pn = st.n, pe = st.e, t = 0;
+    for (; t < limit; t += DT) {
+      rt.step(DT);
+      path += Math.hypot(st.n - pn, st.e - pe); pn = st.n; pe = st.e;
+      if (Math.hypot(st.u, st.v) < 0.5 * KN) break;
+    }
+    return { kn0, reach: path / spec.L, time: t, heading: st.psi / DEG, stopped: Math.hypot(st.u, st.v) < 0.5 * KN };
+  });
 }

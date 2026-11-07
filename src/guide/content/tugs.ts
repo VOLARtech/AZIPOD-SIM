@@ -2,7 +2,7 @@
 // the own ship (ASD, Voith tractor, rotor tug), with the escort and the girting hazard.
 // Statements about the real world are in `real`, each with its sources; `sim` says what this simulator's
 // model does. See docs/TRAINING.md.
-import type { Card, Content, Exercise, Fam } from '../types';
+import type { Card, Content, Exercise, Fam, Procedure } from '../types';
 
 const OWN: Fam[] = ['asd', 'vsp', 'rotor'];
 const ALL: Fam[] = ['pod', 'twostroke', 'cpp', 'jet', 'dp', ...OWN];
@@ -105,6 +105,42 @@ const CARDS: Card[] = [
   },
 ];
 
+const PROCEDURES: Procedure[] = [
+  {
+    id: 'tug-assist', track: 'tugs', fam: ALL, review: 'draft',
+    title: 'Work two assist tugs',
+    brief: 'Slow her first, order each tug by place, action and power, and bring them back to stop before she lands.',
+    steps: [
+      { id: 'slow', text: 'Slow her before you call the tugs: they have little grip on a ship that is still making way.', check: 'slow-for-tugs' },
+      { id: 'order', text: 'Order each tug by place, action and power: "Tug forward, push, half".', check: 'tugs-ordered' },
+      { id: 'watch', text: 'Watch the FWD and AFT closing speeds on the quay lines and trim the tugs to keep her parallel.', check: 'ack' },
+      { id: 'ease', text: 'As she closes the quay, bring the tugs back to STOP: they take time to come off.', check: 'tugs-stopped' },
+    ],
+    real: [
+      { text: 'Each order is preceded by the tug\'s position: Tug Forward or Tug Aft for two tugs, numbered from forward to aft for three or more. PUSH and LIFT OFF (pull) act at 90° to the ship\'s fore-and-aft line unless the pilot asks for another angle.', src: ['flinders-tug-orders'], conf: 'published' },
+      { text: 'Tugs made fast alongside are most effective at minimal speed, and in strong tide much of a tug\'s power goes on holding position.', src: ['mhpa-towage-2021'], conf: 'published' },
+    ],
+    sim: 'In the model two tugs on one side push or pull across the beam, keep less of their pull as she speeds up and none above about six knots, and take about twenty seconds to build or shed it. With VECTORS on, the sliders show the orders that would close the gap at the guideline speed.',
+    proof: 'tug-assist',
+  },
+  {
+    id: 'tug-release', track: 'tugs', fam: OWN, review: 'draft',
+    title: 'Release the line before she girts',
+    brief: 'If the line pulls her across and heels her toward the deck edge, release the towline at once.',
+    steps: [
+      { id: 'watch', text: 'Watch the heel gauge and the lead of the line: a line pulling across the tug heels it toward the deck edge.', check: 'ack' },
+      { id: 'danger', text: 'The heel is building with the line fast and pulling across: this is the girting danger.', check: 'girting-risk' },
+      { id: 'release', text: 'Release the towline now: RELEASE lets the line go.', check: 'line-released' },
+      { id: 'upright', text: 'Let her come upright before you take a line again: hold the drives steady until the heel is back down.', check: 'upright' },
+    ],
+    real: [
+      { text: 'Girting happens when a towline comes at a right angle to the tug and the force is strong enough to overcome the tug\'s righting ability: the tug is pulled through the water by its tow, up to deck-edge immersion, flooding and capsize. Where girting is suspected or about to happen the towline must be released immediately.', src: ['mhpa-towage-2021'], conf: 'published' },
+    ],
+    sim: 'In the escort scenario a tug left alone is snatched over by the line a few minutes in. Released at the first warning, the heel peaks well under the deck edge and she is upright within half a minute; held, the heel reaches the deck edge.',
+    proof: 'tug-release',
+  },
+];
+
 const EXERCISES: Exercise[] = [
   {
     id: 'ex-tug-escort', track: 'tugs', fam: OWN, review: 'draft',
@@ -131,4 +167,4 @@ const EXERCISES: Exercise[] = [
   },
 ];
 
-export const TUGS: Content = { cards: CARDS, procedures: [], exercises: EXERCISES };
+export const TUGS: Content = { cards: CARDS, procedures: PROCEDURES, exercises: EXERCISES };

@@ -91,14 +91,25 @@ export const SOURCES: Source[] = [
     url: 'https://hamiltonjet.com/assets/main/hj-series-brochure-eng-2014.pdf',
   },
   {
-    id: 'man-reversing', short: 'MAN B&W reversing (web)', kind: 'web',
-    cite: 'MAN B&W two-stroke reversing (marinediesels.info)',
-    url: 'https://www.marinediesels.info/2_stroke_engine_parts/Other_info/MANB&W_reversing.htm',
-  },
-  {
     id: 'marinesite-crash', short: 'Crash manoeuvring (web)', kind: 'web',
     cite: 'Crash manoeuvring, crash stop of the main engine (marinesite.info)',
     url: 'https://www.marinesite.info/2019/07/crash-manouvering-crash-stop-main-engine.html',
+  },
+
+  {
+    id: 'kijima-1975', short: 'Kijima & Inoue 1975', kind: 'paper',
+    cite: 'Kijima, K. and Inoue, S. (1975), Influence of forward speed on the manoeuvrability of a ship with a side thruster, West Japan Society of Naval Architects, paper 50 (abstract read)',
+    url: 'https://trid.trb.org/View/159173',
+  },
+  {
+    id: 'fujino-1978', short: 'Fujino et al. 1978', kind: 'paper',
+    cite: 'Fujino, M., Saruta, T. and Ida, T. (1978), Experimental studies on the effectiveness of the side thruster, Journal of the Kansai Society of Naval Architects 168, p. 35 (abstract read)',
+    url: 'https://trid.trb.org/View/85435',
+  },
+  {
+    id: 'wikipedia-dp', short: 'Wikipedia: DP', kind: 'web',
+    cite: 'Dynamic positioning, Wikipedia: its summary of the IMO MSC/Circ.645 equipment classes (the IMO text itself has not been read)',
+    url: 'https://en.wikipedia.org/wiki/Dynamic_positioning',
   },
 
   // ---- Standards

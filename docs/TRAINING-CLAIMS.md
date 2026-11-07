@@ -3,7 +3,7 @@
 Generated from `src/guide/content` by `npm run guide:dossier`. Do not edit by hand: `npm test` fails when it is out of date.
 The sources are listed in [TRAINING.md](TRAINING.md). Numbers written as `{token}` are filled in from the ship's own particulars or a published figure.
 
-**19 cards · 2 procedures · 4 exercises · 25 draft · 0 reviewed**
+**27 cards · 6 procedures · 7 exercises · 40 draft · 0 reviewed**
 
 ## Azipod ships
 
@@ -275,6 +275,33 @@ Applies to: vsp
   - `published` It can work in direct and indirect modes and so assist a ship over a wide range of speeds; the fin improves its indirect capability at lower speeds. — *jurgens-voith*
 - **In SHIPSHAPE:** The pad sets each unit's direction of thrust and how much of it.
 
+### `tug-assist` · Work two assist tugs · procedure · draft
+
+Applies to: pod, twostroke, cpp, jet, dp, asd, vsp, rotor · proof `tug-assist`
+
+- **Brief:** Slow her first, order each tug by place, action and power, and bring them back to stop before she lands.
+  1. Slow her before you call the tugs: they have little grip on a ship that is still making way. (check `slow-for-tugs`)
+  2. Order each tug by place, action and power: "Tug forward, push, half". (check `tugs-ordered`)
+  3. Watch the FWD and AFT closing speeds on the quay lines and trim the tugs to keep her parallel. (check `ack`)
+  4. As she closes the quay, bring the tugs back to STOP: they take time to come off. (check `tugs-stopped`)
+- **Real world:**
+  - `published` Each order is preceded by the tug's position: Tug Forward or Tug Aft for two tugs, numbered from forward to aft for three or more. PUSH and LIFT OFF (pull) act at 90° to the ship's fore-and-aft line unless the pilot asks for another angle. — *flinders-tug-orders*
+  - `published` Tugs made fast alongside are most effective at minimal speed, and in strong tide much of a tug's power goes on holding position. — *mhpa-towage-2021*
+- **In SHIPSHAPE:** In the model two tugs on one side push or pull across the beam, keep less of their pull as she speeds up and none above about six knots, and take about twenty seconds to build or shed it. With VECTORS on, the sliders show the orders that would close the gap at the guideline speed.
+
+### `tug-release` · Release the line before she girts · procedure · draft
+
+Applies to: asd, vsp, rotor · proof `tug-release`
+
+- **Brief:** If the line pulls her across and heels her toward the deck edge, release the towline at once.
+  1. Watch the heel gauge and the lead of the line: a line pulling across the tug heels it toward the deck edge. (check `ack`)
+  2. The heel is building with the line fast and pulling across: this is the girting danger. (check `girting-risk`)
+  3. Release the towline now: RELEASE lets the line go. (check `line-released`)
+  4. Let her come upright before you take a line again: hold the drives steady until the heel is back down. (check `upright`)
+- **Real world:**
+  - `published` Girting happens when a towline comes at a right angle to the tug and the force is strong enough to overcome the tug's righting ability: the tug is pulled through the water by its tow, up to deck-edge immersion, flooding and capsize. Where girting is suspected or about to happen the towline must be released immediately. — *mhpa-towage-2021*
+- **In SHIPSHAPE:** In the escort scenario a tug left alone is snatched over by the line a few minutes in. Released at the first warning, the heel peaks well under the deck edge and she is upright within half a minute; held, the heel reaches the deck edge.
+
 ### `ex-tug-escort` · Escort a laden VLCC · exercise · draft
 
 asd-tug in `escort` · measured from the start for 420 s
@@ -303,7 +330,165 @@ spirit in `quai27` · measured from the start until she has landed, at most 1500
 
 ## Specialised propulsion
 
-Nothing shipped yet.
+### `thruster-speed` · Thrusters fade as she moves · draft
+
+Applies to: pod, twostroke, cpp, jet, dp (becancour, lady, spirit, kcs, ulcv, lng, ropax, cruise-shaft, hsc-cat, psv, ahts, push-convoy, superyacht, paspaley-pearl, cb-baltic, cb-baltic-ballast)
+
+- **Brief:** A bow thruster is for low speed: under way it loses about half its push.
+- **Why:** The oncoming flow bends the thruster's jet, which changes the side force and the yawing moment on the hull.
+- **Real world:**
+  - `measured` Model tests: the effectiveness of a side thruster diminishes with forward speed. Side force fell to about 50 % as speed rose from zero to about 3 or 4 kn, and above that stayed almost constant or improved a little. — *kijima-1975*
+  - `measured` The authors name the bending and diffusion of the jet by the oncoming flow as the most important factor, and suggest that a reduced-pressure region between the hull and the jet ceases to exist at about 3 or 4 kn. — *kijima-1975*
+- **In SHIPSHAPE:** At {thrKn} kn the model leaves a tunnel thruster {thrLeft} % of its push, and about half at any higher speed. The joystick and DP allocators plan with the same fall-off.
+
+### `thruster-stern` · Stern thrusters fade less than bow thrusters · draft
+
+Applies to: cpp, dp (ropax, cruise-shaft, ahts, superyacht)
+
+- **Brief:** Model tests found a stern thruster loses less under way than a bow thruster, and in shallow water can gain.
+- **Why:** Speed affects a stern thruster differently from a bow thruster; the authors explain the shallow-water rise by an analogy with jet-flap wings.
+- **Real world:**
+  - `measured` Model tests of a twin-screw ocean ferry (bow and stern thrusters) and of a tanker (stern thruster only): ship speed has a large influence on stern-thruster performance, very different from its influence on the bow thruster. — *fujino-1978*
+  - `measured` In deep water the forces from the stern thruster do not decrease as much as those from the bow thruster. In shallow water its lateral force increases with ship speed and may amount to several times the force at zero speed. — *fujino-1978*
+- **In SHIPSHAPE:** The model gives the stern thruster the same fall-off as the bow thruster, so it does not show this difference.
+
+### `imo-trials` · The IMO limits behind the Sea trials table · draft
+
+Applies to: pod, asd, vsp, rotor, twostroke, cpp, jet, dp
+
+- **Brief:** The Sea trials table grades her against the IMO limits for turning, course changing and stopping.
+- **Why:** Turning circle, zig-zag and crash stop each test one thing: how she turns, how she checks a swing, how she answers the helm and how she stops.
+- **Real world:**
+  - `published` From the IMO standards (MSC.137(76)), as summarised by ABS: tactical diameter under 5 ship lengths and advance under 4.5 in the turning circle; a first overshoot in the 10/10 zig-zag within a limit that depends on length over speed, and under 25° in the 20/20. — *imo-msc137*
+  - `published` The same standards: under 2.5 ship lengths travelled before a 10° change of heading, and track reach under 15 ship lengths in a full astern crash stop (20 for large, low-powered vessels). — *imo-msc137*
+  - `published` The standards apply to vessels with all types of steering and propulsion devices of 100 m in length and over, and to chemical and gas carriers regardless of length. They do not apply to high-speed craft as defined in the relevant Code. — *imo-msc137*
+  - `published` IMO A.601(15) recommends manoeuvring information on board as a pilot card (filled in by the master for the pilot on boarding), a wheelhouse poster (permanently displayed; performance may differ with environment, hull and loading) and a manoeuvring booklet. — *imo-a601*
+- **In SHIPSHAPE:** The Sea trials section of the menu runs these tests on the ship in use and marks each against its limit. A ship the standards do not cover is shown the figures for comparison, not graded. The Pilot card · wheelhouse poster section is computed from this model.
+
+### `jet-controls` · Waterjet: nozzle steers, bucket brakes · draft
+
+Applies to: jet
+
+- **Brief:** Steering and ahead-or-astern are separate controls: she can be turned without moving along.
+- **Why:** The nozzle turns the jet and the reverse deflector (the bucket) sets ahead, zero or astern; neither changes the engine's direction.
+- **Real world:**
+  - `published` Waterjet thrust does not depend on boat speed: it is set by the input power and the astern deflector position and is there even at zero speed. So the boat can be turned without moving ahead or astern, and moving the reverse deflector slightly either side of the zero-speed position gives very fine ahead or astern control with full steering. — *hamiltonjet-hj*
+  - `published` No change of engine rotation is needed to go astern: from full forward to full reverse thrust the reverse duct only moves from fully up to fully down. Steering and ahead-astern are separate and have independent effects, so they can be combined for complex manoeuvres without complex control inputs. — *hamiltonjet-hj*
+- **In SHIPSHAPE:** In the model the bucket goes from ahead through zero thrust to astern, the nozzle turns the jet up to {nozzle}° either way, and the impeller always turns the same way.
+
+### `jet-astern` · Waterjet astern: smooth, but weaker than ahead · draft
+
+Applies to: jet
+
+- **Brief:** The bucket gives a smooth, powerful stop, but astern thrust is only part of ahead thrust.
+- **Why:** The reversed flow is vectored away from the intake, so astern thrust holds up at high throttle, though it is less than ahead.
+- **Real world:**
+  - `published` The split-duct reverse deflector gives astern thrust equivalent to up to 60 % of ahead thrust, maintainable up to high throttle settings; vectoring the astern thrust away from the jet intake avoids recirculation. — *hamiltonjet-hj*
+  - `published` The shift from full ahead to full astern is smooth as the deflector is lowered through the jetstream, eliminating the delay or shock loading normally associated with propeller and gearbox drives, and gives a powerful braking function for emergencies. — *hamiltonjet-hj*
+- **In SHIPSHAPE:** For the same engine power the model's full-astern bucket gives about six-tenths of the ahead thrust. With the buckets down she stops within a couple of ship lengths; with the buckets up and the engines idling she coasts for minutes.
+
+### `jet-sideways` · Several jets can walk her sideways · draft
+
+Applies to: jet
+
+- **Brief:** With two or more jets, the right mix of nozzle and bucket pushes her sideways without a thruster.
+- **Why:** At the zero-speed bucket position the ahead and astern thrusts balance, so thrust vectoring alone can move her sideways.
+- **Real world:**
+  - `published` Sideways thrust is possible with two or more jets (with split-duct reverse deflectors) without the need for a bow thruster. At the intermediate zero-speed deflector position ahead and astern thrusts are equalised to hold the craft on station, with steering still available for rotational control. — *hamiltonjet-hj*
+  - `published` Infinitely variable adjustment either side of the zero-speed position lets the craft be crept ahead or astern, and in multiple-jet installations appropriate thrust vectoring alone can be used to induce true sideways movement. — *hamiltonjet-hj*
+- **In SHIPSHAPE:** The fast ferry's joystick works this way: it sets the nozzles and buckets for the sideways force, takes the turning moment out with the bow thruster and by running the port and starboard jets differentially, and scales the demand down when it is beyond the jets.
+
+### `ts-reverse` · Crash astern: wait for the shaft to slow · draft
+
+Applies to: twostroke · tip when `astern-waiting` (hold 3 s, cool 120 s, priority 2)
+
+- **Brief:** A direct-reversing engine can only start astern once the shaft has slowed: order astern early.
+- **Why:** Stopping the fuel leaves the propeller turning the engine. Starting air then brakes the shaft and, at zero rpm, the astern start is given.
+- **Real world:**
+  - `rule` Crash manoeuvring turns the main engine the other way to take the ship's way off. Tell the engine room and change the controls over to the engine room; give astern on the telegraph and have it acknowledged (the starting-air cam comes round astern only after that). — *marinesite-crash*
+  - `rule` Once the rpm drops below 40 % of MCR, give brake air in the astern direction, a few times in a short time. When the rpm is zero the fuel cam comes round astern; give the start kick with the fuel lever at minimum. — *marinesite-crash*
+  - `rule` Putting the telegraph from full ahead to stop does not stop the engine at once: the load programme brings the rpm down over time. — *marinesite-crash*
+  - `published` In a full astern crash stop the track reach (measured along the path) should generally not exceed 15 ship lengths. For low-powered large-displacement vessels this may be modified, but in no case should exceed 20 ship lengths, subject to special consideration and approval. — *imo-msc137*
+- **In SHIPSHAPE:** The model cuts the fuel the moment you order stop or astern (no load programme), waits until the shaft is down to {brakeN} % of full rpm, then starts on air; the {camshaft} s camshaft change runs during the wait. The console reads REVERSING, WAITING · SHAFT TOO FAST, STARTING ASTERN.
+
+### `dp-classes` · DP equipment classes 1, 2 and 3 · draft
+
+Applies to: dp
+
+- **Brief:** Class 1 can lose position on one fault; class 2 should not; class 3 also survives fire or flood.
+- **Why:** Class 2 has redundancy so no single fault in an active system fails the system; class 3 also withstands fire or flood in any one compartment.
+- **Real world:**
+  - `rule` The DP equipment classes the classification societies use are based on IMO MSC/Circ.645 (1994). Class 1 has no redundancy: loss of position may occur on a single fault. — *wikipedia-dp*
+  - `rule` Class 2 has redundancy so that no single fault in an active system will cause the system to fail: loss of position should not occur from a single fault of an active component such as a generator, thruster or switchboard, but may after failure of a static component such as a cable or pipe. — *wikipedia-dp*
+  - `rule` Class 3 also has to withstand fire or flood in any one compartment without the system failing: loss of position should not occur from any single failure, including a completely burnt fire subdivision or flooded watertight compartment. — *wikipedia-dp*
+  - `rule` For classes 2 and 3 a consequence analysis should be built into the system to help the operator judge whether enough generators and thrusters are online for the failure of one not to mean a loss of position. If a fault takes away that redundancy and cannot be resolved at once, the operation should be abandoned as quickly as possible. — *wikipedia-dp*
+- **In SHIPSHAPE:** The supply vessel and the anchor-handling tug are DP2 ships. The console's consequence line names a unit whose loss the present demand would not survive; its Instructor row trips a unit, blacks out the board or drifts a reference; the capability plot shows what she can hold intact and with the worst failure.
+
+### `ts-crash-astern` · Crash astern: direct-reversing engine · procedure · draft
+
+Applies to: twostroke · proof `ts-crash-astern` · needs 4 kn
+
+- **Brief:** Take the way off by reversing the engine: order astern, wait for the shaft to slow, let it start on air.
+  1. Note your heading and check the water ahead: a big ship takes many lengths to stop. (check `ack`)
+  2. Order full astern on the telegraph. (check `telegraph-astern`)
+  3. Wait: with way on, the engine will not start astern until the shaft has slowed. (check `engine-waiting`)
+  4. Watch the engine start on air astern; the START AIR row counts the starts left. (check `astern-started`)
+  5. Steer with the rudder while she slows, and watch the heading, until the way is off her. (check `stopped`)
+  6. Way off her: telegraph to STOP. (check `pods-idle`)
+- **Real world:**
+  - `rule` Crash manoeuvring: astern on the telegraph, acknowledged by the engine room; brake air in the astern direction once the rpm is below 40 % of MCR; the start kick at zero rpm. The IMO criterion for the track reach is under 15 ship lengths. — *marinesite-crash, imo-msc137*
+- **In SHIPSHAPE:** In the model every direct-reversing ship starts astern once the shaft is down to the same share of full rpm, after a wait that depends on her speed and on how fast the propeller slows, and stops inside the IMO limit.
+
+### `jet-stop` · Stop a waterjet ship with the buckets · procedure · draft
+
+Applies to: jet · proof `jet-stop` · needs 6 kn
+
+- **Brief:** Take the way off with the buckets down and the throttle up, then hold her on the zero-thrust bucket.
+  1. Note your heading and check the water ahead. (check `ack`)
+  2. Drop the buckets: the engines keep turning the same way, the deflector does the reversing. (check `buckets-down`)
+  3. Raise the throttle for astern thrust, which is less than ahead thrust. (check `astern-throttle`)
+  4. Use the nozzles to hold her heading while she slows: steering works at every bucket position. (check `ack`)
+  5. Wait until she has stopped. (check `stopped`)
+  6. Bring the buckets to their zero-thrust position, which holds her on station, and ease the throttle. (check `bucket-zero`)
+- **Real world:**
+  - `published` Reverse thrust needs no change of engine rotation: the reverse duct moves from fully up to fully down. Astern thrust is up to 60 % of ahead thrust and the smooth shift gives a powerful braking function for emergencies. At the zero-speed position the thrusts balance and the craft holds station; independent steering is available at every position. — *hamiltonjet-hj*
+- **In SHIPSHAPE:** In the model the stop is quick and straight: buckets down and throttle up take the way off within a couple of ship lengths, where with the buckets up and the engines idling she would coast on for minutes.
+
+### `ex-ts-crash` · Crash stop the VLCC · exercise · draft
+
+kvlcc2 in `trials` at 14 kn · measured from the first order until she has stopped, at most 1500 s
+
+- **Brief:** Take the way off a laden VLCC from sea speed by reversing the engine, then compare with the IMO limit.
+  - Order full astern from sea speed in open water.
+  - Watch the engine room messages: it starts astern only once the shaft has slowed.
+  - Steer with the rudder while she slows, and watch the heading.
+- **Debrief:** reachimo, astern, time, turned
+- **Real world:**
+  - `published` In a full astern crash stop the track reach (measured along the path) should generally not exceed 15 ship lengths. For low-powered large-displacement vessels this may be modified, but in no case should exceed 20 ship lengths, subject to special consideration and approval. — *imo-msc137*
+
+### `ex-jet-quay` · Fast ferry alongside · exercise · draft
+
+hsc-cat in `hsc` · measured from the start until she has landed, at most 1200 s
+
+- **Brief:** Bring the fast ferry in from sea and berth her on the jets, creeping in on the buckets.
+  - Come off the power in time to be inside the harbour speed limit at the breakwater.
+  - Berth port side to on the ferry quay with the buckets and nozzles, or the joystick.
+  - Land gently on the fenders.
+- **Debrief:** landing, fender, closing, time
+- **Real world:**
+  - `published` Infinitely variable adjustment either side of the zero-speed deflector position lets the craft be crept ahead or astern, and in multiple-jet installations appropriate thrust vectoring alone can be used to induce true sideways movement. — *hamiltonjet-hj*
+
+### `ex-dp-hold` · Hold position on DP through a fault · exercise · draft
+
+psv in `dp` · measured from the start for 600 s
+
+- **Brief:** Hold the supply vessel on her set point while a unit trips and the references drift.
+  - Take her in on the joystick, then select auto position off the platform.
+  - Watch the consequence line and the capability plot when the first unit trips.
+  - Notice when both DGNSS references drift together, and decide which reference to trust.
+- **Debrief:** dperr, dputil, dplimit
+- **Real world:**
+  - `rule` Class 2 has redundancy so that no single fault in an active system will cause the system to fail: loss of position should not occur from a single fault of an active component such as a generator, thruster or switchboard. — *wikipedia-dp*
 
 ## Sources cited
 
@@ -319,3 +504,10 @@ Nothing shipped yet.
 - `maib-ijsselstroom` MAIB, Girting and capsize of tug IJsselstroom in Peterhead Bay, Scotland (accident report) <https://www.gov.uk/maib-reports/girting-and-capsize-of-tug-ijsselstroom-in-peterhead-bay-scotland>
 - `mgn468-annex2` MCA, MGN 468 (M) Amendment 1, Voluntary Towage Endorsement Scheme, Annex 2: competence standards for ship-assist towage endorsement <https://gov.uk/government/publications/mgn-468-amendment-1-m-voluntary-towage-endorsement-scheme/annex-2-competence-standards-for-ship-assist-towage-endorsement>
 - `jurgens-voith` Jürgens, D. and Palm, M., Voith Water Tractor: improved manoeuvrability and seakeeping behaviour <https://towmasters.wordpress.com/wp-content/uploads/2009/06/voithwatertractor.pdf>
+- `hamiltonjet-hj` HamiltonJet (2014), HJ Series waterjets brochure <https://hamiltonjet.com/assets/main/hj-series-brochure-eng-2014.pdf>
+- `marinesite-crash` Crash manoeuvring, crash stop of the main engine (marinesite.info) <https://www.marinesite.info/2019/07/crash-manouvering-crash-stop-main-engine.html>
+- `kijima-1975` Kijima, K. and Inoue, S. (1975), Influence of forward speed on the manoeuvrability of a ship with a side thruster, West Japan Society of Naval Architects, paper 50 (abstract read) <https://trid.trb.org/View/159173>
+- `fujino-1978` Fujino, M., Saruta, T. and Ida, T. (1978), Experimental studies on the effectiveness of the side thruster, Journal of the Kansai Society of Naval Architects 168, p. 35 (abstract read) <https://trid.trb.org/View/85435>
+- `wikipedia-dp` Dynamic positioning, Wikipedia: its summary of the IMO MSC/Circ.645 equipment classes (the IMO text itself has not been read) <https://en.wikipedia.org/wiki/Dynamic_positioning>
+- `imo-a601` IMO Resolution A.601(15), Provision and display of manoeuvring information on board ships <https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/AssemblyDocuments/A.601(15).pdf>
+- `imo-msc137` IMO MSC.137(76), Standards for ship manoeuvrability, as summarised in the ABS Guide for Vessel Maneuverability <https://ww2.eagle.org/content/dam/eagle/rules-and-guides/current/conventional_ocean_service/145_vesselmaneuverability/Vessel_Maneuverability_Guide_e-Feb17.pdf>

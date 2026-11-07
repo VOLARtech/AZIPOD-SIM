@@ -1,7 +1,7 @@
 // What the coach is allowed to know: the ship, her speed and attitude as the bridge sensors give them,
 // the propulsion units as the dials show them, and where she is against the berth being made for.
 // Pure: built from a Runtime, so the tests read it headless and the guide never knows more than the bridge.
-import { DEG } from '../physics/consts';
+import { DEG, KN } from '../physics/consts';
 import { deckEdge } from '../physics/roll';
 import { wrapAngle } from '../physics/ship';
 import type { ShipSpec } from '../physics/ship';
@@ -37,7 +37,7 @@ export interface Ctx {
   /** Water under the keel [m]. */
   ukc: number;
   /** The units as the dials show them: actual and ordered azimuth [rad] and rpm (−1..1). */
-  units: { alpha: number; rpm: number; cmdAlpha: number; cmdRpm: number }[];
+  units: { alpha: number; rpm: number; cmdAlpha: number; cmdRpm: number; bucket?: number; cmdBucket?: number }[];
   /** A reverse order the control system is ignoring because the rpm is still too high, per unit. */
   revBlocked: boolean[];
   /** The switchboard is too short for what the pods and thrusters were asked for (not the berthing split). */
@@ -45,6 +45,10 @@ export interface Ctx {
   /** Against the berth being made for: metres past it (+) or short (−), off its line (+ to starboard), heading error [rad], range [m]. */
   berth: null | { name: string; id?: string; along: number; off: number; dpsi: number; dist: number };
   quay: QuayRead[];
+  /** What the engine room says about each unit, for ships with a shaft: STOP, WAITING · SHAFT TOO FAST, REVERSING · CAMSHAFT, STARTING ASTERN… */
+  engine: string[];
+  /** The DP system, for DP ships: the mode, how far she is off her set point [m], the most any thruster is used (0..1), whether the demand is beyond what the thrusters can give, and the worst single failure the demand would not survive. */
+  dp: null | { mode: string; err: number; util: number; limit: boolean; consequence: string };
   /** Heel [rad] and the deck-edge immersion angle [rad], for ships that have roll data. */
   heel: null | { phi: number; edge: number };
   /** The line of an escorting tug: tension and breaking load [N], whether it is let go or has parted, and the escorted ship's heading error [rad]. */
@@ -52,6 +56,9 @@ export interface Ctx {
   /** The assist tugs on call: order (−1 pull … +1 push), force across the beam [N, + to starboard], bollard pull [N], the side they work on, and where they are made fast (m ahead of the CG). */
   tugs: { name: string; order: number; F: number; Fmax: number; side: 1 | -1; x: number }[];
 }
+
+/** The way is off her: her speed over ground, or her speed ahead (the IMO crash-stop definition: she may still be sheering or drifting), is under half a knot. */
+export const wayOff = (c: Pick<Ctx, 'sog' | 'u'>) => c.sog < 0.5 * KN || Math.abs(c.u) < 0.5 * KN;
 
 export function guideCtx(rt: Runtime, berth: BerthTarget | null = null, quay: QuayPoint[] = []): Ctx {
   const spec = rt.spec, out = rt.sensors.out, est = out.est, st = rt.state;
@@ -73,10 +80,12 @@ export function guideCtx(rt: Runtime, berth: BerthTarget | null = null, quay: Qu
     stern: est.v + est.r * (-spec.L * 0.42 - spec.xg),
     wind: out.windTrueSpeed,
     ukc: rt.ukc,
-    units: st.pods.map((p, i) => ({ alpha: p.alpha, rpm: p.rpm, cmdAlpha: rt.cmd.pods[i]?.alpha ?? 0, cmdRpm: rt.cmd.pods[i]?.rpm ?? 0 })),
+    units: st.pods.map((p, i) => ({ alpha: p.alpha, rpm: p.rpm, cmdAlpha: rt.cmd.pods[i]?.alpha ?? 0, cmdRpm: rt.cmd.pods[i]?.rpm ?? 0, bucket: p.bucket, cmdBucket: rt.cmd.pods[i]?.bucket })),
     revBlocked: rt.status.revBlocked.slice(),
     powerLimited: rt.status.rpmLimit.some((l, i) => l < 0.999 && !rt.status.split[i]),
     berth: b,
+    engine: rt.status.msg.slice(),
+    dp: rt.dps ? { mode: rt.dps.mode, err: Math.hypot(rt.dps.pos.n - rt.dps.sp.n, rt.dps.pos.e - rt.dps.sp.e), util: Math.max(0, ...(rt.dps.last?.util ?? [0])), limit: !!rt.dps.last && rt.dps.last.residual > 0.05, consequence: rt.dps.consequence } : null,
     heel: rt.roll ? { phi: rt.roll.phi, edge: deckEdge(spec) } : null,
     tow: rt.escort ? { T: rt.escort.line.T, mbl: rt.escort.line.MBL, released: rt.escort.line.mode === 'released', parted: rt.escort.line.parted, dev: wrapAngle(rt.escort.st.psi - rt.escort.ordered) } : null,
     tugs: rt.tugs.map(t => ({ name: t.name, order: t.order, F: t.F, Fmax: t.Fmax, side: t.side, x: t.x })),
